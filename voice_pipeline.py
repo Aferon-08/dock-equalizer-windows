@@ -132,12 +132,14 @@ def analyze(audio, document, progress=None, budget_seconds=1350, progress_detail
         engine.get_aligner()
         observations = []
         windows = 0
+        covered_until = 0.
         # Overlapping windows cover every part, including omitted intro vocals.
         # Only their central ownership intervals commit words, avoiding duplicates.
         for start in np.arange(0., document['duration'], 6.):
             if time.monotonic() >= deadline: break
             end = min(document['duration'], start + 8.)
             if end-start < 1.: break
+            covered_until = end
             mix = samples[round(start*24000):round(end*24000)]
             if float(np.mean(mix**2)) < 1e-7:
                 tick('voice_transcribing', .55+.42*min(1,end/document['duration']))
@@ -232,8 +234,10 @@ def analyze(audio, document, progress=None, budget_seconds=1350, progress_detail
         document=recover(audio,document,document.get('_sourceLyrics',''),vocal=vocal,
             progress=lambda p,f:tick(p,.985+f*.01))
         document=restore_backgrounds(document,document.get('_sourceLyrics',''))
-        document.setdefault('voiceEvidence',{}).update(independentTextLines=added, detectedUnisons=unisons, transcribedWindows=windows,
+        voice_evidence = document.setdefault('voiceEvidence',{})
+        voice_evidence.update(independentTextLines=added, detectedUnisons=unisons, transcribedWindows=windows,
             unisonPolicy="provider or stable distinct identities with matching text and word timing",
-            budgetLimited=time.monotonic()>=deadline, fullScan=bool(windows and end>=document['duration']-1),
+            budgetLimited=bool(voice_evidence.get('budgetLimited') or covered_until < document['duration'] - 1),
+            fullScan=covered_until >= document['duration']-1,
             textModel='Whisper base; independent per-source recognition', revision=REVISION)
     return finalise(document)

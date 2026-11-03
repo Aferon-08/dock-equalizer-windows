@@ -79,7 +79,7 @@ Item {
  }
  IpcHandler {
   target:"docksettings-"+root.screenName
-  function status():string{return JSON.stringify({mode:root.mode,phase:root.phase,phoneReady:phoneImage.status===Image.Ready,backgroundWindows:underlay.windows.length,pose:root.pose})}
+  function status():string{return JSON.stringify({mode:root.mode,phase:root.phase,phoneReady:phoneImage.status===Image.Ready,backgroundWindows:underlay.windows.length,capture:underlay.status(),pose:root.pose})}
   function snapshot(path:string):void{root.grabToImage(r=>r.saveToFile(path))}
  }
  Item {

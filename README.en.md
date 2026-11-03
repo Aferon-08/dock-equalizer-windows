@@ -44,7 +44,7 @@ Voice analysis is **experimental**: a dense mix or missing parallel text can pre
 
 ## Install this preview
 
-See [NATIVE-INTEGRATION.md](docs/NATIVE-INTEGRATION.md). The plugin is now pure native surface components; no shell-file patching or install hook. It requires the proposed shell extension API. Old install.py/--repair instructions apply only to tag v2.22.0.
+See [NATIVE-INTEGRATION.md](docs/NATIVE-INTEGRATION.md). The plugin is now pure native surface components; no shell-file patching or install hook. It requires the proposed shell extension API. Old install.py/--repair instructions apply only to the [stable v2 branch](https://github.com/Aferon-08/sekaipop-dock-equalizer/blob/main/docs/INSTALL.md).
 
 ## Use and data
 

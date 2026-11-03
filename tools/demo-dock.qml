@@ -6,13 +6,9 @@ import ".." as Plugin
 ShellRoot {
     id: test
     settings.watchFiles: false
-    property int failures: 0
     property real elapsed: 0
     property var spectrum: Array.from({length:64},(_,i)=>100)
-    property int frame: 0
-    property string output: Quickshell.env("DEMO_OUT")
-    property bool saving: false
-    function check(ok, name) { console.log((ok ? "PASS " : "FAIL ") + name); if (!ok) ++failures }
+    DemoRecorder { id: recorder; scene: win.contentItem }
     QtObject {
         id: demoPlayer
         property bool lengthSupported: true
@@ -82,6 +78,11 @@ ShellRoot {
         visible: true
         width: 1100; height: 360; minimumWidth:1100; maximumWidth:1100; minimumHeight:360; maximumHeight:360; flags:Qt.Tool|Qt.FramelessWindowHint; color: "#29383e"
         Rectangle {anchors.fill:parent;color:"#29383e"}
+        Repeater { model: 16; Rectangle {
+            required property int index
+            x: index * 69; width: 34; height: win.height
+            color: index % 2 ? "#32546c" : "#407069"; opacity: .7
+        } }
         Plugin.DockWings { id: wings; anchors.fill: parent; host: demoHost }
         Item {
             id: pill
@@ -100,13 +101,15 @@ ShellRoot {
             }
         }
     }
-    Timer { interval: 50; running:true; repeat:true; onTriggered: {
+    Timer { interval: 50; running:!recorder.finishing; repeat:true; onTriggered: {
         test.elapsed+=.05
         demoMedia.playing=test.elapsed>1 && !(test.elapsed>15 && test.elapsed<18)
         demoHost.dock.desktopEmpty=test.elapsed>5
         if(demoMedia.playing)demoPlayer.position+=.05
         test.spectrum=Array.from({length:64},(_,i)=>Math.round(70+180*Math.pow((1+Math.sin(i*.41+test.elapsed*5.8))*.5,3)))
-        if(test.elapsed>22)Qt.quit()
-        if(!test.saving){test.saving=true;win.contentItem.grabToImage(r=>{r.saveToFile(test.output+"/"+String(test.frame++).padStart(5,"0")+".png");test.saving=false})}
+        if (test.elapsed > 22) recorder.finish()
+        else recorder.record(wings.lyricsWidthExtra > 50
+            ? (demoMedia.playing ? "expanded" : "paused")
+            : demoMedia.playing && wings.phase > .6 ? "compact" : "idle")
     }}
 }

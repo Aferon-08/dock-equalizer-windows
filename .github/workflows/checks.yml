@@ -19,6 +19,12 @@ jobs:
         run: python -m compileall -q .
       - name: Manifest
         run: python -c "import json; p=json.load(open('plugin.json')); assert p['id']=='dock-equalizer' and p['api']==1"
+      - name: Browser duration recovery
+        run: node tests/duration-cache.mjs
+      - name: Analysis completeness and fingerprint
+        run: |
+          node tests/analysis-policy.mjs
+          python tests/analysis-identity.py
       - name: Worker bundle
         run: python build-pet-worker.py --check
       - name: Tube, independent twins and reunion

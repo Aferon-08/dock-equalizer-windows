@@ -14,6 +14,8 @@ Window {
     property bool fillingLyrics: false
     readonly property var result: store.resultFor(track)
     readonly property bool imported: !!result && (result.status === "ready" || result.status === "partial")
+    readonly property string analysisState: (result && result.analysis && result.analysis.state) || ""
+    readonly property string updateReason: store.analysisUpdateReason(track, lyricsText, true)
     readonly property bool occupied: store.busy || store.generationBusy
     readonly property string notice: store.lastAction.token === store.token(track) ? store.lastAction.message || "" : ""
     readonly property var phases: ({ preparing: "Подготовка", dependencies: "Установка компонентов",
@@ -141,6 +143,7 @@ Window {
                 width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
                 visible: root.imported && !!root.result.analysis
                 text: visible ? "Партии: " + (root.result.voices || []).map(v => v.label).join(" · ")
+                    + (({complete:"\nАнализ завершён",partial:"\nАнализ неполный",review:"\nРезультат требует проверки",failed:"\nЧасть анализа не удалась"})[root.analysisState] || "")
                     + "\nАвтоматическое определение голосов экспериментальное. Безымянные партии обозначены номерами; имена из текста сохраняются."
                     + ((root.result.multivoice || {}).message ? "\n"+root.result.multivoice.message : "") : ""
                 color: root.ink; opacity: .7; font.family: root.fontFamily; font.pixelSize: 12
@@ -172,7 +175,9 @@ Window {
                     color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, area.containsMouse ? .24 : .13)
                     Text {
                         anchors.centerIn: parent
-                        text: button.modelData.action === "setup" && root.store.engineReady ? "Обновить обработчик" : button.modelData.label
+                        text: button.modelData.action === "setup" && root.store.engineReady ? "Обновить обработчик"
+                            : button.modelData.action === "reanalyze" && root.updateReason === "partial" ? "Повторить неполный анализ"
+                            : button.modelData.label
                         color: root.ink
                         font.family: root.fontFamily; font.pixelSize: 14
                     }

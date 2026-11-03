@@ -43,6 +43,9 @@ Item {
     readonly property var wordtimeResult: wordtimeStore ? wordtimeStore.resultFor(wordtimeTrack) : null
     readonly property bool importedTiming: !!wordtimeResult && wordtimeResult.status === "ready"
     readonly property bool hasTimingDocument: importedTiming || (!!wordtimeResult && wordtimeResult.status === "partial")
+    readonly property string analysisUpdateReason: wordtimeStore
+        ? wordtimeStore.analysisUpdateReason(wordtimeTrack, standardLyricsText, rawLyricsCurrent || !lyrics || !lyrics.cacheScript)
+        : ""
     readonly property bool processingForLyrics: !!wordtimeStore && !!wordtimeStore.generationJob
         && wordtimeStore.generationJob.token === wordtimeStore.token(wordtimeTrack)
     readonly property bool recordingForLyrics: !!wordtimeStore
@@ -65,14 +68,28 @@ Item {
     readonly property real duration: reportedDuration || rememberedDuration
         || (youtubeId && host.service && host.service.durationCache ? host.service.durationCache[youtubeId] || 0 : 0)
         || (hasTimingDocument ? wordtimeResult.duration : 0)
-    function refreshDuration() {
+    function refreshDuration(force) {
         if (reportedDuration > 0) rememberedDuration = reportedDuration
-        else if (youtubeId && host.service && typeof host.service.requestYoutubeDuration === "function")
-            host.service.requestYoutubeDuration(youtubeId)
+        if ((force || (!reportedDuration && !rememberedDuration)) && youtubeId && host.service
+            && typeof host.service.requestYoutubeDuration === "function")
+            return host.service.requestYoutubeDuration(youtubeId, force === true)
+        return false
+    }
+    Timer {
+        interval: 5000
+        running: root.wantsMusic && !!root.youtubeId && !root.reportedDuration && !root.rememberedDuration
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.refreshDuration()
     }
     onReportedDurationChanged: refreshDuration()
     onYoutubeIdChanged: refreshDuration()
     onHostChanged: refreshDuration()
+    Connections {
+        target: root.player
+        ignoreUnknownSignals: true
+        function onMetadataChanged() { root.refreshDuration() }
+    }
     readonly property bool sameTrack: !!lyrics && !!media && lyrics.lastArgs
         && lyrics.lastArgs[0] === media.artist && lyrics.lastArgs[1] === media.title
     property string rawLyricsText: ""
@@ -171,13 +188,22 @@ Item {
     property bool dismissedUntilPlay: false
     readonly property bool wantsMusic: host.working && !!player && !!media && !!media.title
         && !dismissedUntilPlay && host.settings.lyrics !== false && !host.dock.vertical && !host.dock.editing
-    readonly property string emptyLabel: sameTrack && lyrics
-        && (lyrics.status === "none" || lyrics.status === "instrumental") ? "Инструментальная"
-        : sameTrack && lyrics && lyrics.status === "offline" ? "Лирика недоступна" : "Поиск лирики…"
+    readonly property bool analysisRequested: !!wordtimeStore
+        && !!wordtimeStore.analysisRequests[wordtimeStore.token(wordtimeTrack)]
+    readonly property string emptyState: processingForLyrics ? "processing"
+        : analysisRequested ? "pending" : !lyrics ? "unavailable" : !sameTrack ? "loading"
+        : lyrics.status === "instrumental" ? "instrumental"
+        : lyrics.status === "offline" ? "offline"
+        : lyrics.status === "none" || lyrics.status === "ready" ? "missing" : "loading"
+    readonly property string emptyLabel: ({
+        processing: "Обработка лирики…", pending: "Ожидается обработка",
+        unavailable: "Источник лирики недоступен", instrumental: "Инструментальная",
+        offline: "Нет связи с источником лирики", missing: "Лирика не найдена", loading: "Поиск лирики…"
+    })[emptyState]
     readonly property bool wide: wantsMusic && host.settings.expandLyrics !== false && !!host.dock.desktopEmpty
     readonly property string mode: !wantsMusic ? "icons" : host.dock.hovered ? (wide ? "icons+controls" : "icons")
-        : wide ? (available ? "lyrics-expanded" : "instrumental-expanded")
-            : (available ? "lyrics-compact" : "instrumental-compact")
+        : wide ? (available ? "lyrics-expanded" : emptyState + "-expanded")
+            : (available ? "lyrics-compact" : emptyState + "-compact")
     function report() {
         if (typeof host.reportSurface === "function")
             host.reportSurface({ mode: mode, desktopEmpty: !!host.dock.desktopEmpty,
@@ -185,6 +211,8 @@ Item {
     }
     onModeChanged: report()
     onLinesChanged: report()
+    onEmptyLabelChanged: report()
+    Component.onDestruction: if (host && typeof host.reportSurface === "function") host.reportSurface(null)
     property real wideReveal: 0
     property bool ready: false
     readonly property real layout: Math.max(0, Math.min(1.08, wideReveal))
@@ -373,6 +401,9 @@ Item {
                 bare: root.dock.bare, color: String(root.colors.ink), accent: String(root.colors.accent), visible: root.visible,
                 box: [root.x, root.y, root.width, root.height], dock: [root.dock.x, root.dock.y, root.dock.width, root.dock.height] })
         }
+        function retryDuration(): string {
+            return root.refreshDuration(true) ? "Проверяем длительность YouTube." : "Нет запроса или проверка уже выполняется."
+        }
         function importWordtime(file: string): string {
             return root.importWordtime(file) ? "Проверяем JSON для текущего трека." : "Нет выбранного трека или обработчик недоступен."
         }
@@ -384,7 +415,7 @@ Item {
             return JSON.stringify({ status: result.status, message: result.message || "",
                 words: result.wordCount || 0, review: result.reviewCount || 0,
                 voices: (result.voices || []).map(v => ({id: v.id, label: v.label})),
-                voiceAnalysis: result.multivoice || null, analysisStages: result.analysis || null,
+                voiceAnalysis: result.multivoice || null, analysisStages: result.analysis || null, updateReason: root.analysisUpdateReason,
                 busy: !!root.wordtimeStore && root.wordtimeStore.busy,
                 engineReady: !!root.wordtimeStore && root.wordtimeStore.engineReady,
                 generating: !!root.wordtimeStore && root.wordtimeStore.generationBusy,
@@ -783,16 +814,18 @@ Item {
         anchors.right: lyricGlass.right; anchors.bottom: lyricGlass.bottom
         anchors.rightMargin: 14; anchors.bottomMargin: 12
         width: 14; height: 14
-        opacity: root.wide && !!root.wordtimeStore && !!root.player && !root.hasTimingDocument && !root.processingForLyrics ? Math.min(1, root.layout) * root.musicLayout : 0
+        opacity: root.wide && !!root.wordtimeStore && !!root.player && (!root.hasTimingDocument || root.analysisUpdateReason !== "") && !root.processingForLyrics ? Math.min(1, root.layout) * root.musicLayout : 0
         visible: opacity > 0.001
         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.InOutCubic } }
-        Accessible.name: "Обработать лирику"
+        Accessible.name: root.hasTimingDocument ? "Улучшить анализ лирики" : "Обработать лирику"
         Controls.ToolTip.visible: analysisClick.containsMouse
         readonly property bool requested: !!root.wordtimeStore
             && !!root.wordtimeStore.analysisRequests[root.wordtimeStore.token(root.wordtimeTrack)]
         readonly property bool pulsing: requested && visible && root.playing && root.recordingForLyrics
         Controls.ToolTip.text: requested ? "Обработка запрошена · ожидаем полную запись"
-            : root.recordingForLyrics ? "Запись идёт · нажмите для обработки после прослушивания" : "Обработать лирику"
+            : root.recordingForLyrics ? "Запись идёт · нажмите для обработки после прослушивания"
+            : root.analysisUpdateReason === "partial" ? "Анализ голосов неполный · повторить"
+            : root.hasTimingDocument ? "Улучшить анализ лирики" : "Обработать лирику"
         MouseArea {
             id: analysisClick
             objectName: "lyricsGenerationButton"

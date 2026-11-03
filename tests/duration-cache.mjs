@@ -1,0 +1,22 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+
+const policy = vm.createContext({});
+vm.runInContext(fs.readFileSync(new URL('../DurationCache.js', import.meta.url), 'utf8').replace(/^\.pragma.*$/m, ''), policy);
+const id = 'abc123def45';
+let cache = policy.remember({}, id, 0, 100);
+assert.equal(policy.eligible(cache, id, 101, false), false);
+assert.equal(policy.eligible(cache, id, 101, true), true);
+assert.equal(policy.eligible(cache, id, 100 + policy.failureTtl, false), true);
+cache = policy.remember(cache, id, 231, 16000);
+assert.equal(cache[id].seconds, 231);
+assert.equal(policy.eligible(cache, id, 20000, false), false);
+assert.equal(policy.eligible(cache, id, 16000 + policy.successTtl, false), true);
+cache = policy.remember(cache, id, NaN, 20000);
+assert.equal(cache[id].seconds, 231, 'a failed refresh must not erase a usable duration');
+assert.equal(cache[id].failed, true);
+assert.equal(policy.eligible(cache, 'not a video id', 90000000, true), false);
+for (let i = 0; i < 70; i++) cache = policy.remember(cache, String(i).padStart(11, 'a'), 120, 30000);
+assert.equal(Object.keys(cache).length, 64);
+console.log('PASS positive/negative TTL, manual refresh, retention and cache bound');

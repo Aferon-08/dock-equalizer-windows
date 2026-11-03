@@ -5,8 +5,8 @@ import ".." as Plugin
 import "../WallpaperPet.js" as Pet
 ShellRoot {
  id:demo;settings.watchFiles:false
- property real elapsed:0;property int frame:0;property bool saving:false
- property string output:Quickshell.env("DEMO_OUT")
+ property real elapsed:0
+ DemoRecorder {id:recorder;scene:win.contentItem}
  QtObject {id:palette;property bool dark:true;property color surface:"#16232b";property color accentCyan:"#8bbce1";property color accentMint:"#9bd8bb"}
  Window {id:win;visible:true;width:1280;height:720;minimumWidth:1280;maximumWidth:1280;minimumHeight:720;maximumHeight:720;flags:Qt.Tool|Qt.FramelessWindowHint;color:"black"
   Plugin.ProceduralWallpaper {id:scene;anchors.fill:parent;seed:"living-glass-release";screenName:"showcase";theme:palette
@@ -14,11 +14,12 @@ ShellRoot {
    music:({playing:demo.elapsed>12,beatPulse:Math.max(0,Math.sin(demo.elapsed*6.8)),beatBpm:130,beatConfidence:.9})
   }
  }
- Timer {interval:70;repeat:true;running:true;onTriggered:{
+ Timer {interval:70;repeat:true;running:!recorder.finishing;onTriggered:{
   demo.elapsed+=.07
   if(demo.elapsed>6 && demo.elapsed<6.1)Pet.beginSplit(scene.pet.state,scene.pet.glass)
   if(demo.elapsed>18){palette.accentCyan="#bd9fea";palette.accentMint="#f0aabe"}
-  if(demo.elapsed>26)Qt.quit()
-  if(!demo.saving){demo.saving=true;win.contentItem.grabToImage(r=>{r.saveToFile(demo.output+"/"+String(demo.frame++).padStart(5,"0")+".png");demo.saving=false})}
+  if(demo.elapsed>26)recorder.finish()
+  else recorder.record(scene.intro<.12?"black":scene.entering?"entrance"
+   : palette.accentCyan===Qt.color("#bd9fea")?"recolored":demo.elapsed>12?"music":"settled")
  }}
 }

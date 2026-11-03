@@ -171,7 +171,8 @@ def validate(document, track):
         result['fallbackLines'] = fallback
     if voices:
         result['voices'] = voices
-        metadata = document.get('multivoice', {})
+    metadata = document.get('multivoice')
+    if metadata is not None:
         if not isinstance(metadata, dict) or len(json.dumps(metadata, ensure_ascii=False, allow_nan=False)) > 8192:
             raise ValueError('Некорректные сведения об анализе голосов.')
         result['multivoice'] = metadata
@@ -258,7 +259,9 @@ def run(args):
     document = read_json(source)
     # A lookup revalidates saved files too. Corruption never enters the renderer.
     if args.action == "import":
-        return save_result(document, track)
+        validated = validate(document, info)
+        validated["analysis"] = {**validated.get("analysis", {}), "origin": "import"}
+        return save_result(validated, track)
     return ready_result(validate(document, info))
 
 

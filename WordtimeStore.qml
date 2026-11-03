@@ -14,6 +14,7 @@ QtObject {
     property int epoch: 0
     property bool engineReady: false
     property bool voicesReady: false
+    property var modelSnapshots: ({})
     property var attempted: ({})
     property var requestedRefresh: ({})
     property var generationJob: null
@@ -39,8 +40,10 @@ QtObject {
     readonly property bool generationBusy: !!generationJob
     readonly property bool busy: !!job || queue.length > 0
     function token(track) { return AnalysisPolicy.identity(track) }
-    function needsAnalysis(track, text, stableSource) {
-        return requestedRefresh[token(track)]===true || AnalysisPolicy.needed(resultFor(track), host.settings ? host.settings.multivoice !== false : true, stableSource===false ? null : text, voicesReady)
+    function analysisUpdateReason(track, text, stableSource) {
+        if (requestedRefresh[token(track)] === true) return "requested"
+        return AnalysisPolicy.updateReason(resultFor(track), !host.settings || host.settings.multivoice !== false,
+            stableSource === false ? null : text, voicesReady, modelSnapshots)
     }
     function recordingFor(track) { return recordings[token(track)] || null }
     function requestAnalysis(track, text, reference) {
@@ -193,7 +196,7 @@ QtObject {
                 ++epoch
                 const next = {}; next[current.token] = result; cache = next
             }
-            lastAction = { token: current.token, ok: result.ok,
+            lastAction = { token: current.token, ok: result.ok, state: result.ok ? (result.analysis || {}).state : result.cancelled ? "cancelled" : "failed",
                 message: result.ok ? (((result.analysis || {}).voices === "failed" ? "Голоса: анализ не завершён. "
                     : (result.analysis || {}).voices === "uncertain" ? "Голоса: результат требует проверки. " : "") + "Рассчитано слов: ") + result.wordCount + (result.fallbackLineCount ? ". Построчных фрагментов: " + result.fallbackLineCount : "") + (result.reviewCount
                     ? ". Требуют проверки: " + result.reviewCount + "." : ".") : result.message }
@@ -277,7 +280,7 @@ QtObject {
     property Process engineProbe: Process {
         command: ["python3", root.host.path("wordtime-engine.py"), "probe"]
         stdout: StdioCollector { onStreamFinished: {
-            try { const probe = JSON.parse(text); root.engineReady = probe.ready === true; root.voicesReady = probe.voicesReady === true; Qt.callLater(root.pumpCapture) } catch (_) { root.engineReady = false }
+            try { const probe = JSON.parse(text); root.engineReady = probe.ready === true; root.voicesReady = probe.voicesReady === true; root.modelSnapshots = probe.modelSnapshots || ({}); Qt.callLater(root.pumpCapture) } catch (_) { root.engineReady = false }
         } }
     }
     Component.onCompleted: { cleanup.running = true; engineProbe.running = true }

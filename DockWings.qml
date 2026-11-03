@@ -167,6 +167,7 @@ Item {
             id: dockUnderlay
             anchors.fill: parent
             screenName: root.host.dock.screenName || ""
+            diagnosticTarget: screenName ? "dockcapture-" + screenName : ""
             // mapToGlobal accounts for the native dock's slide/lift and screen.
             readonly property point origin: {
                 const dependency = liquid.x + liquid.y + root.dock.x + root.dock.y

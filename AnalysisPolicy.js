@@ -1,6 +1,6 @@
 .pragma library
 
-var revision = 3
+var revision = 4
 function identity(track) {
     const url = String(track.url || "")
     const spotify = url.match(/(?:spotify:track:|open\.spotify\.com\/(?:intl-[^/]+\/)?track\/)([A-Za-z0-9]{22})/)
@@ -15,13 +15,27 @@ function signature(text) {
     for (let i = 0; i < normalized.length; ++i) hash = Math.imul(hash ^ normalized.charCodeAt(i), 16777619)
     return (hash >>> 0).toString(16)
 }
-function needed(result, multivoice, source, modelsReady) {
-    if (!result || result.status === "error") return false
-    if (result.status === "missing") return true
-    if (!multivoice) return false
-    const a = result.analysis || {}
-    // An uncertain completed attempt is distinct from an unattempted stage.
-    // No automatic retry loop: manual calculation or a new revision can retry.
-    return a.revision !== revision || (source !== null && String(source || "").trim() !== "" && a.sourceSignature !== signature(source))
-        || a.voices === "disabled" || (a.voices === "unavailable" && modelsReady===true)
+function updateReason(result, multivoice, source, modelsReady, modelSnapshots) {
+    if (!result || result.status === "error") return ""
+    if (result.status === "missing") return "missing"
+    const a = result.analysis || {}, voice = result.multivoice || {}
+    if (result.status === "partial" || a.timings === "partial") return "timings"
+    // User-imported documents are authoritative; manual regeneration is still
+    // available from the dialog. A mere review flag is not an incomplete scan.
+    if ((!a.revision || a.origin === "import") && !multivoice) return ""
+    if (a.revision !== revision && a.origin !== "import") return "revision"
+    if (a.origin !== "import" && source && a.sourceSignature !== signature(source)) return "source"
+    const inputs = a.fingerprint || {}
+    const activeSnapshot = (modelSnapshots || {})[multivoice ? "voices" : "timing"]
+    if (a.origin !== "import" && inputs.modelSnapshot && activeSnapshot && inputs.modelSnapshot !== activeSnapshot
+        && (!multivoice || modelsReady)) return "models"
+    if (!multivoice || !modelsReady) return ""
+    if (!a.revision || a.voices === "disabled" || a.voices === "unavailable") return "voices"
+    if (a.state === "failed" || a.voices === "failed") return "failed"
+    if (a.state === "partial" || voice.budgetLimited === true || voice.fullScan === false || a.textScanComplete === false)
+        return "partial"
+    return ""
+}
+function needed(result, multivoice, source, modelsReady, modelSnapshots) {
+    return updateReason(result, multivoice, source, modelsReady, modelSnapshots) !== ""
 }

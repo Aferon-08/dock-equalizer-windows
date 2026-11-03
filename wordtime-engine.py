@@ -17,6 +17,7 @@ import time
 
 import wordtime
 import compute_runtime as compute
+import analysis_identity as identity
 
 REVISION = "6fd129aa4b8295eaf92e61055fcf886bd4f474b1"
 ROOT = wordtime.data_directory().parent
@@ -24,6 +25,13 @@ ENGINE = ROOT / ("extractor-" + REVISION[:8])
 PYTHON = ROOT / "runtime/bin/python"
 MODEL = ROOT / "models/base.pt"
 PROTOCOL = sys.stdout
+VOICE_MODELS = {
+    'whisper-base': MODEL,
+    'unmixx': ROOT / 'unmixx-8e750521/ckpt/best.ckpt',
+    'campplus': ROOT / 'models/campplus-zh-en.onnx',
+    'htdemucs': ROOT / 'models/955717e8-8726e21a.th',
+    'singer-byol': ROOT / 'models/singer-byol.ts',
+}
 
 
 def emit(event):
@@ -36,9 +44,12 @@ def probe():
         ready = config.get("revision") == REVISION and config.get("ready") is True
     except (OSError, ValueError):
         ready = False
-    return {"ready": bool(ready and PYTHON.is_file() and MODEL.is_file()
+    voices_ready = (ROOT / "multivoice-runtime.json").is_file() and all(p.is_file() for p in VOICE_MODELS.values())
+    return {"modelSnapshots": {"timing": identity.model_snapshot({'whisper-base': MODEL}),
+                               "voices": identity.model_snapshot(VOICE_MODELS)},
+        "ready": bool(ready and PYTHON.is_file() and MODEL.is_file()
                            and (ENGINE / "extractor.py").is_file()), "model": "base", "device": compute.status()["device"], "compute": compute.status(),
-        "voicesReady": (ROOT / "multivoice-runtime.json").is_file() and (ROOT / "models/campplus-zh-en.onnx").is_file() and (ROOT / "models/singer-byol.ts").is_file()}
+        "voicesReady": voices_ready}
 
 
 def stop(signum, _frame):
@@ -112,7 +123,12 @@ def generate(request):
         raise ValueError("Текст песни слишком большой (предел — 128 КБ).")
     if not lyrics.strip():
         raise ValueError("Добавьте текст песни или дождитесь найденной лирики.")
-    before = audio.stat()
+    before = identity.file_stamp(audio)
+    multivoice = request.get('multivoice', True) is not False
+    models = VOICE_MODELS if multivoice else {'whisper-base': MODEL}
+    inputs = identity.fingerprint(audio, lyrics, request.get("reference"), models,
+        {"revision": identity.REVISION, "extractor": REVISION, "multivoice": multivoice,
+         "computeMode": request.get("computeMode"), "threads": compute.cpu_threads()})
     from voice_annotations import prepare, apply
     clean_lyrics, voice_plan = prepare(lyrics)
     if not request.get('multivoice', True): voice_plan = None
@@ -147,11 +163,14 @@ def generate(request):
     if cache.is_file():
         existing = wordtime.validate(wordtime.read_json(cache), info)
     source_hash = hashlib.sha256(clean_lyrics.encode()).hexdigest()
-    source_changed = bool(existing and existing.get('analysis',{}).get('sourceHash')
-        and existing['analysis']['sourceHash'] != source_hash)
-    previous_timings = existing
-    if source_changed: existing = None
-    # Voice upgrades preserve known word times instead of rerunning the aligner.
+    prior = (existing or {}).get('analysis', {})
+    previous_inputs = prior.get('fingerprint') or {}
+    # Imported timings are authoritative. Automatically separated words from
+    # an earlier pass must not become the reference for fresh separation.
+    if existing and prior.get('revision') and prior.get('origin') != 'import':
+        same_inputs = previous_inputs.get('key') == inputs['key']
+        if not (same_inputs and not multivoice and prior.get('state') in ('complete', 'review')):
+            existing = None
     if existing:
         document = copy.deepcopy(existing)
     elif request.get("reference"):
@@ -169,19 +188,7 @@ def generate(request):
                 compute.use_cpu('whisper',loaded_model[0],error)
                 document=extract_once()
         finally:stable_whisper.load_model=original_loader
-    if source_changed and previous_timings:
-        def phrase_key(words): return ' '.join(w['word'].strip().casefold() for w in words)
-        old, new = {}, {}
-        for w in previous_timings['words']: old.setdefault(w['line'],[]).append(w)
-        for w in document['words']: new.setdefault(w['line'],[]).append(w)
-        for group in new.values():
-            matches = [g for g in old.values() if len(g)==len(group) and phrase_key(g)==phrase_key(group)
-                and abs(g[0]['start']-group[0]['start'])<2]
-            if matches:
-                observed=min(matches,key=lambda g:abs(g[0]['start']-group[0]['start']))
-                for a,b in zip(group,observed): a['start'],a['end']=b['start'],b['end']
-    after = audio.stat()
-    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+    if before != identity.file_stamp(audio):
         raise ValueError("Аудиофайл изменился во время обработки. Повторите расчёт.")
     if request.get('multivoice', True):
         if not existing and not request.get("reference"): document = apply(document, voice_plan)
@@ -243,10 +250,16 @@ def generate(request):
         previous = wordtime.data_directory() / (key + '.json')
         if previous.is_file() and not wordtime.validate(wordtime.read_json(previous), info).get('fallbackLines'):
             raise ValueError('Новый расчёт неполный; предыдущие точные тайминги сохранены.')
-    from voice_pipeline import finalise, REVISION as ANALYSIS_REVISION
+    from voice_pipeline import finalise
     if request.get('multivoice', True): document = finalise(document)
     evidence = document.get('multivoice', {})
-    document['analysis'] = {'revision': ANALYSIS_REVISION, 'sourceSignature': str(request.get('sourceSignature',''))[:80],
+    if before != identity.file_stamp(audio) or inputs['modelSnapshot'] != identity.model_snapshot(models):
+        raise ValueError("Аудио или модели изменились во время анализа. Предыдущая разметка сохранена.")
+    state = identity.state(document, evidence, multivoice)
+    if state == 'failed' and prior.get('state') in ('complete', 'review'):
+        raise ValueError("Анализ голосов не завершён. Предыдущая разметка сохранена.")
+    document['analysis'] = {'revision': identity.REVISION, 'state': state,
+        'fingerprint': inputs, 'origin': 'generated', 'sourceSignature': str(request.get('sourceSignature',''))[:80],
         'sourceHash': hashlib.sha256(clean_lyrics.encode()).hexdigest(), 'completedAt': int(time.time()),
         'timings': 'partial' if document.get('fallbackLines') else 'ready',
         'voices': evidence.get('status', 'uncertain') if request.get('multivoice',True) else 'disabled',

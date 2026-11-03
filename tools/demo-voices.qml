@@ -4,7 +4,8 @@ import Quickshell
 import ".." as Plugin
 ShellRoot {
  id:demo;settings.watchFiles:false
- property real elapsed:0;property int frame:0;property bool saving:false;property string output:Quickshell.env("DEMO_OUT")
+ property real elapsed:0
+ DemoRecorder {id:recorder;scene:win.contentItem}
  Window {id:win;visible:true;width:1000;height:260;minimumWidth:1000;maximumWidth:1000;minimumHeight:260;maximumHeight:260;flags:Qt.Tool|Qt.FramelessWindowHint
   Rectangle {anchors.fill:parent;color:"#222c36"}
   Text {x:28;y:20;text:"Three voices · one little world";color:"#d6e0e8";font.family:"Noto Sans";font.pixelSize:16}
@@ -20,5 +21,11 @@ ShellRoot {
    ]})
   }
  }
- Timer {interval:50;repeat:true;running:true;onTriggered:{demo.elapsed+=.05;if(demo.elapsed>25)Qt.quit();if(!demo.saving){demo.saving=true;win.contentItem.grabToImage(r=>{r.saveToFile(demo.output+"/"+String(demo.frame++).padStart(5,"0")+".png");demo.saving=false})}}}
+ Timer {interval:50;repeat:true;running:!recorder.finishing;onTriggered:{
+  demo.elapsed+=.05
+  const open=lyric.regions.filter(r=>r.width>100 && r.opacity>.6)
+  if(demo.elapsed>25)recorder.finish()
+  else recorder.record(lyric.finaleMerge>.95?"finale":open.length>1?"split"
+   : open.length===1 && open[0].members.length>1 ? "unison":"solo")
+ }}
 }
