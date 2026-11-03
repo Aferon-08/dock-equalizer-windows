@@ -2,15 +2,20 @@ import QtQuick
 import Quickshell.Io
 import "BeatTracker.js" as BeatTracker
 import "DurationCache.js" as Durations
+import "HostContract.js" as HostContract
 import Quickshell.Services.Mpris
 
 QtObject {
     id: root
     required property var host
     property bool settingsPanelOpen: false
-    readonly property bool nativeIntegration: !!host.capabilities && ["native-dock-v1","native-wallpaper-v1","native-settings-v1"].every(c=>host.capabilities.indexOf(c)>=0)
+    readonly property var integration: HostContract.resolve(host)
+    readonly property bool nativeIntegration: integration.state !== "unsupported"
     function extensionEnabled(slot) {
-        return slot==="wallpaper" ? host.settings.proceduralWallpaper===true && (wallpaperSeed!=="" || wallpaperError==="") : slot==="dock" ? host.settings.enabled!==false : true
+        if (integration.supported[slot] !== true) return false
+        if (slot === "wallpaper") return wallpaperWanted && (wallpaperSeed !== "" || wallpaperError === "")
+        if (slot === "dock") return host.settings.enabled !== false
+        return true
     }
     property Process missingApiNotice:Process {
         command:["notify-send","Dock Equalizer","Нужен SekaiPOP с native extensions API. Файлы оболочки автоматически не изменяются. См. docs/NATIVE-INTEGRATION.md."]
@@ -31,9 +36,9 @@ QtObject {
     property int wallpaperFailures: 0
     property bool wallpaperRefreshing: false
     readonly property bool wallpaperNewRequested: host.settings.wallpaperRegenerate === true
-    readonly property bool wallpaperWanted: host.settings.proceduralWallpaper === true
+    readonly property bool wallpaperWanted: integration.supported.wallpaper && host.settings.proceduralWallpaper === true
     function startWallpaperSeed() {
-        if ((!wallpaperWanted && !wallpaperNewRequested) || wallpaperSeedJob.running || wallpaperDeadline.running
+        if (!integration.supported.wallpaper || (!wallpaperWanted && !wallpaperNewRequested) || wallpaperSeedJob.running || wallpaperDeadline.running
             || (wallpaperSeed && !wallpaperNewRequested)) return
         wallpaperRetry.stop()
         wallpaperCandidate = ""
@@ -168,7 +173,8 @@ QtObject {
     readonly property var playerModel: Mpris.players
     readonly property bool playing: playerModel.values.some(player =>
         player.playbackState === MprisPlaybackState.Playing)
-    readonly property bool wanted: host.working && (host.settings.enabled || (host.settings.proceduralWallpaper === true && host.settings.wallpaperPet !== false)) && playing
+    readonly property bool wanted: host.working && playing && (extensionEnabled("dock")
+        || (extensionEnabled("wallpaper") && host.settings.wallpaperPet !== false))
     readonly property bool running: tap.running
     readonly property bool audible: bands.some(v => v > 5)
 
@@ -188,14 +194,16 @@ QtObject {
     }
 
     function moduleStatus() {
-        const state = nativeIntegration ? "ready" : "unsupported"
         return {
-            host: { state: state, demand: host.working, surfaces: Object.keys(surfaces).length },
+            host: { state: integration.state, api: integration.api, capabilities: integration.supported,
+                missing: integration.missing, paletteLease: integration.paletteLease,
+                demand: host.working, surfaces: Object.keys(surfaces).length },
             audio: { state: tap.state, wanted: wanted, ready: tap.ready, failures: tap.failures,
                 retryInMs: tap.retryIn, reason: tap.error },
             duration: { state: durationJob ? "running" : durationError ? "degraded" : "idle",
                 queued: durationQueue.length, reason: durationError },
-            wallpaper: { state: host.settings.proceduralWallpaper !== true ? "disabled"
+            wallpaper: { state: !integration.supported.wallpaper ? "unsupported"
+                : !wallpaperWanted ? "disabled"
                 : wallpaperRetry.running ? "recovering"
                 : wallpaperSeedJob.running ? (wallpaperError ? "recovering" : "starting")
                 : wallpaperError ? "degraded" : wallpaperSeed ? "running" : "idle",
@@ -214,7 +222,12 @@ QtObject {
             for(const key of Object.keys(root.frameSamples)){const a=root.frameSamples[key].slice(10).sort((x,y)=>x-y);if(a.length)result[key]={frames:a.length,median:a[Math.floor(a.length*.5)],p95:a[Math.floor(a.length*.95)],worst:a[a.length-1]}}
             return JSON.stringify(result)
         }
-        function settingsPanel(show: bool): void {if(root.host.setSettingsOpen)root.host.setSettingsOpen(show);else root.settingsPanelOpen=show}
+        function settingsPanel(show: bool): string {
+            if (show && !root.extensionEnabled("settings")) return "Нужна возможность native-settings-v1."
+            if (typeof root.host.setSettingsOpen === "function") root.host.setSettingsOpen(show)
+            else root.settingsPanelOpen = show
+            return ""
+        }
         function settingsPanelStatus(): string {return JSON.stringify({open:root.host.settingsOpen || root.settingsPanelOpen,count:Object.keys(root.host.settings).length})}
         function status(): string {
             return JSON.stringify({ nativeIntegration:root.nativeIntegration, playing: root.playing, working: root.wanted, running: root.running,

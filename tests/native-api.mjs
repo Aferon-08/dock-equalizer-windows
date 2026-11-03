@@ -22,3 +22,19 @@ assert.deepEqual(run({}),[],'last surface closes: service sleeps');
 assert.deepEqual(run({'widget:eDP-1':true},null),['widget']);
 assert.deepEqual(run({'dock:eDP-1':true},[]),[],'undeclared slot cannot wake a legacy plugin');
 console.log('PASS native dock/wallpaper wake service; legacy widgets and idle lifecycle preserved');
+
+// Core API number cannot substitute for an advertised surface revision.
+const contract = vm.createContext({});
+vm.runInContext(fs.readFileSync(new URL('../HostContract.js', import.meta.url), 'utf8').replace(/^\.pragma.*$/m, ''), contract);
+const noExtensions = contract.resolve({apiVersion:1});
+assert.equal(noExtensions.state, 'unsupported');
+const justDock = contract.resolve({apiVersion:1, capabilities:['native-dock-v1','native-wallpaper-v2']});
+assert.equal(justDock.state, 'degraded');
+assert.equal(justDock.supported.dock, true);
+assert.equal(justDock.supported.wallpaper, false);
+assert.equal(justDock.supported.settings, false);
+assert.deepEqual(Array.from(justDock.missing), ['native-wallpaper-v1','native-settings-v1']);
+assert.equal(contract.resolve({apiVersion:2, capabilities:['native-dock-v1','native-wallpaper-v1','native-settings-v1']}).state, 'ready');
+assert.equal(contract.resolve({capabilities:'native-dock-v1'}).state, 'unsupported');
+assert.equal(contract.resolve({capabilities:['transient-palette-v1']}).paletteLease, true);
+console.log('PASS independent versioned capabilities and optional palette support');

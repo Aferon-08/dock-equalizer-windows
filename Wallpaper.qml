@@ -5,7 +5,7 @@ Item {
  required property var host
  Loader {
   anchors.fill:parent
-  active:!!root.host.service && root.host.service.wallpaperSeed!==""
+  active:!!root.host.service && root.host.service.extensionEnabled("wallpaper") && root.host.service.wallpaperSeed!==""
   sourceComponent:ProceduralWallpaper {
    seed:root.host.service.wallpaperSeed
    screenName:root.host.screenName

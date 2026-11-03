@@ -13,6 +13,7 @@ ShellRoot {
     QtObject {
         id: host
         property var capabilities: ["native-dock-v1", "native-wallpaper-v1", "native-settings-v1"]
+        property int apiVersion: 1
         property bool working: true
         property var settings: ({enabled:true, proceduralWallpaper:true, lyrics:true, autoSpotify:false})
         property var service: pluginService
@@ -114,6 +115,11 @@ ShellRoot {
                     "failed analysis attempt preserves the previous result")) return
                 console.log("PASS duration retried after TTL; wallpaper recovered and kept its seed; lyric states distinct")
                 console.log("PASS partial analysis stays manual and a failed attempt retains timings")
+                host.capabilities = ["native-dock-v1", "native-wallpaper-v2"]
+                if (!root.check(pluginService.extensionEnabled("dock") && !pluginService.extensionEnabled("wallpaper")
+                    && !pluginService.extensionEnabled("settings") && pluginService.integration.state === "degraded"
+                    && lyrics.duration === 231, "optional or newer contracts must not turn off the working dock")) return
+                console.log("PASS available dock survives missing wallpaper and settings capabilities")
                 Qt.quit()
             }
         }

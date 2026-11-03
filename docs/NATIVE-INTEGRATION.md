@@ -40,7 +40,7 @@ git apply /path/to/sekaipop-native-extensions.patch
 qs -c sekaipop ipc call dockequalizer status
 ```
 
-`nativeIntegration: true` подтверждает обнаружение возможностей хоста. Проверьте также статусы `docklyrics-<monitor>` и `proceduralwallpaper-<monitor>`: обнаружение одного манифеста не доказывает успешную отрисовку.
+`nativeIntegration: true` означает, что доступна хотя бы одна штатная поверхность. `modules.host.capabilities` и `missing` показывают каждую возможность отдельно: отсутствие API обоев или настроек не выключает док. Версии поверхностей проверяются по именам capabilities; временная палитра необязательна. Проверьте также статусы `docklyrics-<monitor>` и `proceduralwallpaper-<monitor>`: обнаружение одного манифеста не доказывает успешную отрисовку.
 
 ## Каталог
 

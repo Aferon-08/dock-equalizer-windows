@@ -8,5 +8,5 @@ SettingsPanel {
  phoneRect:host.phoneRect
  screenName:host.screenName
  backgroundRect:host.backgroundRect
- opened:host.opened
+ opened:host.opened && !!host.state?.service && host.state.service.extensionEnabled("settings")
 }

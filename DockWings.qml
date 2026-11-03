@@ -7,6 +7,7 @@ import "DockMaterial.js" as Material
 Item {
     id: root
     required property var host
+    property bool surfaceSupported: true
     readonly property var material: Material.read(host.settings)
     FrameAnimation {running:!!root.host.service && !!root.host.service.profileFrames;onTriggered:root.host.service.collectFrame(root.host.dock.screenName,frameTime)}
     readonly property var dock: host.dock.item
@@ -153,7 +154,7 @@ Item {
     readonly property real iconsOpacity: 1 - lyricLayer.lyricsOpacity
     readonly property real glassAmount: material.enabled ? Math.min(1, Math.max(phase, lyricLayer.musicLayout)) : 0
 
-    visible: host.settings.enabled && fits && !host.dock.asleep
+    visible: surfaceSupported && host.settings.enabled && fits && !host.dock.asleep
 
     Item {
         id: liquid
