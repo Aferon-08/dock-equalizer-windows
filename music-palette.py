@@ -176,7 +176,7 @@ def main():
     mpris = Mpris()
     pool = ThreadPoolExecutor(max_workers=2)
     session = Session(ipc, pool.submit, max(0, min(options.stop_delay, 2000)) / 1000)
-    last_status = ''
+    last_status = None
     last_error = ''
     try:
         while not stopped and os.getppid() == parent:
@@ -184,9 +184,10 @@ def main():
                 playing, url = mpris.read()
                 session.tick(playing, url, time.monotonic())
                 status = ('Цвета обложки активны' if session.active else 'Загрузка обложки…') if playing and url else ('У трека нет обложки' if playing else 'Ожидание музыки — исходная палитра')
-                if status != last_status or last_error:
+                next_status = (session.active, playing, status)
+                if next_status != last_status or last_error:
                     print(json.dumps({"active": session.active, "playing": playing, "message": status}, ensure_ascii=False), flush=True)
-                    last_status = status
+                    last_status = next_status
                 last_error = ''
             except Exception as error:
                 if str(error) != last_error:
