@@ -5,6 +5,7 @@ import Quickshell.Io
 QtObject {
     id: root
     required property var host
+    property var context: null
     property bool supported: false
     readonly property bool enabled: host.settings.musicPalette === true
     readonly property int stopDelay: host.settings.musicPaletteStopDelay ?? 600
@@ -12,16 +13,23 @@ QtObject {
     property bool active: false
     property string message: "Ожидание музыки — исходная палитра"
     property string error: ""
+    property string sourcePlayerId: ""
+    property string sourceTrackId: ""
+    readonly property bool contextMatches: sourcePlayerId===(context?.playerId || "") && sourceTrackId===(context?.trackId || "")
     property int failures: 0
     readonly property string state: !enabled ? "disabled" : !supported ? "unsupported"
-        : retry.running ? "recovering" : error ? "degraded" : active ? "active" : worker.running ? "waiting" : "starting"
+        : retry.running ? "recovering" : error ? "degraded" : !contextMatches ? "syncing" : active ? (context?.playing===false ? "holding" : "active") : worker.running ? "waiting" : "starting"
 
     function start() {
         if (!wanted || worker.running) return
         error = ""
-        worker.command = ["python3", host.path("music-palette.py"), "--stop-delay", String(stopDelay)]
+        worker.command = ["python3", host.path("music-palette.py"), "--stop-delay", String(stopDelay), "--context-stdin"]
         worker.running = true
     }
+    function sendContext() {
+        if(worker.running && worker.processId>0)worker.write(JSON.stringify(context || {playing:false,artUrl:""})+"\n")
+    }
+    onContextChanged: sendContext()
     function reconcile() {
         retry.stop()
         if (wanted) start()
@@ -40,12 +48,16 @@ QtObject {
         onTriggered: root.start()
     }
     property Process worker: Process {
+        stdinEnabled: true
+        onStarted: root.sendContext()
         stdout: SplitParser { onRead: data => {
             try {
                 const result = JSON.parse(data)
                 root.active = result.active === true
+                root.sourcePlayerId = result.playerId || ""
+                root.sourceTrackId = result.trackId || ""
                 root.message = result.message || ""
-                root.error = ""
+                root.error = result.error || ""
                 root.failures = 0
             } catch (_) {}
         } }

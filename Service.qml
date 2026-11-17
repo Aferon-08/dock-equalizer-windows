@@ -3,7 +3,6 @@ import Quickshell.Io
 import "BeatTracker.js" as BeatTracker
 import "DurationCache.js" as Durations
 import "HostContract.js" as HostContract
-import Quickshell.Services.Mpris
 
 QtObject {
     id: root
@@ -93,9 +92,11 @@ QtObject {
         onExited: code => root.finishWallpaperSeed(code)
     }
     property WordtimeStore wordtimes: WordtimeStore { host: root.host }
+    property MediaContext mediaContext: MediaContext {}
     property MusicPalette musicPalette: MusicPalette {
         host: root.host
         supported: root.integration.paletteLease
+        context: root.mediaContext.snapshot
     }
 
     property var beatState: BeatTracker.reset()
@@ -174,9 +175,12 @@ QtObject {
         onExited: root.finishDuration()
     }
     // MPRIS announces state changes. Waiting for music needs no audio tap.
-    readonly property var playerModel: Mpris.players
-    readonly property bool playing: playerModel.values.some(player =>
-        player.playbackState === MprisPlaybackState.Playing)
+    readonly property var playerModel: mediaContext.playerModel
+    readonly property bool playing: mediaContext.playing
+    property Connections contextChanges: Connections {
+        target: root.mediaContext
+        function onTrackIdChanged() {root.bands=[];root.resetRhythm()}
+    }
     readonly property bool wanted: host.working && playing && (extensionEnabled("dock")
         || (extensionEnabled("wallpaper") && host.settings.wallpaperPet !== false))
     readonly property bool running: tap.running
@@ -202,9 +206,15 @@ QtObject {
             host: { state: integration.state, api: integration.api, capabilities: integration.supported,
                 missing: integration.missing, paletteLease: integration.paletteLease,
                 demand: host.working, surfaces: Object.keys(surfaces).length },
+            media: Object.assign({},mediaContext.snapshot,{hostShared:integration.sharedMedia,
+                integration:integration.sharedMedia ? "ready" : "degraded",
+                reason:integration.sharedMedia ? "" : "Для общего выбора native-контролов обновите host API (native-media-v1)."}),
             audio: { state: tap.state, wanted: wanted, ready: tap.ready, failures: tap.failures,
+                signal: !wanted ? "released" : !tap.ready ? "unknown" : audible ? "audible" : "silence",
+                mode: mediaContext.visualizationMode, playerId: mediaContext.playerId, trackId: mediaContext.trackId,
                 retryInMs: tap.retryIn, reason: tap.error },
             palette: { state: musicPalette.state, active: musicPalette.active,
+                playerId: musicPalette.sourcePlayerId, trackId: musicPalette.sourceTrackId,
                 running: musicPalette.worker.running, message: musicPalette.message, reason: musicPalette.error },
             duration: { state: durationJob ? "running" : durationError ? "degraded" : "idle",
                 queued: durationQueue.length, reason: durationError },

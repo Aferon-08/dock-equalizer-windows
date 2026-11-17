@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""MPRIS -> expiring, in-memory SekaiPop palette. No theme files are written."""
+"""Selected media context -> expiring palette; standalone MPRIS is also supported."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import os
 import re
+import select
 import signal
 import subprocess
 import sys
@@ -57,6 +58,7 @@ class Session:
         self.stop_at = None
         self.refresh_at = 0
         self.retry_at = 0
+        self.error = ''
 
     def clear(self):
         if self.active:
@@ -64,6 +66,7 @@ class Session:
         self.palette = None
         self.active = False
         self.refresh_at = 0
+        self.error = ''
 
     def renew(self, now):
         if self.active and now >= self.refresh_at:
@@ -85,6 +88,7 @@ class Session:
         if url != self.url:
             self.url = url
             self.retry_at = 0
+            self.error = ''
         # MPRIS may briefly publish empty artwork while switching tracks.
         # Neither missing artwork nor an HTTP failure means playback stopped.
         self.renew(now)
@@ -97,13 +101,14 @@ class Session:
                 if len(self.cache) > 32:
                     self.cache.pop(next(iter(self.cache)))
             except Exception as error:
-                print('Обложка: ' + str(error), file=sys.stderr, flush=True)
                 if job_url == url:
+                    self.error = 'Обложка: ' + str(error)
                     self.retry_at = now + 1
         if not url:
             return
         desired = self.cache.get(url)
         if desired is not None:
+            self.error = ''
             if desired != self.palette or not self.active:
                 self.ipc('musicSet', self.owner, desired)
                 self.active, self.palette = True, desired
@@ -157,9 +162,44 @@ class Mpris:
         return True, art
 
 
+class ContextInput:
+    """The shared QML selection is authoritative; never pick another player."""
+    def __init__(self, stream):
+        self.fd = stream.fileno()
+        self.pending = b''
+        self.snapshot = {}
+        self.closed = False
+
+    def read(self):
+        # Read bytes rather than readline(): a partial pipe write must not block
+        # lease renewal or prevent graceful shutdown.
+        for _ in range(8):
+            if not select.select([self.fd], [], [], 0)[0]:
+                break
+            chunk = os.read(self.fd, 65536)
+            if not chunk:
+                self.closed = True
+                break
+            self.pending += chunk
+            if len(self.pending) > 131072:
+                self.pending = b''
+                self.snapshot = {}
+                return False, ''
+            while b'\n' in self.pending:
+                raw, self.pending = self.pending.split(b'\n', 1)
+                try:
+                    value = json.loads(raw)
+                except ValueError:
+                    value = None
+                # A malformed update cannot leave an old Playing state latched.
+                self.snapshot = value if isinstance(value, dict) else {}
+        return self.snapshot.get('playing') is True, str(self.snapshot.get('artUrl') or '')
+
+
 def main():
     args = argparse.ArgumentParser()
     args.add_argument('--stop-delay', type=int, default=600)
+    args.add_argument('--context-stdin', action='store_true')
     options = args.parse_args()
     stopped = False
     parent = os.getppid()
@@ -173,7 +213,7 @@ def main():
                                 capture_output=True, text=True, timeout=2)
         if result.returncode or result.stdout.strip() != 'ok':
             raise RuntimeError('Theme bridge unavailable: ' + result.stderr.strip() + result.stdout.strip())
-    mpris = Mpris()
+    source = ContextInput(sys.stdin) if options.context_stdin else Mpris()
     pool = ThreadPoolExecutor(max_workers=2)
     session = Session(ipc, pool.submit, max(0, min(options.stop_delay, 2000)) / 1000)
     last_status = None
@@ -181,12 +221,15 @@ def main():
     try:
         while not stopped and os.getppid() == parent:
             try:
-                playing, url = mpris.read()
+                playing, url = source.read()
+                if options.context_stdin and source.closed:
+                    break
                 session.tick(playing, url, time.monotonic())
                 status = ('Цвета обложки активны' if session.active else 'Загрузка обложки…') if playing and url else ('У трека нет обложки' if playing else 'Ожидание музыки — исходная палитра')
-                next_status = (session.active, playing, status)
+                identity = {key: source.snapshot.get(key, '') for key in ('playerId', 'trackId')} if options.context_stdin else {}
+                next_status = (session.active, playing, status, identity, session.palette, session.error)
                 if next_status != last_status or last_error:
-                    print(json.dumps({"active": session.active, "playing": playing, "message": status}, ensure_ascii=False), flush=True)
+                    print(json.dumps({"active": session.active, "playing": playing, "message": status, "error": session.error, **identity}, ensure_ascii=False), flush=True)
                     last_status = next_status
                 last_error = ''
             except Exception as error:

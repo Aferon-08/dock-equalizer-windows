@@ -23,6 +23,7 @@ jobs:
         run: |
           python -m pip install Pillow
           python tests/music-palette.py
+          python tests/palette-context.py
       - name: Browser duration recovery
         run: node tests/duration-cache.mjs
       - name: Analysis completeness and fingerprint

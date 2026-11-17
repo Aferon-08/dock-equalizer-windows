@@ -88,6 +88,18 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(self.calls[-1][2], 'blue')
 
 
+    def test_same_colors_after_failed_fetch_clear_diagnostic(self):
+        self.start()
+        self.s.tick(True, 'b', 1)
+        self.jobs[-1][1].set_exception(ValueError('broken cover'))
+        self.s.tick(True, 'b', 1.1)
+        self.assertIn('broken cover', self.s.error)
+        self.s.tick(True, 'b', 2.2)
+        self.jobs[-1][1].set_result('red')
+        self.s.tick(True, 'b', 2.3)
+        self.assertEqual(self.s.palette, 'red')
+        self.assertEqual(self.s.error, '')
+
     def test_rapid_skips_apply_final_cover_without_another_skip(self):
         self.start()
         self.s.tick(True, 'slow-a', .2)
@@ -127,6 +139,26 @@ class SessionTests(unittest.TestCase):
         self.s.tick(True, 'a', 3)
         self.assertTrue(self.s.active)
         self.assertEqual(self.calls[-1][2], 'red')
+
+class ContextInputTests(unittest.TestCase):
+    def test_partial_batch_bad_message_and_eof(self):
+        import os
+        read, write = os.pipe()
+        with os.fdopen(read) as stream:
+            source = module.ContextInput(stream)
+            try:
+                os.write(write,b'{"playing":tr')
+                self.assertEqual(source.read(),(False,''))
+                os.write(write,b'ue,"artUrl":"a"}\n{"playing":false}\n')
+                self.assertEqual(source.read(),(False,''))
+                os.write(write,b'{"playing":true,"artUrl":"b"}\n')
+                self.assertEqual(source.read(),(True,'b'))
+                os.write(write,b'not JSON\n')
+                self.assertEqual(source.read(),(False,''))
+            finally:
+                os.close(write)
+            source.read()
+            self.assertTrue(source.closed)
 
 if __name__ == '__main__':
     unittest.main()

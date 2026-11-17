@@ -38,3 +38,18 @@ assert.equal(contract.resolve({apiVersion:2, capabilities:['native-dock-v1','nat
 assert.equal(contract.resolve({capabilities:'native-dock-v1'}).state, 'unsupported');
 assert.equal(contract.resolve({capabilities:['transient-palette-v1']}).paletteLease, true);
 console.log('PASS independent versioned capabilities and optional palette support');
+
+assert.equal(contract.resolve({capabilities:['native-dock-v1']}).sharedMedia,false);
+assert.equal(contract.resolve({capabilities:['native-dock-v1','native-media-v1']}).sharedMedia,true);
+console.log('PASS independently advertised shared media context');
+const dockFile=new URL('../../../modules/sekai/dock/Dock.qml',new URL('file://'+fs.realpathSync(file)));
+const dockSource=fs.readFileSync(dockFile,'utf8');
+const mediaExpression=dockSource.match(/readonly property var media:\s*([\s\S]*?)\n    readonly property bool mediaShown/)?.[1];
+assert(mediaExpression,'native dock exposes its actual shared media source');
+const mediaFor=new Function('st','stockMedia','const pluginDockAdapter={st};return '+mediaExpression);
+const shared={},stock={};
+assert.equal(mediaFor({service:{mediaContext:shared}},stock),shared);
+assert.equal(mediaFor(null,stock),stock);
+assert.equal(mediaFor({service:{}},stock),stock);
+assert(dockSource.includes('readonly property var mediaSource: media'));
+console.log('PASS dock controls and plugin host share the selected context; legacy providers retain stock media');
