@@ -11,6 +11,7 @@ Item {
  property bool intersectOnly:false
  property int refreshInterval:83
  property string diagnosticTarget:""
+ property string surfaceMode:"glass"
  readonly property var monitor:Hyprland.monitors.values.find(m=>m.name===screenName) || null
  readonly property var windows:{
   if(!monitor || !active)return []
@@ -27,16 +28,19 @@ Item {
  }
  function status() {
   const result={state:active ? "idle" : "disabled", windows:previews.count,
-    ready:0, waiting:0, recovering:0, attempts:0}
+    ready:0, waiting:0, recovering:0, unavailable:0, attempts:0,
+    graphicsApi:GraphicsInfo.api, surface:surfaceMode}
   for(let i=0;i<previews.count;++i) {
    const preview=previews.itemAt(i)
    if(!preview) continue
    if(preview.hasContent) ++result.ready
+   else if(preview.exhausted) ++result.unavailable
    else if(preview.retrying) ++result.recovering
    else ++result.waiting
    result.attempts+=preview.attempts
   }
-  if(result.recovering) result.state=result.ready ? "degraded" : "recovering"
+  if(result.unavailable) result.state=result.ready ? "degraded" : "unavailable"
+  else if(result.recovering) result.state=result.ready ? "degraded" : "recovering"
   else if(result.waiting) result.state="starting"
   else if(result.ready) result.state="running"
   return result
@@ -56,6 +60,7 @@ Item {
    property bool connected:true
    property bool hadContent:false
    property bool retrying:false
+   property bool exhausted:false
    property int failures:0
    property int attempts:1
    x:(info.at?.[0] || 0)-(root.monitor?.lastIpcObject?.x || 0)-root.viewport.x
@@ -68,12 +73,12 @@ Item {
    // Assigning a source already requests the first frame. hasContent is
    // observable on this Quickshell build; there is no context-ready property.
    function reconnect() {
-    if(!root.active || !sourceWindow || retrying || hasContent) return
+    if(!root.active || !sourceWindow || retrying || exhausted || hasContent) return
     hadContent=false
-    retrying=true
     connected=false
-    failures=Math.min(8,failures+1)
-    retry.interval=Math.min(30000,1000*Math.pow(2,failures-1))
+    if(++failures>=4){exhausted=true;return}
+    retrying=true
+    retry.interval=1000*Math.pow(2,failures-1)
     retry.start()
    }
    onHasContentChanged: {

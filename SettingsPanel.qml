@@ -28,40 +28,91 @@ Item {
  readonly property color accent:theme.accentCyan || "#9cddd2"
  readonly property color surface:theme.surface || "#152322"
  property string query:""
- property bool phoneDelivered:false
+ property int captureEpoch:0
  property var phoneGrab:null
+ property string fallbackReason:""
+ readonly property int graphicsApi:GraphicsInfo.api
+ readonly property bool shaderBackend:GraphicsInfo.api!==GraphicsInfo.Software && GraphicsInfo.api!==GraphicsInfo.Null
  function close(){if(extensionHost)extensionHost.close();else pst.service.settingsPanelOpen=false}
+ function endCapture(){
+  ++captureEpoch
+  captureRetry.stop()
+  captureDeadline.stop()
+ }
+ function showPlain(reason){
+  if(!opened){endCapture();mode="closed";return}
+  endCapture()
+  morph.stop()
+  fallbackReason=reason
+  phoneGrab=null
+  phase=1
+  mode="open"
+  forceActiveFocus()
+ }
  function beginWhenReady(){
-  if(mode!=="capturing" || !phoneDelivered || phoneImage.status!==Image.Ready)return
-  if(!opened){mode="closed";return}
-  phase=0;mode="opening";forceActiveFocus();morph.start()
+  if(mode!=="capturing" || !opened)return
+  if(phoneImage.status===Image.Error){showPlain("snapshot-invalid");return}
+  if(!phoneGrab || phoneImage.status!==Image.Ready)return
+  endCapture()
+  phase=0
+  mode="opening"
+  forceActiveFocus()
+  morph.start()
  }
- function capture(){
-  if(!opened){mode="closed";return}
-  if(phone && phone.captureReady===false){mode="capturing";captureRetry.restart();return}
-  if(!phone || phone.width<=0 || phone.height<=0){mode="closed";pst.service.settingsPanelOpen=false;return}
-  mode="capturing";phoneDelivered=false;phoneGrab=null
-  const ok=phone.grabToImage(r=>{if(mode!=="capturing")return;phoneDelivered=true;phoneGrab=r;beginWhenReady()},Qt.size(Math.round(width),Math.round(height)))
-  if(!ok){mode="closed";pst.service.settingsPanelOpen=false}
+ function openPanel(){
+  if(!opened || mode!=="closed")return
+  endCapture()
+  fallbackReason=""
+  phoneGrab=null
+  if(!shaderBackend || morphSurface.status===ShaderEffect.Error){showPlain("renderer");return}
+  mode="capturing"
+  captureDeadline.start()
+  capturePhone()
  }
- Timer {id:captureRetry;interval:50;onTriggered:root.capture()}
- function startClosing(){phase=0;mode="closing";morph.start()}
+ function capturePhone(){
+  if(mode!=="capturing" || !opened)return
+  if(phone && phone.captureReady===false){captureRetry.restart();return}
+  if(!phone || phone.width<=0 || phone.height<=0){showPlain("phone-unavailable");return}
+  const epoch=captureEpoch
+  const ok=phone.grabToImage(result=>deliverPhone(epoch,result),Qt.size(Math.round(width),Math.round(height)))
+  if(!ok)showPlain("snapshot-rejected")
+ }
+ function deliverPhone(epoch,result){
+  if(mode!=="capturing" || !opened || epoch!==captureEpoch)return
+  phoneGrab=result
+  beginWhenReady()
+ }
+ Timer {id:captureRetry;interval:50;onTriggered:root.capturePhone()}
+ Timer {id:captureDeadline;interval:1600;onTriggered:root.showPlain("snapshot-timeout")}
+ function startClosing(){
+  if(fallbackReason){mode="closed";return}
+  phase=0;mode="closing";morph.start()
+ }
  Keys.onEscapePressed:event=>{close();event.accepted=true}
  onOpenedChanged:{
-  if(opened && mode==="closed")Qt.callLater(capture)
+  if(opened && mode==="closed")Qt.callLater(openPanel)
+  else if(!opened && mode==="capturing"){endCapture();mode="closed"}
   else if(!opened && mode==="open")startClosing()
  }
+ Component.onCompleted:if(opened)Qt.callLater(openPanel)
  NumberAnimation {id:morph;target:root;property:"phase";from:0;to:1;duration:Math.max(2600,(root.prefs.settingsDuration ?? 1100)*3)*(root.closing?.9:1)
-  onFinished:{if(root.mode==="opening"){root.mode="open";if(!root.opened)root.startClosing()}else{root.mode="closed";if(root.opened)Qt.callLater(root.capture)}}
+  onFinished:{if(root.mode==="opening"){root.mode="open";if(!root.opened)root.startClosing()}else{root.mode="closed";if(root.opened)Qt.callLater(root.openPanel)}}
  }
- // Keep the live phone until its actual bitmap is decoded. No hide-before-capture gap.
- ShaderEffectSource {sourceItem:root.phone;hideSource:root.ownsPhone;visible:false;live:false}
- Image {id:phoneImage;visible:false;source:root.phoneGrab?root.phoneGrab.url:"";onStatusChanged:root.beginWhenReady()}
- SettingsUnderlay {id:underlay;anchors.fill:parent;screenName:root.screenName;viewport:root.backgroundRect;active:root.ownsPhone}
- ShaderEffectSource {id:backdrop;anchors.fill:parent;sourceItem:underlay;hideSource:true;live:root.ownsPhone;visible:false}
+ // ShaderEffectSource owns the normal handoff; a plain panel covers the phone.
+ ShaderEffectSource {sourceItem:root.phone;hideSource:root.ownsPhone && root.shaderBackend;visible:false;live:false}
+ Rectangle {anchors.fill:parent;color:root.surface;opacity:.82;visible:root.ownsPhone && !!root.fallbackReason}
+ Image {id:phoneImage;visible:false;source:root.phoneGrab?root.phoneGrab.url:"";onStatusChanged:Qt.callLater(root.beginWhenReady)}
+ SettingsUnderlay {id:underlay;anchors.fill:parent;screenName:root.screenName;viewport:root.backgroundRect;active:root.ownsPhone && !root.fallbackReason && root.shaderBackend}
+ ShaderEffectSource {id:backdrop;anchors.fill:parent;sourceItem:underlay;hideSource:true;live:underlay.active;visible:false}
  MouseArea {anchors.fill:parent;enabled:root.ownsPhone;onClicked:root.close()}
  ShaderEffect {
-  anchors.fill:parent;visible:root.ownsPhone
+  id:morphSurface
+  anchors.fill:parent
+  visible:root.ownsPhone && !root.fallbackReason && root.shaderBackend
+  onStatusChanged:if(status===ShaderEffect.Error && root.showing){
+   if(root.opened)root.showPlain("shader-error")
+   else {morph.stop();root.mode="closed"}
+  }
   property var source:phoneImage
   property var background:backdrop
   property vector2d resolution:Qt.vector2d(width,height)
@@ -79,17 +130,25 @@ Item {
  }
  IpcHandler {
   target:"docksettings-"+root.screenName
-  function status():string{return JSON.stringify({mode:root.mode,phase:root.phase,phoneReady:phoneImage.status===Image.Ready,backgroundWindows:underlay.windows.length,capture:underlay.status(),pose:root.pose})}
+  function status():string{return JSON.stringify({mode:root.mode,phase:root.phase,phoneReady:phoneImage.status===Image.Ready,fallback:root.fallbackReason,graphicsApi:root.graphicsApi,backgroundWindows:underlay.windows.length,capture:underlay.status(),pose:root.pose})}
   function snapshot(path:string):void{root.grabToImage(r=>r.saveToFile(path))}
  }
  Item {
   id:card
+  objectName:"settings-card"
   width:Math.min(root.width-40,root.prefs.settingsWidth ?? 1100)
   height:Math.min(root.height-48,root.prefs.settingsHeight ?? 900)
   anchors.centerIn:parent
   opacity:root.ownsPhone?root.pose.content:0
   transform: [Translate {x:root.pose.x-root.width/2;y:root.pose.y-root.height/2},Scale {origin.x:card.width/2;origin.y:card.height/2;xScale:root.pose.w/card.width;yScale:root.pose.h/card.height}]
   enabled:root.opened && root.mode==="open"
+  Rectangle {
+   anchors.fill:parent
+   visible:root.fallbackReason!==""
+   radius:28
+   color:root.surface
+   border.color:Qt.tint(root.surface,Qt.rgba(root.accent.r,root.accent.g,root.accent.b,.45))
+  }
   MouseArea {anchors.fill:parent}
   ColumnLayout {
    anchors.fill:parent;anchors.margins:28;spacing:14

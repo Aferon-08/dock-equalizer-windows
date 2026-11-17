@@ -22,8 +22,11 @@ Item {
     readonly property real thickness: Math.max(20, Math.min(host.settings.height, bodyAcross - 6))
     readonly property bool fits: length >= 64
     readonly property bool expanded: host.working && !!host.service && host.service.playing
+    readonly property bool shaderAvailable: GraphicsInfo.api !== GraphicsInfo.Software
+        && GraphicsInfo.api !== GraphicsInfo.Null && skin.status !== ShaderEffect.Error
     readonly property bool ownsHousing: visible && host.dock.look !== "transparent"
-        && skin.status !== ShaderEffect.Error
+
+    function rendererStatus() { return {api:GraphicsInfo.api, shader:shaderAvailable, capture:dockUnderlay.status()} }
 
     property real reveal: 0
     property bool motionReady: false
@@ -152,7 +155,7 @@ Item {
     readonly property real iconsScale: lyricLayer.iconsScale
     readonly property bool suppressMediaKey: lyricLayer.wide
     readonly property real iconsOpacity: 1 - lyricLayer.lyricsOpacity
-    readonly property real glassAmount: material.enabled ? Math.min(1, Math.max(phase, lyricLayer.musicLayout)) : 0
+    readonly property real glassAmount: material.enabled && shaderAvailable ? Math.min(1, Math.max(phase, lyricLayer.musicLayout)) : 0
 
     visible: surfaceSupported && host.settings.enabled && fits && !host.dock.asleep
 
@@ -169,6 +172,7 @@ Item {
             anchors.fill: parent
             screenName: root.host.dock.screenName || ""
             diagnosticTarget: screenName ? "dockcapture-" + screenName : ""
+            surfaceMode: root.shaderAvailable ? (root.glassAmount > .001 ? "glass" : "solid") : "fallback"
             // mapToGlobal accounts for the native dock's slide/lift and screen.
             readonly property point origin: {
                 const dependency = liquid.x + liquid.y + root.dock.x + root.dock.y
@@ -191,7 +195,7 @@ Item {
         ShaderEffect {
             id: skin
             anchors.fill: parent
-            visible: root.host.dock.look !== "transparent" || root.phase > 0.001
+            visible: root.shaderAvailable && (root.ownsHousing || root.phase > 0.001)
             readonly property vector2d resolution: Qt.vector2d(width, height)
             readonly property vector4d dockRect: Qt.vector4d(
                 (width - root.bodyAlong) / 2, root.pad, root.bodyAlong, root.bodyAcross)
@@ -229,6 +233,18 @@ Item {
             fragmentShader: Qt.resolvedUrl("liquid.frag.qsb")
         }
 
+        Rectangle {
+            visible: root.ownsHousing && !root.shaderAvailable
+            x: skin.dockRect.x
+            y: skin.dockRect.y
+            width: skin.dockRect.z
+            height: skin.dockRect.w
+            radius: Math.min(root.radius, height / 2)
+            color: root.colors.fill
+            border.color: root.colors.rim
+            border.width: root.colors.border
+            antialiasing: true
+        }
         Repeater {
             model: 2
             delegate: VisualizerCapsule {
@@ -236,7 +252,7 @@ Item {
                 host: root.host
                 channel: index
                 palette: root.colors
-                housingVisible: false
+                housingVisible: !root.shaderAvailable
                 visible: root.phase > 0.01
                 opacity: root.spectrumOpacity
                 width: root.dropletLength
@@ -249,7 +265,7 @@ Item {
     DockLyrics {
         id: lyricLayer
         host: root.host
-        glassSource: skin
+        glassSource: root.shaderAvailable ? skin : null
         glassRect: Qt.rect((liquid.width - root.bodyWidth) / 2 + 16,
             root.pad + 93, Math.max(1, root.bodyWidth - 32), 110)
     }
