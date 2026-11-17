@@ -1,12 +1,12 @@
 # SekaiPOP Dock Equalizer & Living Wallpapers
 
-> **3.0.0-rc.2 — native extension preview.** Requires a proposed shell API, currently absent from official SekaiPOP. [Integration status and patch](docs/NATIVE-INTEGRATION.md). install.py is now a no-op notice. The last adapter-based stable release is [2.23.0](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v2.23.0).
+> **3.0.0-rc.3 — native extension preview.** Requires a proposed shell API, currently absent from official SekaiPOP. [Integration status and patch](docs/NATIVE-INTEGRATION.md). install.py is now a no-op notice. The last adapter-based stable release is [2.23.0](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v2.23.0).
 
 [![Checks](https://github.com/Aferon-08/sekaipop-dock-equalizer/actions/workflows/checks.yml/badge.svg)](https://github.com/Aferon-08/sekaipop-dock-equalizer/actions/workflows/checks.yml) [![Version](https://img.shields.io/github/v/release/Aferon-08/sekaipop-dock-equalizer)](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 [Русский](README.md) · [Installation](docs/INSTALL.md) · [Releases](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases)
 
-An independent extension for **[SekaiPOP](https://github.com/Blapples/SekaiPop)** on Hyprland: a liquid music dock, word-timed lyrics and procedural glass wallpapers with a tiny firefly companion. **Version 3.0.0-rc.2 · GPL-3.0.** The settings UI and detailed documentation are currently primarily in Russian.
+An independent extension for **[SekaiPOP](https://github.com/Blapples/SekaiPop)** on Hyprland: a liquid music dock, word-timed lyrics and procedural glass wallpapers with a tiny firefly companion. **Version 3.0.0-rc.3 · GPL-3.0.** The settings UI and detailed documentation are currently primarily in Russian.
 
 ![Music dock demo](docs/media/dock.gif)
 
@@ -24,7 +24,7 @@ The **Dock glass** settings group provides a master switch and controls for opac
 
 ## 2.22.0 — Liquid settings panel
 
-**61 settings**, search, smooth scrolling and per-setting / confirmed full reset. The phone morphs through an irregular glass droplet into a taller settings panel, then returns on Back or Escape. [Settings catalogue (RU)](docs/SETTINGS.md).
+**63 settings**, search, smooth scrolling and per-setting / confirmed full reset. The phone morphs through an irregular glass droplet into a taller settings panel, then returns on Back or Escape. [Settings catalogue (RU)](docs/SETTINGS.md).
 
 ![Liquid settings panel](docs/media/settings.gif)
 
@@ -63,3 +63,5 @@ node tests/bubble-family.mjs
 ```
 
 See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for rendering demos and compiling the shipped shader sources, [CONTRIBUTING.md](CONTRIBUTING.md) for contributions, and [THIRD_PARTY.md](THIRD_PARTY.md) for upstream projects. Licensed under [GPL-3.0](LICENSE).
+
+Since 3.0.0-rc.3, cover-driven system colours are included in Dock Equalizer. Disable the separate Music Palette plugin before enabling the integrated module. The current native host patch targets SekaiPOP commit `e629dfe`; official shell updates can still replace this local API.

@@ -93,6 +93,10 @@ QtObject {
         onExited: code => root.finishWallpaperSeed(code)
     }
     property WordtimeStore wordtimes: WordtimeStore { host: root.host }
+    property MusicPalette musicPalette: MusicPalette {
+        host: root.host
+        supported: root.integration.paletteLease
+    }
 
     property var beatState: BeatTracker.reset()
     property real beatPulse: 0
@@ -200,6 +204,8 @@ QtObject {
                 demand: host.working, surfaces: Object.keys(surfaces).length },
             audio: { state: tap.state, wanted: wanted, ready: tap.ready, failures: tap.failures,
                 retryInMs: tap.retryIn, reason: tap.error },
+            palette: { state: musicPalette.state, active: musicPalette.active,
+                running: musicPalette.worker.running, message: musicPalette.message, reason: musicPalette.error },
             duration: { state: durationJob ? "running" : durationError ? "degraded" : "idle",
                 queued: durationQueue.length, reason: durationError },
             wallpaper: { state: !integration.supported.wallpaper ? "unsupported"

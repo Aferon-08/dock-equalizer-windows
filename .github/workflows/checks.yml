@@ -19,6 +19,10 @@ jobs:
         run: python -m compileall -q .
       - name: Manifest
         run: python -c "import json; p=json.load(open('plugin.json')); assert p['id']=='dock-equalizer' and p['api']==1"
+      - name: Integrated music palette sessions
+        run: |
+          python -m pip install Pillow
+          python tests/music-palette.py
       - name: Browser duration recovery
         run: node tests/duration-cache.mjs
       - name: Analysis completeness and fingerprint
@@ -42,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Blapples/SekaiPop
-          ref: 036afe49b6ee40bf18c01efdb585f000422c7c21
+          ref: e629dfed4781ecc5bf7eeecad28787462dc1e114
           path: upstream-shell
       - name: Proposed API patch applies to pinned shell
         run: git -C upstream-shell apply --check "$GITHUB_WORKSPACE/integration/sekaipop-native-extensions.patch"

@@ -1,9 +1,9 @@
 {
   "id": "dock-equalizer",
   "name": "Dock Equalizer",
-  "version": "3.0.0-rc.2",
+  "version": "3.0.0-rc.3",
   "api": 1,
-  "description": "Музыкальный док с лирикой и процедурные обои Material + стекло.",
+  "description": "Музыкальный док, многоголосная лирика, процедурные обои и системная палитра по обложке.",
   "icon": "graphic_eq",
   "settings": {
     "enabled": true,
@@ -66,7 +66,9 @@
     "settingsDuration": 1100,
     "settingsWidth": 1100,
     "settingsHeight": 900,
-    "settingsScroll": 0.8
+    "settingsScroll": 0.8,
+    "musicPalette": true,
+    "musicPaletteStopDelay": 600
   },
   "settingsInfo": {
     "enabled": {
@@ -501,11 +503,26 @@
       "max": 2,
       "step": 0.05,
       "group": "Стекло дока"
+    },
+    "musicPalette": {
+      "label": "Цвета системы по обложке",
+      "description": "Временная палитра во время музыки. При паузе возвращаются исходные цвета. Работает независимо от видимости дока.",
+      "group": "Музыкальная палитра"
+    },
+    "musicPaletteStopDelay": {
+      "label": "Задержка восстановления цветов",
+      "description": "Краткий промежуток между треками не сбрасывает палитру.",
+      "min": 0,
+      "max": 2000,
+      "step": 100,
+      "unit": "мс",
+      "group": "Музыкальная палитра"
     }
   },
   "groups": [
     "Расположение",
     "Звук",
+    "Музыкальная палитра",
     "Стекло дока",
     "Анимация",
     "Лирика",
