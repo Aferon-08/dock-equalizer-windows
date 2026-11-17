@@ -25,8 +25,12 @@ Item {
     readonly property bool shaderAvailable: GraphicsInfo.api !== GraphicsInfo.Software
         && GraphicsInfo.api !== GraphicsInfo.Null && skin.status !== ShaderEffect.Error
     readonly property bool ownsHousing: visible && host.dock.look !== "transparent"
+    readonly property bool useHousingShader: shaderAvailable && dockUnderlay.health.unavailable === 0
 
-    function rendererStatus() { return {api:GraphicsInfo.api, shader:shaderAvailable, capture:dockUnderlay.status()} }
+    function rendererStatus() { return {api:GraphicsInfo.api, shader:shaderAvailable,
+        mode:!useHousingShader ? "fallback" : glassAmount>.001 ? "glass" : "solid",
+        reason:!shaderAvailable ? "renderer-or-shader" : dockUnderlay.health.unavailable ? "capture-unavailable" : "",
+        capture:dockUnderlay.status()} }
 
     property real reveal: 0
     property bool motionReady: false
@@ -155,7 +159,7 @@ Item {
     readonly property real iconsScale: lyricLayer.iconsScale
     readonly property bool suppressMediaKey: lyricLayer.wide
     readonly property real iconsOpacity: 1 - lyricLayer.lyricsOpacity
-    readonly property real glassAmount: material.enabled && shaderAvailable ? Math.min(1, Math.max(phase, lyricLayer.musicLayout)) : 0
+    readonly property real glassAmount: material.enabled && useHousingShader ? Math.min(1, Math.max(phase, lyricLayer.musicLayout)) : 0
 
     visible: surfaceSupported && host.settings.enabled && fits && !host.dock.asleep
 
@@ -172,7 +176,7 @@ Item {
             anchors.fill: parent
             screenName: root.host.dock.screenName || ""
             diagnosticTarget: screenName ? "dockcapture-" + screenName : ""
-            surfaceMode: root.shaderAvailable ? (root.glassAmount > .001 ? "glass" : "solid") : "fallback"
+            surfaceMode: !root.useHousingShader ? "fallback" : root.glassAmount > .001 ? "glass" : "solid"
             // mapToGlobal accounts for the native dock's slide/lift and screen.
             readonly property point origin: {
                 const dependency = liquid.x + liquid.y + root.dock.x + root.dock.y
@@ -182,20 +186,22 @@ Item {
                 origin.y - (monitor?.lastIpcObject?.y || 0), width, height)
             intersectOnly: true
             refreshInterval: 125
-            active: root.visible && root.glassAmount > 0.001 && !root.vertical
+            active: root.visible && root.material.enabled && root.shaderAvailable
+                && Math.max(root.phase, lyricLayer.musicLayout) > .001 && !root.vertical
+            refreshEnabled: root.useHousingShader
         }
         ShaderEffectSource {
             id: dockBackdrop
             sourceItem: dockUnderlay
             hideSource: true
-            live: dockUnderlay.active
+            live: dockUnderlay.active && root.useHousingShader && dockUnderlay.health.ready > 0
             visible: false
         }
 
         ShaderEffect {
             id: skin
             anchors.fill: parent
-            visible: root.shaderAvailable && (root.ownsHousing || root.phase > 0.001)
+            visible: root.useHousingShader && (root.ownsHousing || root.phase > 0.001)
             readonly property vector2d resolution: Qt.vector2d(width, height)
             readonly property vector4d dockRect: Qt.vector4d(
                 (width - root.bodyAlong) / 2, root.pad, root.bodyAlong, root.bodyAcross)
@@ -234,7 +240,7 @@ Item {
         }
 
         Rectangle {
-            visible: root.ownsHousing && !root.shaderAvailable
+            visible: root.ownsHousing && !root.useHousingShader
             x: skin.dockRect.x
             y: skin.dockRect.y
             width: skin.dockRect.z
@@ -252,7 +258,7 @@ Item {
                 host: root.host
                 channel: index
                 palette: root.colors
-                housingVisible: !root.shaderAvailable
+                housingVisible: !root.useHousingShader
                 visible: root.phase > 0.01
                 opacity: root.spectrumOpacity
                 width: root.dropletLength
@@ -265,7 +271,7 @@ Item {
     DockLyrics {
         id: lyricLayer
         host: root.host
-        glassSource: root.shaderAvailable ? skin : null
+        glassSource: root.useHousingShader ? skin : null
         glassRect: Qt.rect((liquid.width - root.bodyWidth) / 2 + 16,
             root.pad + 93, Math.max(1, root.bodyWidth - 32), 110)
     }

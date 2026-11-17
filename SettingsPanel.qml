@@ -103,6 +103,12 @@ Item {
  Rectangle {anchors.fill:parent;color:root.surface;opacity:.82;visible:root.ownsPhone && !!root.fallbackReason}
  Image {id:phoneImage;visible:false;source:root.phoneGrab?root.phoneGrab.url:"";onStatusChanged:Qt.callLater(root.beginWhenReady)}
  SettingsUnderlay {id:underlay;anchors.fill:parent;screenName:root.screenName;viewport:root.backgroundRect;active:root.ownsPhone && !root.fallbackReason && root.shaderBackend}
+ Connections {
+  target:underlay
+  function onHealthChanged(){
+   if(underlay.health.unavailable>0 && root.showing && !root.fallbackReason)root.showPlain("background-capture")
+  }
+ }
  ShaderEffectSource {id:backdrop;anchors.fill:parent;sourceItem:underlay;hideSource:true;live:underlay.active;visible:false}
  MouseArea {anchors.fill:parent;enabled:root.ownsPhone;onClicked:root.close()}
  ShaderEffect {

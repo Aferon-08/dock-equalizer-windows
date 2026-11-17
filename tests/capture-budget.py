@@ -6,7 +6,7 @@ ROOT=Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='capture-budget-') as folder:
  stage=Path(folder)
  source=(ROOT/'SettingsUnderlay.qml').read_text()
- a=source.index(' readonly property var windows:');b=source.index(' function status()',a)
+ a=source.index(' readonly property var windows:');b=source.index(' function status(',a)
  source=source[:a]+''' QtObject {id:invalid}
  readonly property var windows:root.active ? [{wayland:invalid,lastIpcObject:{}}] : []
 '''+source[b:]

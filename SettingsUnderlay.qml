@@ -8,6 +8,8 @@ Item {
  property string screenName:""
  property rect viewport:Qt.rect(0,0,width,height)
  property bool active:false
+ // Demand stays alive in fallback, but healthy windows need no refresh there.
+ property bool refreshEnabled:true
  property bool intersectOnly:false
  property int refreshInterval:83
  property string diagnosticTarget:""
@@ -26,10 +28,9 @@ Item {
      && i.monitor===monitor.id && (i.workspace?.id===ws || i.pinned===true)
   }).slice().sort((a,b)=>(b.lastIpcObject?.focusHistoryID ?? 100)-(a.lastIpcObject?.focusHistoryID ?? 100))
  }
- function status() {
+ function status(includeSurface) {
   const result={state:active ? "idle" : "disabled", windows:previews.count,
-    ready:0, waiting:0, recovering:0, unavailable:0, attempts:0,
-    graphicsApi:GraphicsInfo.api, surface:surfaceMode}
+    ready:0, waiting:0, recovering:0, unavailable:0, attempts:0}
   for(let i=0;i<previews.count;++i) {
    const preview=previews.itemAt(i)
    if(!preview) continue
@@ -43,12 +44,26 @@ Item {
   else if(result.recovering) result.state=result.ready ? "degraded" : "recovering"
   else if(result.waiting) result.state="starting"
   else if(result.ready) result.state="running"
+  if(includeSurface!==false){result.graphicsApi=GraphicsInfo.api;result.surface=surfaceMode}
   return result
+ }
+ readonly property var health:status(false)
+ property double lastManualRetry:0
+ function retryUnavailable() {
+  if(!active || Date.now()-lastManualRetry<2000)return 0
+  lastManualRetry=Date.now()
+  let restarted=0
+  for(let i=0;i<previews.count;++i){
+   const preview=previews.itemAt(i)
+   if(preview && preview.exhausted){preview.resetCapture();++restarted}
+  }
+  return restarted
  }
  IpcHandler {
   target:root.diagnosticTarget
   enabled:root.diagnosticTarget!==""
   function status():string {return JSON.stringify(root.status())}
+  function retry():int {return root.retryUnavailable()}
  }
  Repeater {
   id:previews
@@ -63,12 +78,29 @@ Item {
    property bool exhausted:false
    property int failures:0
    property int attempts:1
+   property bool initialized:false
    x:(info.at?.[0] || 0)-(root.monitor?.lastIpcObject?.x || 0)-root.viewport.x
    y:(info.at?.[1] || 0)-(root.monitor?.lastIpcObject?.y || 0)-root.viewport.y
    width:info.size?.[0] || 1;height:info.size?.[1] || 1
    captureSource:root.active && connected ? sourceWindow : null
    live:false;paintCursor:false
    visible:hasContent
+   // A replacement wl_surface is a new context, not another try of a dead one.
+   onSourceWindowChanged:if(initialized)Qt.callLater(resetCapture)
+   Component.onCompleted:initialized=true
+   function resetCapture() {
+    retry.stop()
+    retrying=true
+    connected=false
+    exhausted=false
+    hadContent=false
+    failures=0
+    attempts=0
+    Qt.callLater(()=>{
+     retrying=false
+     if(root.active && sourceWindow){attempts=1;connected=true}
+    })
+   }
 
    // Assigning a source already requests the first frame. hasContent is
    // observable on this Quickshell build; there is no context-ready property.
@@ -102,7 +134,7 @@ Item {
    Timer {
     interval:root.refreshInterval
     repeat:true
-    running:root.active && !!preview.captureSource && preview.hasContent
+    running:root.active && root.refreshEnabled && !!preview.captureSource && preview.hasContent
     onTriggered:if(preview.hasContent && preview.captureSource)preview.captureFrame()
    }
   }
