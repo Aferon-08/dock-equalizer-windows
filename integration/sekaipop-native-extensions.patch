@@ -18,6 +18,30 @@ diff --git a/docs/PLUGINS.md b/docs/PLUGINS.md
 +Theme IPC exposes renewable palette leases (`musicSet`, `musicClear`, `musicStatus`) with baseline restoration and expiry. Persistent theme settings are not the music override. Existing desktop/bar plugins are unchanged.
 +
 +This section documents a proposal; upstream review and version assignment are required before advertising support in the reviewed catalogue.
+diff --git a/sekaipop/modules/common/functions/ExtensionProviders.js b/sekaipop/modules/common/functions/ExtensionProviders.js
+new file mode 100644
+--- /dev/null
++++ b/sekaipop/modules/common/functions/ExtensionProviders.js
+@@ -0,0 +1,19 @@
++.pragma library
++
++// Deterministic selection. A preference is retained while a plugin is disabled,
++// and the returned reason makes the temporary fallback explicit to the user.
++function resolve(slot, candidates, preferred) {
++    if (!["dock", "wallpaper", "settings"].includes(slot))
++        return {selected:"", preferred:"", state:"unsupported", candidates:[], message:"Unknown extension slot"}
++    const ordered = candidates.slice().sort((a,b)=>a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
++    const ready = ordered.filter(c=>c.ready && c.enabled)
++    const chosen = ready.find(c=>c.id===preferred) || ready[0]
++    const selected = chosen ? chosen.id : ""
++    const requested = preferred || ""
++    const state = requested && requested!==selected ? "preferred-unavailable"
++        : !selected ? "unavailable" : requested ? "selected" : ready.length>1 ? "conflict" : "automatic"
++    const message = state==="preferred-unavailable" ? "Preferred plugin is unavailable; using " + (selected || "the shell default")
++        : state==="conflict" ? "Several plugins request this surface. Automatic choice: " + selected + ". Choose a provider below."
++        : selected ? "Active provider: " + selected : "No enabled provider; using the shell default"
++    return {selected, preferred:requested, state, candidates:ordered, message}
++}
 diff --git a/sekaipop/modules/common/functions/PluginManifest.js b/sekaipop/modules/common/functions/PluginManifest.js
 --- a/sekaipop/modules/common/functions/PluginManifest.js
 +++ b/sekaipop/modules/common/functions/PluginManifest.js
@@ -43,7 +67,7 @@ diff --git a/sekaipop/modules/common/functions/PluginManifest.js b/sekaipop/modu
 diff --git a/sekaipop/modules/sekai/background/WallpaperLayer.qml b/sekaipop/modules/sekai/background/WallpaperLayer.qml
 --- a/sekaipop/modules/sekai/background/WallpaperLayer.qml
 +++ b/sekaipop/modules/sekai/background/WallpaperLayer.qml
-@@ -46,7 +46,15 @@
+@@ -46,7 +46,18 @@
      // This monitor's theme: Theme.of() gives the shell's own unless the monitor has one.
      readonly property var mt: Theme.of(screen)
 
@@ -51,7 +75,10 @@ diff --git a/sekaipop/modules/sekai/background/WallpaperLayer.qml b/sekaipop/mod
 +    // BEGIN native plugin wallpaper properties v1
 +    property bool proceduralFailed: false
 +    readonly property var proceduralState: PluginService.extensionState("wallpaper")
-+    readonly property bool proceduralPending: !PluginService.scanned || (!!proceduralState && !proceduralState.loaded)
++    property bool providerStartup:true
++    Timer {interval:5000;running:win.providerStartup;onTriggered:win.providerStartup=false}
++    onProceduralStateChanged:{proceduralFailed=false;if(proceduralState)providerStartup=false}
++    readonly property bool proceduralPending: !PluginService.scanned || (providerStartup && PluginService.extensionInfo("wallpaper").candidates.some(c=>!c.ready))
 +    readonly property bool proceduralDesired: !!proceduralState && proceduralState.loaded
 +        && PluginService.extensionEnabled(proceduralState,"wallpaper") && !proceduralFailed
 +
@@ -60,7 +87,7 @@ diff --git a/sekaipop/modules/sekai/background/WallpaperLayer.qml b/sekaipop/mod
  onWallpaperEnabledChanged: {
      if (wallpaperEnabled)
          restoreWallpaperResources();
-@@ -61,7 +69,7 @@
+@@ -61,7 +72,7 @@
      WlrLayershell.namespace: "sekaipop-wallpaper"
      WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
      exclusionMode: ExclusionMode.Ignore
@@ -69,7 +96,7 @@ diff --git a/sekaipop/modules/sekai/background/WallpaperLayer.qml b/sekaipop/mod
 
      anchors {
          top: true
-@@ -519,7 +527,7 @@
+@@ -519,7 +530,7 @@
      // EditStage.qml), and the ring in EditFrame hides its square corners.
      Item {
          id: stage
@@ -78,7 +105,7 @@ diff --git a/sekaipop/modules/sekai/background/WallpaperLayer.qml b/sekaipop/mod
          width: parent.width
          height: parent.height
          x: EditMode.xFor(win.screenName, win.width, win.height, win.uiScale)
-@@ -534,6 +542,7 @@
+@@ -534,6 +545,7 @@
          // (Without parallax it is exactly the stage.)
          Item {
              id: pic
@@ -86,7 +113,7 @@ diff --git a/sekaipop/modules/sekai/background/WallpaperLayer.qml b/sekaipop/mod
              width: stage.width * win.parallaxZoom
              height: stage.height * win.parallaxZoom
              x: -(width - stage.width) * win.parallaxFraction
-@@ -745,6 +754,79 @@
+@@ -745,6 +757,86 @@
              vertexShader: Directories.shader(blend.shaderBase + ".vert.qsb")
          }
          } // pic
@@ -138,11 +165,18 @@ diff --git a/sekaipop/modules/sekai/background/WallpaperLayer.qml b/sekaipop/mod
 +            }
 +            Timer {interval:650;running:true;onTriggered:proceduralWallpaper.collectWidgets()}
 +            Timer {interval:1200;running:win.proceduralDesired;repeat:true;onTriggered:proceduralWallpaper.collectWidgets()}
++            property var claimedState:null
++            readonly property var provider:win.proceduralState
++            onProviderChanged:{syncPetClaim();Qt.callLater(()=>{if(active)loadScene()})}
 +            readonly property string petClaimKey: "wallpaper:" + win.screenName
 +            readonly property bool petWorking: active && !!item && LockState.phase === "idle" && !win.fullscreenCovered && !GameModeService.enabled
 +            onPetWorkingChanged: syncPetClaim()
-+            function syncPetClaim() { if(win.proceduralState) win.proceduralState.want(petClaimKey,petWorking) }
-+            Component.onDestruction: if(win.proceduralState) win.proceduralState.want(petClaimKey,false)
++            function syncPetClaim() {
++                if(claimedState && claimedState!==provider)claimedState.want(petClaimKey,false)
++                claimedState=provider
++                if(provider)provider.want(petClaimKey,petWorking)
++            }
++            Component.onDestruction: if(claimedState) claimedState.want(petClaimKey,false)
 +            onStatusChanged: if(status === Loader.Error) win.proceduralFailed = true
 +            onActiveChanged: if(active && String(source) === "") loadScene()
 +            function loadScene() {
@@ -187,7 +221,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
      // ...and as the window sees it (real pixels): how far the strip reaches in from the edge.
      readonly property real stripSize: Math.round(dockWindow.pillThickness * dockWindow.uiScale)
      // The window is as big as the screen from the edge the pill is `lift` away from,
-@@ -1784,6 +1784,120 @@
+@@ -1784,6 +1784,121 @@
              anchors.fill: parent
              factor: dockWindow.uiScale
 
@@ -230,7 +264,8 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
 +                    syncClaim()
 +                    if (working) lyricsRequest.restart()
 +                }
-+                onStChanged: syncClaim()
++                onStChanged: {syncClaim();Qt.callLater(loadProvider)}
++                function loadProvider(){if(active)setSource("file://"+st.dir+"/Dock.qml",{host:pluginDockHost})}
 +                onActiveChanged: {
 +                    if (active)
 +                        setSource("file://" + st.dir + "/Dock.qml", { host: pluginDockHost })
@@ -308,7 +343,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
              Pill {
                  id: dockPill
                  // On the dock's edge, centered along it.
-@@ -1803,9 +1917,9 @@
+@@ -1803,9 +1918,9 @@
                  // Flat: as wide as its keys (and what the magnification adds), one
                  // key tall. Standing: one key wide, as tall as its keys.
                  width: dockWindow.vertical ? dockWindow.iconSize + dockWindow.pillPaddingV * 2
@@ -320,7 +355,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
 
                  // A modest rounded rectangle, not a full capsule — same radius
                  // MediaPill/BatteryPopup/ResourcePopup/TrayMenu all use for their
-@@ -1821,7 +1935,7 @@
+@@ -1821,7 +1936,7 @@
                  cornerRadius: dockWindow.look === "capsule"
                      ? Math.min(dockPill.capWidth, dockPill.capHeight) / 2 : mt.radiusOuter
                  // Transparent: no background, only the keys.
@@ -329,7 +364,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
                  capRim: dockWindow.look === "capsule"
                  borderWidth: dockWindow.look === "capsule" ? mt.capRimWidth : mt.borderWidth
                  // Same navy-outline / pale-ring / white-fill construction as the
-@@ -1841,6 +1955,9 @@
+@@ -1841,6 +1956,9 @@
                  Item {
                      id: dockRow
                      anchors.centerIn: parent
@@ -339,7 +374,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
                      width: dockWindow.vertical ? dockWindow.iconSize : dockWindow.rowLen
                      height: dockWindow.vertical ? dockWindow.rowLen : dockWindow.iconSize + mt.shadowOffset
 
-@@ -1860,9 +1977,9 @@
+@@ -1860,9 +1978,9 @@
              MouseArea {
                  id: hit
                  x: dockWindow.hitX
@@ -460,10 +495,26 @@ diff --git a/sekaipop/modules/sekai/settings/PluginEditor.qml b/sekaipop/modules
      property var pst: null              // its PluginState
      readonly property var plugin: pst ? pst.plugin : null
 
-@@ -229,9 +230,17 @@
+@@ -229,9 +230,33 @@
                  }
              }
 
++            Repeater {
++                model:root.plugin ? (root.plugin.extensions || []).filter(s=>s!=="settings") : []
++                Column {
++                    id:providerChoice
++                    required property string modelData
++                    width:body.width
++                    spacing:8
++                    readonly property var info:PluginService.extensionInfo(modelData)
++                    Text {width:parent.width;wrapMode:Text.WordWrap;color:mt.pInk;font.pixelSize:13
++                        text:providerChoice.modelData+": "+providerChoice.info.message}
++                    Row {spacing:8
++                        SettingChip {label:"Use this plugin";icon:"check";onClicked:PluginService.setExtensionProvider(providerChoice.modelData,root.plugin.id)}
++                        SettingChip {label:"Automatic choice";icon:"autorenew";onClicked:PluginService.setExtensionProvider(providerChoice.modelData,"")}
++                    }
++                }
++            }
 +            // BEGIN native plugin settings button
 +            SettingChip {
 +                visible: root.liquidSettings
@@ -479,7 +530,7 @@ diff --git a/sekaipop/modules/sekai/settings/PluginEditor.qml b/sekaipop/modules
                  width: parent.width
                  title: "Settings"
                  note: "Saved as you change them."
-@@ -241,7 +250,7 @@
+@@ -241,7 +266,7 @@
              }
 
              Repeater {
@@ -491,12 +542,18 @@ diff --git a/sekaipop/modules/sekai/settings/PluginEditor.qml b/sekaipop/modules
 diff --git a/sekaipop/services/PluginService.qml b/sekaipop/services/PluginService.qml
 --- a/sekaipop/services/PluginService.qml
 +++ b/sekaipop/services/PluginService.qml
-@@ -250,6 +250,30 @@
-                 delete s[object.pluginId]
-             root.states = s
+@@ -4,6 +4,7 @@
+ import Quickshell.Io
+ import qs.modules.common
+ import "../modules/common/functions/PluginManifest.js" as PM
++import "../modules/common/functions/ExtensionProviders.js" as EP
+
+ // Desktop widget plugins: widgets that live in their own folder (their own repo) and plug
+ // into the shell. docs/PLUGINS.md is the interface; this is where the shell finds them.
+@@ -252,9 +253,56 @@
          }
-+    }
-+
+     }
+
 +
 +    // Optional native surfaces. No plugin writes shell files or runs an installer.
 +    property string settingsExtensionId: ""
@@ -506,22 +563,50 @@ diff --git a/sekaipop/services/PluginService.qml b/sekaipop/services/PluginServi
 +        if(JSON.stringify(widgetRects[key])===JSON.stringify(rect))return
 +        const next=Object.assign({},widgetRects);next[key]=rect;widgetRects=next
 +    }
++    function extensionInfo(slot) {
++        let prefs={}
++        try { prefs=JSON.parse(SettingsService.get("plugins.extensionProviders")) || {} } catch (_) {}
++        const candidates=root.found.filter(f=>(f.plugin.extensions || []).includes(slot)).map(f=>{
++            const st=root.stateFor(f.plugin.id)
++            return {id:f.plugin.id, ready:!!st && st.loaded && (!f.plugin.files.service || !!st.service),
++                enabled:root.extensionEnabled(st,slot)}
++        })
++        return EP.resolve(slot,candidates,typeof prefs[slot]==="string" ? prefs[slot] : "")
++    }
 +    function extensionState(slot) {
-+        const entry=root.found.find(f=>(f.plugin.extensions || []).indexOf(slot)>=0)
-+        return entry ? root.stateFor(entry.plugin.id) : null
++        const selected=root.extensionInfo(slot).selected
++        return selected ? root.stateFor(selected) : null
++    }
++    function setExtensionProvider(slot,id) {
++        if(!["dock","wallpaper","settings"].includes(slot))return "unknown surface"
++        if(id && !root.found.some(f=>f.plugin.id===id && (f.plugin.extensions || []).includes(slot)))return "plugin has no such surface"
++        let prefs={}
++        try { prefs=JSON.parse(SettingsService.get("plugins.extensionProviders")) || {} } catch (_) {}
++        if(typeof prefs!=="object" || Array.isArray(prefs))prefs={}
++        if(id)prefs[slot]=id;else delete prefs[slot]
++        SettingsService.set("plugins.extensionProviders",JSON.stringify(prefs))
++        return "ok"
 +    }
 +    function extensionEnabled(st, slot) {
-+        if(!st || !st.loaded)return false
-+        return !st.service || typeof st.service.extensionEnabled!=="function" || st.service.extensionEnabled(slot)
++        if(!st || !st.loaded || (st.plugin.files.service && !st.service))return false
++        try { return !st.service || typeof st.service.extensionEnabled!=="function" || st.service.extensionEnabled(slot) }
++        catch (_) { return false }
 +    }
 +    function openExtensionSettings(id) {
 +        const st=root.stateFor(id)
 +        if(!st || (st.plugin.extensions || []).indexOf("settings")<0)return
 +        root.settingsExtensionId=st.pluginId;root.settingsExtensionOpen=true
 +        root.askSettings(st.pluginId, "")
-     }
-
++    }
++
      // ===== ipc =====
+     IpcHandler {
+         target: "plugins"
++        function provider(slot:string,id:string):string {return root.setExtensionProvider(slot,id==="auto" ? "" : id)}
++        function providers():string {return JSON.stringify({dock:root.extensionInfo("dock"),wallpaper:root.extensionInfo("wallpaper")})}
+
+         function list(): string {
+             const lines = []
 diff --git a/sekaipop/services/PluginState.qml b/sekaipop/services/PluginState.qml
 --- a/sekaipop/services/PluginState.qml
 +++ b/sekaipop/services/PluginState.qml
@@ -545,6 +630,17 @@ diff --git a/sekaipop/services/PluginState.qml b/sekaipop/services/PluginState.q
          readonly property int apiVersion: PM.API_VERSION
          readonly property string id: root.pluginId
          readonly property string name: root.plugin.name
+diff --git a/sekaipop/services/SettingsService.qml b/sekaipop/services/SettingsService.qml
+--- a/sekaipop/services/SettingsService.qml
++++ b/sekaipop/services/SettingsService.qml
+@@ -33,6 +33,7 @@
+     // `group.name`; the type of the default is the type of the option.
+     readonly property var defaults: ({
+         // ===== Bar =====
++        "plugins.extensionProviders": "{}",
+         "bar.visible": true,
+         "bar.hideMode": "off",          // off | auto (slides off its edge until the pointer touches that edge; reserves no space)
+         "bar.compactWindow": true,     // the bar window is the strip (+ room) instead of the whole screen; off = whole screen
 diff --git a/sekaipop/services/ThemeService.qml b/sekaipop/services/ThemeService.qml
 --- a/sekaipop/services/ThemeService.qml
 +++ b/sekaipop/services/ThemeService.qml

@@ -54,3 +54,4 @@ jobs:
         run: |
           git -C upstream-shell apply "$GITHUB_WORKSPACE/integration/sekaipop-native-extensions.patch"
           node tests/native-api.mjs upstream-shell/sekaipop/modules/common/functions/PluginManifest.js
+          node tests/extension-providers.mjs upstream-shell/sekaipop
