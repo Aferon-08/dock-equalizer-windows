@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQml.Models
 import Quickshell
 import Quickshell.Io
 import "." as Plugin
@@ -9,6 +10,7 @@ ShellRoot {
     settings.watchFiles: false
     readonly property string scenario: Quickshell.env("PROFILE_SCENARIO")
     readonly property string folder: Quickshell.env("PROFILE_FIXTURE")
+    property var manifests: []
     property int step: 0
     property var imported: null
     property int skipped: -1
@@ -34,8 +36,15 @@ ShellRoot {
 
     FileView {
         path: test.folder + "/plugin.json"
-        onLoaded: {
-            model.plugin = JSON.parse(text())
+        onLoaded: test.manifests = [{plugin: JSON.parse(text())}]
+    }
+
+    // Use the same model boundary as the shell's PluginService.
+    Instantiator {
+        model: test.manifests
+        delegate: QtObject { required property var modelData }
+        onObjectAdded: (_, entry) => {
+            model.plugin = entry.modelData.plugin
             model.settings = Object.assign({}, model.plugin.settings, {
                 glassOpacity: .56, glassRefraction: 1.8, autoSpotify: false, futureSetting: 42
             })
@@ -107,6 +116,7 @@ ShellRoot {
                     picker.currentIndex = 1
                     picker.activated(1)
                     test.check(model.settings.progressStyle === "plassglass", "Progress style selected in the settings panel")
+                    test.check(picker.displayText === "Плассгласс", "Picker displays the stored selection")
                     editor.undo()
                     test.check(model.settings.progressStyle === "material", "Undo restores progress style")
                     editor.change("dockGlass", false)

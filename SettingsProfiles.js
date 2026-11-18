@@ -98,7 +98,8 @@ function value(plugin, key, input) {
         return Math.max(info.min ?? -Infinity, Math.min(info.max ?? Infinity, input))
     }
     if (typeof input === "string") {
-        return Array.isArray(info.choices) && info.choices.some(choice => choice.value === input)
+        // The shell's plugin model can expose the choices as a Qt sequence.
+        return Array.from(info.choices || []).some(choice => choice?.value === input)
             ? input : undefined
     }
     return typeof input === "boolean" ? input : undefined
