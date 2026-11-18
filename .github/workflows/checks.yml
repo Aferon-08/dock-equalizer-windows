@@ -44,6 +44,8 @@ jobs:
         run: node tests/bubble-family.mjs
       - name: Settings liquid transition geometry
         run: node tests/settings-motion.mjs
+      - name: Settings presets, dependency keys and profile compatibility
+        run: node tests/settings-profiles.mjs
       - name: Native installation has no patching side effects
         run: python tests/installer.py
       - name: Cached lyric finale

@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import "BeatTracker.js" as BeatTracker
 import "SpectrumEnvelope.js" as Envelope
@@ -9,6 +10,11 @@ QtObject {
     id: root
     required property var host
     property bool settingsPanelOpen: false
+    property SettingsEditor settingsEditor: SettingsEditor {
+        libraryPath: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state")
+            + "/sekaipop/dock-equalizer-profiles.json"
+        readerPath: root.host.path("settings-profile-read.py")
+    }
     readonly property var integration: HostContract.resolve(host)
     readonly property bool nativeIntegration: integration.state !== "unsupported"
     function extensionEnabled(slot) {

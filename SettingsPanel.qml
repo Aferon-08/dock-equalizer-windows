@@ -24,6 +24,8 @@ Item {
  focus:opened
  readonly property var prefs:pst ? pst.settings : ({})
  readonly property var manifest:pst ? pst.plugin : ({settings:{},settingsInfo:{}})
+ readonly property var editSession:pst?.service?.settingsEditor || localEditor
+ SettingsEditor {id:localEditor;state:root.pst}
  readonly property color ink:theme.ink || "#e4f4f2"
  readonly property color accent:theme.accentCyan || "#9cddd2"
  readonly property color surface:theme.surface || "#152322"
@@ -90,11 +92,13 @@ Item {
  }
  Keys.onEscapePressed:event=>{close();event.accepted=true}
  onOpenedChanged:{
+  if(opened)editSession.attach(pst)
+  else editSession.endGesture()
   if(opened && mode==="closed")Qt.callLater(openPanel)
   else if(!opened && mode==="capturing"){endCapture();mode="closed"}
   else if(!opened && mode==="open")startClosing()
  }
- Component.onCompleted:if(opened)Qt.callLater(openPanel)
+ Component.onCompleted:if(opened){editSession.attach(pst);Qt.callLater(openPanel)}
  NumberAnimation {id:morph;target:root;property:"phase";from:0;to:1;duration:Math.max(2600,(root.prefs.settingsDuration ?? 1100)*3)*(root.closing?.9:1)
   onFinished:{if(root.mode==="opening"){root.mode="open";if(!root.opened)root.startClosing()}else{root.mode="closed";if(root.opened)Qt.callLater(root.openPanel)}}
  }
@@ -164,8 +168,15 @@ Item {
      Label {text:"Dock Equalizer";color:root.ink;font.pixelSize:26;font.bold:true}
      Label {text:Object.keys(root.manifest.settings).length+" настроек · сохраняются сразу";color:root.accent}
     }
-    Button {font.pixelSize:14;leftPadding:16;rightPadding:16;topPadding:12;bottomPadding:12;palette.button:Qt.darker(root.surface,1.15);palette.buttonText:root.ink;text:"Сбросить всё";onClicked:resetDialog.open()}
-    Button {font.pixelSize:14;leftPadding:16;rightPadding:16;topPadding:12;bottomPadding:12;palette.button:Qt.darker(root.surface,1.15);palette.buttonText:root.ink;text:"Вернуться  ×";onClicked:root.close()}
+    ToolButton {
+     text:"↶";font.pixelSize:24;enabled:root.editSession.canUndo
+     Accessible.name:"Отменить последнее изменение"
+     ToolTip.visible:hovered
+     ToolTip.text:Accessible.name
+     onClicked:root.editSession.undo()
+    }
+    SettingsAction {ink:root.ink;accent:root.accent;surface:root.surface;text:"Сбросить всё";onClicked:resetDialog.open()}
+    SettingsAction {ink:root.ink;accent:root.accent;surface:root.surface;text:"Вернуться  ×";onClicked:root.close()}
    }
    TextField {font.pixelSize:15;implicitHeight:46;Layout.fillWidth:true;background:Rectangle{radius:14;color:Qt.rgba(root.accent.r,root.accent.g,root.accent.b,.08);border.color:Qt.rgba(root.accent.r,root.accent.g,root.accent.b,.2)} placeholderText:"Поиск настроек…";onTextChanged:root.query=text.toLowerCase();color:root.ink}
    ScrollView {
@@ -177,15 +188,38 @@ Item {
      NumberAnimation {id:wheelAnim;target:flick;property:"contentY";duration:200;easing.type:Easing.OutCubic}
      Column {
       id:sections;width:flick.width;spacing:14
+      Loader {
+       width:sections.width
+       active:root.mode==="open" && root.manifest.settings.dockGlass!==undefined
+         && (root.query==="" || "темы оформления материал дока стекло дока чистое матовое тёмное непрозрачное личные профили профиль импорт экспорт живое стекло тихий рабочий стол вечерний концерт".includes(root.query))
+       sourceComponent:ThemePresets {
+        editor:root.editSession;settings:root.prefs;accent:root.accent;ink:root.ink;surface:root.surface
+       }
+      }
       Repeater {model:root.manifest.groups || []
        Column {
         id:group;required property string modelData;width:sections.width;spacing:8
         readonly property var keys:Object.keys(root.manifest.settings).filter(k=>(root.manifest.settingsInfo[k]?.group || "")===modelData)
         readonly property var matching:keys.filter(k=>root.query==="" || (root.manifest.settingsInfo[k]?.label+" "+k+" "+modelData).toLowerCase().includes(root.query))
         visible:matching.length>0 || diagnostics.active
-        Label {text:group.modelData;color:root.accent;font.pixelSize:18;font.bold:true;topPadding:14}
+        RowLayout {
+         width:group.width
+         Label {text:group.modelData;color:root.accent;font.pixelSize:18;font.bold:true;Layout.fillWidth:true}
+         ToolButton {
+          text:"↺";font.pixelSize:18
+          Accessible.name:"Сбросить группу «"+group.modelData+"»"
+          ToolTip.visible:hovered
+          ToolTip.text:Accessible.name
+          enabled:group.keys.some(key=>key!=="wallpaperRegenerate" && root.prefs[key]!==root.manifest.settings[key])
+          onClicked:{
+           const defaults={}
+           for(const key of group.keys)defaults[key]=root.manifest.settings[key]
+           root.editSession.reset(defaults,"Сброс группы «"+group.modelData+"»")
+          }
+         }
+        }
         Repeater {model:group.keys
-         SettingsControl {required property string modelData;width:group.width;pst:root.pst;settingKey:modelData;ink:root.ink;accent:root.accent;visible:group.matching.includes(modelData)}
+         SettingsControl {required property string modelData;width:group.width;pst:root.pst;editor:root.editSession;settingKey:modelData;ink:root.ink;accent:root.accent;visible:group.matching.includes(modelData)}
         }
         Loader {
          id:diagnostics
@@ -203,6 +237,6 @@ Item {
  }
  Dialog {id:resetDialog;anchors.centerIn:parent;title:"Сбросить все настройки?";modal:true;standardButtons:Dialog.Ok|Dialog.Cancel
   Label {text:"Все параметры вернутся к значениям по умолчанию.\nЗаписи музыки и разметки сохранятся."}
-  onAccepted:root.pst.resetAll()
+  onAccepted:root.editSession.reset(root.manifest.settings,"Сброс настроек")
  }
 }
