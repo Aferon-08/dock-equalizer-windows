@@ -3,8 +3,6 @@ import QtQuick
 import "DockMaterial.js" as Material
 import QtQuick.Effects
 import QtQuick.Controls as Controls
-import Quickshell.Widgets
-import Quickshell.Io
 import "LyricsMath.js" as LM
 import "LightMotion.js" as LightMotion
 import "ImportedLyrics.js" as ImportedLyrics
@@ -21,17 +19,25 @@ Item {
     readonly property vector4d materialStyle: Qt.vector4d(material.enabled ? 1 : 0, material.blur, material.darkening, material.refraction)
     property rect glassRect: Qt.rect(0, 0, 1, 1)
     required property var host
+    // Optional host-specific cache/IPC behavior; the view itself uses only Qt.
+    property Component bridgeComponent: null
+    Loader {
+        id: platformBridge
+        sourceComponent: root.bridgeComponent
+        onLoaded: item.surface = Qt.binding(() => root)
+    }
     readonly property var media: host.dock.mediaSource || null
     readonly property var player: media ? media.player : null
     readonly property var lyrics: host.dock.lyrics || null
     readonly property bool playing: !!media && media.playing
-    readonly property string trackUrl: player ? String((player.metadata || {})["xesam:url"] || "") : ""
+    readonly property bool nativeClock: !!player && typeof player.positionNow === "function"
+    readonly property string trackUrl: player && !nativeClock ? String((player.metadata || {})["xesam:url"] || "") : ""
     readonly property string youtubeId: {
         if (!/^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i.test(trackUrl)) return ""
         const match = trackUrl.match(/(?:[?&]v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{11})(?:[^A-Za-z0-9_-]|$)/)
         return match ? match[1] : ""
     }
-    readonly property string signature: AnalysisPolicy.identity({url: trackUrl,
+    readonly property string signature: nativeClock ? player.trackKey : AnalysisPolicy.identity({url: trackUrl,
         artist: media ? media.artist : "", title: media ? media.title : ""})
     readonly property real reportedDuration: player && player.lengthSupported && isFinite(Number(player.length))
         && Number(player.length) > 0 ? Number(player.length) : 0
@@ -75,46 +81,12 @@ Item {
     onHostChanged: refreshDuration()
     readonly property bool sameTrack: !!lyrics && !!media && lyrics.lastArgs
         && lyrics.lastArgs[0] === media.artist && lyrics.lastArgs[1] === media.title
-    property string rawLyricsText: ""
-    property string rawLyricsKey: ""
+    readonly property string rawLyricsText: platformBridge.item ? platformBridge.item.rawLyricsText : ""
+    readonly property string rawLyricsKey: platformBridge.item ? platformBridge.item.rawLyricsKey : ""
     readonly property bool rawLyricsCurrent: sameTrack && !!lyrics && rawLyricsKey === lyrics.trackId && rawLyricsText !== ""
     readonly property var standardLines: sameTrack && lyrics.status === "ready"
         ? (rawLyricsCurrent ? VoiceAnnotations.rawLines(rawLyricsText) : lyrics.lines) : []
     readonly property string standardLyricsText: rawLyricsCurrent ? rawLyricsText : ImportedLyrics.toLrc(standardLines)
-    Timer {
-        id: rawLyricsRequest
-        interval: 250
-        onTriggered: {
-            if (rawLyricsReader.running || !root.sameTrack || !root.lyrics || !root.lyrics.cacheScript
-                || !/^[a-f0-9]{32}$/.test(root.lyrics.trackId || "")) return
-            rawLyricsReader.requestKey = root.lyrics.trackId
-            rawLyricsReader.command = ["bash", root.lyrics.cacheScript, "get", rawLyricsReader.requestKey]
-            rawLyricsReader.running = true
-        }
-    }
-    Process {
-        id: rawLyricsReader
-        property string requestKey: ""
-        stdout: StdioCollector { onStreamFinished: {
-            if (!root.sameTrack || !root.lyrics || root.lyrics.trackId !== rawLyricsReader.requestKey) return
-            try {
-                const cached = JSON.parse(text)
-                if (typeof cached.synced === "string" && cached.synced.length <= 256 * 1024) {
-                    root.rawLyricsKey = rawLyricsReader.requestKey; root.rawLyricsText = cached.synced
-                }
-            } catch (_) {}
-        } }
-        onExited: {
-            if (root.sameTrack && root.lyrics && root.lyrics.trackId !== requestKey) rawLyricsRequest.restart()
-        }
-    }
-    Connections {
-        target: root.lyrics
-        ignoreUnknownSignals: true
-        function onLinesChanged() { rawLyricsRequest.restart() }
-        function onTrackIdChanged() { rawLyricsRequest.restart() }
-    }
-    onSameTrackChanged: rawLyricsRequest.restart()
     readonly property var annotatedDocument: VoiceAnnotations.fromLines(standardLines, duration)
     readonly property var presentationDocument: BackingLayout.project(hasTimingDocument ? wordtimeResult : annotatedDocument,standardLines,duration)
     readonly property var voiceDocument: presentationDocument
@@ -167,11 +139,12 @@ Item {
     Connections { target: root.host; function onWorkingChanged() { autoTiming.restart() } }
     readonly property bool available: host.settings.lyrics !== false && !host.dock.vertical
         && lines.some(line => !!line.text && line.text.trim() !== "")
+    readonly property bool compactTrackHeader: nativeClock && !available
     // A selected track keeps its player surface when paused or without lyrics.
     property bool dismissedUntilPlay: false
     readonly property bool wantsMusic: host.working && !!player && !!media && !!media.title
         && !dismissedUntilPlay && host.settings.lyrics !== false && !host.dock.vertical && !host.dock.editing
-    readonly property string emptyLabel: sameTrack && lyrics
+    readonly property string emptyLabel: nativeClock && !lyrics ? "Лирика недоступна" : sameTrack && lyrics
         && (lyrics.status === "none" || lyrics.status === "instrumental") ? "Инструментальная"
         : sameTrack && lyrics && lyrics.status === "offline" ? "Лирика недоступна" : "Поиск лирики…"
     readonly property bool wide: wantsMusic && host.settings.expandLyrics !== false && !!host.dock.desktopEmpty
@@ -229,11 +202,12 @@ Item {
     property real position: 0
     function tick(stamp) {
         now = stamp
-        position = Math.max(0, LM.estimate(clock, stamp, playing))
+        position = nativeClock ? player.positionNow() : Math.max(0, LM.estimate(clock, stamp, playing))
     }
     readonly property real lyricTime: position + (hasTimingDocument ? 0 : 0.2) + (sameTrack && lyrics ? lyrics.syncTotal / 1000 : 0)
 
     function poll() {
+        if (nativeClock) { tick(Date.now()); return }
         if (!player || !player.positionSupported) { tick(Date.now()); return }
         player.positionChanged()
         const value = Number(player.position)
@@ -249,11 +223,14 @@ Item {
         tick(Date.now())
     }
     onSignatureChanged: {
-        rawLyricsText = ""; rawLyricsKey = ""; rawLyricsRequest.restart()
         if (playing && host.service && typeof host.service.resetRhythm === "function") host.service.resetRhythm()
         rememberedDuration = 0; refreshDuration()
         clock = LM.clockReset(0, Date.now()); lastPosition = -1; stale = 0; tick(Date.now())
         poll()
+    }
+    Connections {
+        target: root.nativeClock ? root.player : null
+        function onChanged() { root.tick(Date.now()) }
     }
     onPlayingChanged: {
         autoTiming.restart()
@@ -288,7 +265,7 @@ Item {
             }
         }
     }
-    Component.onCompleted: { ready = true; animateLayout(); refreshDuration(); poll(); report(); timingRequest.restart(); rawLyricsRequest.restart() }
+    Component.onCompleted: { ready = true; animateLayout(); refreshDuration(); poll(); report(); timingRequest.restart() }
 
     function mixColor(a, b, amount) {
         return Qt.rgba(a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount,
@@ -357,53 +334,20 @@ Item {
     Behavior on wordLightTail { Vector3dAnimation { duration: root.waitingLightAmount > 0.5 ? 320 : (root.host.settings.trailDelay ?? 230); easing.type: Easing.OutCubic } }
     Behavior on wordLightMist { Vector3dAnimation { duration: root.waitingLightAmount > 0.5 ? 420 : (root.host.settings.mistDelay ?? 300); easing.type: Easing.OutCubic } }
     readonly property var dock: host.dock.item
-    IpcHandler {
-        target: "docklyrics-" + (root.host.dock.screenName || "preview")
-        function status(): string {
-            return JSON.stringify({ mode: root.mode, available: root.available, wide: root.wide,
-                timingSource: root.importedTiming ? "imported" : root.hasTimingDocument ? "mixed" : "standard",
-                timingWords: root.hasTimingDocument ? root.wordtimeResult.wordCount : 0,
-                voices: root.multiVoiceAvailable ? root.voiceDocument.voices.map(v => ({id: v.id, label: v.label})) : [],
-                voiceRegions: root.multiVoiceActive ? multiReel.regions : [],
-                lyricsEnded: root.lyricsEnded, finale: root.finaleState.phase, playing: root.playing, content: root.available ? "lyrics" : root.emptyLabel, ambient: root.ambientLight, dismissed: root.dismissedUntilPlay, swipe: [root.swipeX, root.swipeY], swipeDirection: root.lastSwipeDirection, position: root.position, duration: root.duration, reportedDuration: root.reportedDuration, youtubeId: root.youtubeId, index: reel.currentIndex,
-                text: reel.current.text, waiting: reel.waiting, waitProgress: reel.waitProgress, cursor: reel.cursor,
-                marker: [reel.markerPose.x, reel.markerPose.y, reel.markerPose.alpha], handoff: reel.transfer,
-                splashes: reel.landings.length, loadingLight: root.waitingLightAmount, heartBpm: root.heartBpm, beatGlow: root.beatGlow, wordLight: [root.wordLight.x, root.wordLight.y, root.wordLight.z],
-                opacity: root.lyricsOpacity, musicLayout: root.musicLayout, iconsScale: root.iconsScale,
-                bare: root.dock.bare, color: String(root.colors.ink), accent: String(root.colors.accent), visible: root.visible,
-                box: [root.x, root.y, root.width, root.height], dock: [root.dock.x, root.dock.y, root.dock.width, root.dock.height] })
-        }
-        function importWordtime(file: string): string {
-            return root.importWordtime(file) ? "Проверяем JSON для текущего трека." : "Нет выбранного трека или обработчик недоступен."
-        }
-        function removeWordtime(): string {
-            return root.removeWordtime() ? "Возвращаем обычную лирику." : "Нет выбранного трека или обработчик недоступен."
-        }
-        function wordtimeStatus(): string {
-            const result = root.wordtimeResult || { status: "loading" }
-            return JSON.stringify({ status: result.status, message: result.message || "",
-                words: result.wordCount || 0, review: result.reviewCount || 0,
-                voices: (result.voices || []).map(v => ({id: v.id, label: v.label})),
-                voiceAnalysis: result.multivoice || null, analysisStages: result.analysis || null,
-                busy: !!root.wordtimeStore && root.wordtimeStore.busy,
-                engineReady: !!root.wordtimeStore && root.wordtimeStore.engineReady,
-                generating: !!root.wordtimeStore && root.wordtimeStore.generationBusy,
-                recordingReady: !!root.wordtimeStore && !!root.wordtimeStore.recordingFor(root.wordtimeTrack),
-                analysisRequested: !!root.wordtimeStore && !!root.wordtimeStore.analysisRequests[root.wordtimeStore.token(root.wordtimeTrack)],
-                capturing: !!root.wordtimeStore && root.wordtimeStore.captureBusy,
-                capturePhase: root.wordtimeStore ? root.wordtimeStore.capturePhase : "",
-                captureProgress: root.wordtimeStore ? root.wordtimeStore.captureProgress : 0,
-                compute: root.wordtimeStore ? root.wordtimeStore.generationCompute : null,
-                detail: root.wordtimeStore ? root.wordtimeStore.generationDetail : null,
-                phase: root.wordtimeStore ? root.wordtimeStore.generationPhase : "",
-                progress: root.wordtimeStore ? root.wordtimeStore.generationProgress : 0,
-                lastAction: root.wordtimeStore ? root.wordtimeStore.lastAction : null })
-        }
-        function generateWordtime(audio: string): string {
-            return root.wordtimeStore && root.wordtimeStore.startGeneration(root.wordtimeTrack, audio, root.standardLyricsText, false)
-                ? "Рассчитываем тайминги в фоне." : "Нет текста песни, обработчик не готов или уже занят."
-        }
-        function cancelWordtime(): void { if (root.wordtimeStore) root.wordtimeStore.cancelGeneration() }
+    function diagnostics(): string {
+        return JSON.stringify({ mode: root.mode, available: root.available, wide: root.wide,
+            timingSource: root.importedTiming ? "imported" : root.hasTimingDocument ? "mixed" : "standard",
+            timingWords: root.hasTimingDocument ? root.wordtimeResult.wordCount : 0,
+            voices: root.multiVoiceAvailable ? root.voiceDocument.voices.map(v => ({id: v.id, label: v.label})) : [],
+            voiceRegions: root.multiVoiceActive ? multiReel.regions : [],
+            lyricsEnded: root.lyricsEnded, finale: root.finaleState.phase, playing: root.playing, content: root.available ? "lyrics" : root.emptyLabel, ambient: root.ambientLight, dismissed: root.dismissedUntilPlay, swipe: [root.swipeX, root.swipeY], swipeDirection: root.lastSwipeDirection, position: root.position, duration: root.duration, reportedDuration: root.reportedDuration, youtubeId: root.youtubeId, index: reel.currentIndex,
+            text: reel.current.text, trackHeaderVisible: header.visible && header.opacity > 0.95,
+            waiting: reel.waiting, waitProgress: reel.waitProgress, cursor: reel.cursor,
+            marker: [reel.markerPose.x, reel.markerPose.y, reel.markerPose.alpha], handoff: reel.transfer,
+            splashes: reel.landings.length, loadingLight: root.waitingLightAmount, heartBpm: root.heartBpm, beatGlow: root.beatGlow, wordLight: [root.wordLight.x, root.wordLight.y, root.wordLight.z],
+            opacity: root.lyricsOpacity, musicLayout: root.musicLayout, iconsScale: root.iconsScale,
+            bare: root.dock.bare, color: String(root.colors.ink), accent: String(root.colors.accent), visible: root.visible,
+            box: [root.x, root.y, root.width, root.height], dock: [root.dock.x, root.dock.y, root.dock.width, root.dock.height] })
     }
     // The top edge is a grip, away from the playback controls. Parent-space
     // coordinates keep dragging stable while the visual surface follows it.
@@ -470,6 +414,10 @@ Item {
     }
     function seekTo(fraction) {
         if (player && player.canSeek && player.positionSupported && duration > 0) {
+            if (nativeClock) {
+                player.seek(fraction * duration)
+                return
+            }
             player.position = fraction * duration
             clock = LM.clockReset(fraction * duration, Date.now())
             tick(Date.now())
@@ -477,8 +425,21 @@ Item {
     }
 
     // The same art and progress move between the two layouts, without crossfading copies.
-    ClippingRectangle {
+    Rectangle {
         id: cover
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: coverMask
+        }
+        Rectangle {
+            id: coverMask
+            width: cover.width; height: cover.height
+            radius: cover.radius
+            color: "white"
+            visible: false
+            layer.enabled: true
+        }
         x: 19 - 2 * Math.min(1, root.layout)
         y: 17 + 10 * Math.min(1, root.layout)
         width: 41 + 17 * Math.min(1, root.layout)
@@ -496,10 +457,10 @@ Item {
         }
         Text {
             anchors.centerIn: parent
-            text: "music_note"
+            text: root.host.theme.iconFont ? "music_note" : "♪"
             visible: coverImage.status !== Image.Ready
             color: root.colors.ink
-            font.family: root.host.theme.iconFont; font.pixelSize: 25
+            font.family: root.host.theme.iconFont || root.host.theme.fontFamily; font.pixelSize: 25
         }
         Rectangle { anchors.fill: parent; color: root.colors.ink; opacity: artArea.containsMouse ? .12 : 0 }
         MouseArea {
@@ -520,11 +481,11 @@ Item {
         thickness: root.host.settings.progressThickness ?? 3
         id: progress
         x: 68 + 14 * Math.min(1, root.layout)
-        y: 45 + 18 * Math.min(1, root.layout)
+        y: root.compactTrackHeader ? 53 + 10 * Math.min(1, root.layout) : 45 + 18 * Math.min(1, root.layout)
         width: Math.max(1, root.width - x - (68 + 14 * Math.min(1, root.layout)))
         height: 20
         opacity: root.musicLayout
-        visible: opacity > 0.001
+        visible: opacity > 0.001 && (!root.nativeClock || root.player.positionSupported)
         fraction: root.duration > 0 ? Math.max(0, Math.min(1, root.position / root.duration)) : 0
         indeterminate: root.duration <= 0
         playing: root.playing
@@ -536,10 +497,10 @@ Item {
     Item {
         id: volume
         x: root.width - 54
-        y: 26 + 34 * Math.min(1, root.layout)
+        y: root.compactTrackHeader ? 51 + 10 * Math.min(1, root.layout) : 26 + 34 * Math.min(1, root.layout)
         width: 24; height: 24
         opacity: root.musicLayout
-        visible: opacity > 0.001
+        visible: opacity > 0.001 && (!root.nativeClock || root.player.volumeSupported)
         property real unmutedVolume: 1
         Image {
             anchors.centerIn: parent; width: 19; height: 19
@@ -556,6 +517,7 @@ Item {
             enabled: !!root.player && root.player.volumeSupported && root.player.canControl
             cursorShape: Qt.PointingHandCursor
             onClicked: {
+                if (root.nativeClock) { root.player.toggleMute(); return }
                 if (root.player.volume > 0) { volume.unmutedVolume = root.player.volume; root.player.volume = 0 }
                 else root.player.volume = volume.unmutedVolume
             }
@@ -566,8 +528,8 @@ Item {
         id: header
         width: parent.width
         height: 90
-        visible: root.layout > 0.01
-        opacity: Math.min(1, root.layout)
+        visible: root.compactTrackHeader || root.layout > 0.01
+        opacity: root.compactTrackHeader ? root.musicLayout : Math.min(1, root.layout)
         Text {
             x: progress.x; y: 12
             width: Math.max(1, playbackControls.x - x - 12)
@@ -598,7 +560,9 @@ Item {
                     id: button
                     required property int index
                     required property string modelData
-                    width: 42; height: 32
+                    width: root.nativeClock && root.width < 390 ? 30 : 42
+                    height: 32
+                    opacity: root.nativeClock && !area.enabled ? 0.35 : 1
                     Rectangle { anchors.fill: parent; radius: 12; color: root.colors.ink; opacity: area.containsMouse ? 0.08 : 0 }
                     Image {
                         anchors.centerIn: parent
@@ -618,9 +582,9 @@ Item {
                         Repeater { model: 2; Rectangle { width: 4; height: 18; radius: 1; color: root.colors.ink } }
                     }
                     Text {
-                        anchors.centerIn: parent; text: "play_arrow"
+                        anchors.centerIn: parent; text: root.host.theme.iconFont ? "play_arrow" : "▶"
                         visible: button.index === 1 && !root.playing
-                        color: root.colors.ink; font.family: root.host.theme.iconFont; font.pixelSize: 28
+                        color: root.colors.ink; font.family: root.host.theme.iconFont || root.host.theme.fontFamily; font.pixelSize: 28
                     }
                     MouseArea {
                         id: area
@@ -639,12 +603,14 @@ Item {
         }
         Text {
             x: progress.x; y: 51
-            text: root.timeLabel(root.position)
+            visible: !root.nativeClock || root.layout > 0.5
+            text: !root.nativeClock || root.player.positionSupported ? root.timeLabel(root.position) : "—:—"
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 10
         }
         Text {
             x: progress.x + progress.width - width; y: 51
+            visible: !root.nativeClock || root.layout > 0.5
             text: root.duration > 0 ? root.timeLabel(root.duration) : "—:—"
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 10
@@ -744,16 +710,16 @@ Item {
     }
     Item {
         x: reel.x; y: reel.y; width: reel.width; height: reel.height
-        visible: !root.available
-        opacity: root.lyricsOpacity
+        visible: !root.available && (!root.nativeClock || root.layout > 0.01)
+        opacity: root.lyricsOpacity * (root.nativeClock ? Math.min(1, root.layout) : 1)
         Column {
             anchors.centerIn: parent
             spacing: 8
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: root.layout > 0.5
-                text: "music_note"; color: root.colors.accent; opacity: 0.75
-                font.family: root.host.theme.iconFont; font.pixelSize: 22
+                text: root.host.theme.iconFont ? "music_note" : "♪"; color: root.colors.accent; opacity: 0.75
+                font.family: root.host.theme.iconFont || root.host.theme.fontFamily; font.pixelSize: 22
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter

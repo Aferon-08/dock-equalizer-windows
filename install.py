@@ -183,7 +183,10 @@ def main():
             destination.parent.mkdir(parents=True, exist_ok=True)
             if destination.exists():
                 shutil.rmtree(destination)
-            shutil.copytree(source, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git", ".github", "docs", "tests", "tools", "dist"))
+            shutil.copytree(source, destination, ignore=shutil.ignore_patterns(
+                "__pycache__", "*.pyc", ".git", ".github", "docs", "tests", "tools", "dist",
+                "out", "windows", "CMakeLists.txt", "CMakePresets.json",
+            ))
             mutated_plugin = True
         atomic_write(dock, updated)
         atomic_write(wallpaper, updated_wallpaper)

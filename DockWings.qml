@@ -7,6 +7,10 @@ import "DockMaterial.js" as Material
 Item {
     id: root
     required property var host
+    // Platform behavior is injected. A plain Qt host needs neither component.
+    property Component backdropComponent: null
+    property Component lyricsBridgeComponent: null
+    readonly property Item lyricsView: lyricLayer
     readonly property var material: Material.read(host.settings)
     FrameAnimation {running:!!root.host.service && !!root.host.service.profileFrames;onTriggered:root.host.service.collectFrame(root.host.dock.screenName,frameTime)}
     readonly property var dock: host.dock.item
@@ -163,26 +167,32 @@ Item {
         y: root.dock.y + root.bodyHeight / 2 - height / 2 + lyricLayer.swipeY
         rotation: root.vertical ? 90 : 0
 
-        SettingsUnderlay {
-            id: dockUnderlay
+        Item {
+            id: backdropSurface
             anchors.fill: parent
-            screenName: root.host.dock.screenName || ""
-            // mapToGlobal accounts for the native dock's slide/lift and screen.
-            readonly property point origin: {
-                const dependency = liquid.x + liquid.y + root.dock.x + root.dock.y
-                return liquid.mapToGlobal(0, 0)
+            Loader {
+                id: dockUnderlay
+                anchors.fill: parent
+                sourceComponent: root.backdropComponent
+                readonly property bool capturing: root.visible && root.glassAmount > 0.001 && !root.vertical
+                readonly property rect globalViewport: {
+                    // Keep dependencies on the shell's slide/lift and local geometry.
+                    const dependency = liquid.x + liquid.y + root.dock.x + root.dock.y
+                    const origin = liquid.mapToGlobal(0, 0)
+                    return Qt.rect(origin.x, origin.y, width, height)
+                }
+                onLoaded: {
+                    item.screenName = Qt.binding(() => root.host.dock.screenName || "")
+                    item.globalViewport = Qt.binding(() => dockUnderlay.globalViewport)
+                    item.active = Qt.binding(() => dockUnderlay.capturing)
+                }
             }
-            viewport: Qt.rect(origin.x - (monitor?.lastIpcObject?.x || 0),
-                origin.y - (monitor?.lastIpcObject?.y || 0), width, height)
-            intersectOnly: true
-            refreshInterval: 125
-            active: root.visible && root.glassAmount > 0.001 && !root.vertical
         }
         ShaderEffectSource {
             id: dockBackdrop
-            sourceItem: dockUnderlay
+            sourceItem: backdropSurface
             hideSource: true
-            live: dockUnderlay.active
+            live: dockUnderlay.capturing
             visible: false
         }
 
@@ -247,6 +257,7 @@ Item {
     DockLyrics {
         id: lyricLayer
         host: root.host
+        bridgeComponent: root.lyricsBridgeComponent
         glassSource: skin
         glassRect: Qt.rect((liquid.width - root.bodyWidth) / 2 + 16,
             root.pad + 93, Math.max(1, root.bodyWidth - 32), 110)

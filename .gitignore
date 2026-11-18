@@ -6,6 +6,7 @@ venv/
 .env.*
 *.log
 dist/
+/out/
 recordings/
 recording-seen/
 wordtimes/

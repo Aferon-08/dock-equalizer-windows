@@ -40,17 +40,51 @@
                 onStChanged: syncClaim()
                 onActiveChanged: {
                     if (active)
-                        setSource("file://" + st.dir + "/DockWings.qml", { host: dockEqualizerHost })
+                        setSource("file://" + st.dir + "/DockWings.qml", { host: dockEqualizerHost, backdropComponent: linuxBackdrop, lyricsBridgeComponent: linuxLyricsBridge })
                 }
                 Component.onCompleted: {
                     if (active)
-                        setSource("file://" + st.dir + "/DockWings.qml", { host: dockEqualizerHost })
+                        setSource("file://" + st.dir + "/DockWings.qml", { host: dockEqualizerHost, backdropComponent: linuxBackdrop, lyricsBridgeComponent: linuxLyricsBridge })
                     syncClaim()
                     lyricsRequest.restart()
                 }
                 Component.onDestruction: {
                     if (claimedState)
                         claimedState.want(claimKey, false)
+                }
+
+                Component {
+                    id: linuxBackdrop
+                    Item {
+                        id: backdropBridge
+                        property string screenName: ""
+                        property rect globalViewport: Qt.rect(0, 0, width, height)
+                        property bool active: false
+                        Loader {
+                            anchors.fill: parent
+                            source: "file://" + dockEqualizerAdapter.st.dir + "/LinuxDockBackdrop.qml"
+                            onLoaded: {
+                                item.screenName = Qt.binding(() => backdropBridge.screenName)
+                                item.globalViewport = Qt.binding(() => backdropBridge.globalViewport)
+                                item.active = Qt.binding(() => backdropBridge.active)
+                            }
+                        }
+                    }
+                }
+                Component {
+                    id: linuxLyricsBridge
+                    Loader {
+                        id: lyricsBridgeLoader
+                        property var surface: null
+                        readonly property string rawLyricsText: item ? item.rawLyricsText : ""
+                        readonly property string rawLyricsKey: item ? item.rawLyricsKey : ""
+                        onSurfaceChanged: {
+                            if (surface)
+                                setSource("file://" + dockEqualizerAdapter.st.dir + "/LinuxDockLyricsBridge.qml", {surface: surface})
+                            else
+                                source = ""
+                        }
+                    }
                 }
 
                 QtObject {
