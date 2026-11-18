@@ -1,5 +1,9 @@
 # SekaiPOP Dock Equalizer & Living Wallpapers
 
+> **New interface · 3.0.0-rc.4.** The glass dock, living wallpapers and shared playback clock are available in the native extensions preview. [Current gallery and README](https://github.com/Aferon-08/sekaipop-dock-equalizer/tree/codex/native-extensions) · [Package and shell patch](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v3.0.0-rc.4)
+
+[![Glass music dock 3.0.0-rc.4](https://raw.githubusercontent.com/Aferon-08/sekaipop-dock-equalizer/v3.0.0-rc.4/docs/media/dock-preview.webp)](https://github.com/Aferon-08/sekaipop-dock-equalizer/tree/codex/native-extensions)
+
 [![Checks](https://github.com/Aferon-08/sekaipop-dock-equalizer/actions/workflows/checks.yml/badge.svg)](https://github.com/Aferon-08/sekaipop-dock-equalizer/actions/workflows/checks.yml) [![Version](https://img.shields.io/github/v/release/Aferon-08/sekaipop-dock-equalizer)](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 [Русский](README.md) · [Installation](docs/INSTALL.md) · [Releases](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases)

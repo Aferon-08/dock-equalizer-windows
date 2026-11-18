@@ -1,5 +1,9 @@
 # SekaiPOP Dock Equalizer & Living Wallpapers
 
+> **Новый интерфейс · 3.0.0-rc.4.** Стеклянный док, живые обои и общие часы воспроизведения доступны в предварительной версии для SekaiPOP с API расширений. [Актуальная галерея и README](https://github.com/Aferon-08/sekaipop-dock-equalizer/tree/codex/native-extensions) · [Архив и патч](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v3.0.0-rc.4)
+
+[![Стеклянный музыкальный док 3.0.0-rc.4](https://raw.githubusercontent.com/Aferon-08/sekaipop-dock-equalizer/v3.0.0-rc.4/docs/media/dock-preview.webp)](https://github.com/Aferon-08/sekaipop-dock-equalizer/tree/codex/native-extensions)
+
 [![Checks](https://github.com/Aferon-08/sekaipop-dock-equalizer/actions/workflows/checks.yml/badge.svg)](https://github.com/Aferon-08/sekaipop-dock-equalizer/actions/workflows/checks.yml) [![Version](https://img.shields.io/github/v/release/Aferon-08/sekaipop-dock-equalizer)](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 [English](README.en.md) · [Установка](docs/INSTALL.md) · [Настройки и лирика](docs/USAGE.md) · [Устранение проблем](docs/TROUBLESHOOTING.md) · [Релизы](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases)
