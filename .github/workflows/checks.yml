@@ -30,6 +30,8 @@ jobs:
         run: node tests/spectrum-envelope.mjs
       - name: Beat grid and heartbeat motion
         run: node tests/rhythm.mjs
+      - name: Playback position and epoch boundaries
+        run: node tests/position-clock.mjs
       - name: Analysis completeness and fingerprint
         run: |
           node tests/analysis-policy.mjs

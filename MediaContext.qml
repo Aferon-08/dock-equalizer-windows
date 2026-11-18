@@ -9,6 +9,15 @@ QtObject {
     readonly property var players: playerModel.values
     property string lastStartedId: ""
     property int epoch: 0
+    property bool timelineDemand: true
+    property list<string> timelineCommand: []
+    property MediaTimeline timeline: MediaTimeline {
+        player: root.player
+        key: root.trackId
+        playback: root.playback
+        active: root.timelineDemand
+        command: root.timelineCommand
+    }
     function idFor(p) {return p ? String(p.dbusName || "") : ""}
     function pickPlayer() {
         const list=players.filter(p=>!!p).sort((a,b)=>idFor(a)<idFor(b)?-1:idFor(a)>idFor(b)?1:0)

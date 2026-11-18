@@ -93,7 +93,10 @@ QtObject {
         onExited: code => root.finishWallpaperSeed(code)
     }
     property WordtimeStore wordtimes: WordtimeStore { host: root.host }
-    property MediaContext mediaContext: MediaContext {}
+    property MediaContext mediaContext: MediaContext {
+        timelineDemand: root.host.working && root.extensionEnabled("dock")
+        timelineCommand: ["setpriv", "--pdeathsig", "TERM", "python3", root.host.path("media-position.py")]
+    }
     property MusicPalette musicPalette: MusicPalette {
         host: root.host
         supported: root.integration.paletteLease
@@ -237,6 +240,7 @@ QtObject {
                 demand: host.working, surfaces: Object.keys(surfaces).length },
             media: Object.assign({},mediaContext.snapshot,{hostShared:integration.sharedMedia,
                 integration:integration.sharedMedia ? "ready" : "degraded",
+                clock: mediaContext.timeline.status(),
                 reason:integration.sharedMedia ? "" : "Для общего выбора native-контролов обновите host API (native-media-v1)."}),
             audio: audioStatus(),
             palette: { state: musicPalette.state, active: musicPalette.active,

@@ -36,10 +36,12 @@ node tests/bubble-family.mjs
 node tests/duration-cache.mjs
 node tests/spectrum-envelope.mjs
 node tests/rhythm.mjs
+node tests/position-clock.mjs
 node tests/analysis-policy.mjs
 python3 tests/analysis-identity.py
 python3 tests/audio-recovery.py
 python3 tests/service-recovery.py
+python3 tests/media-timeline.py
 ```
 
 Проверки подтверждают одну геометрию трубы в обоих направлениях, движение головы по физической кривой, изоляцию следа между персонажами/транспортами, криволинейные локальные/пузырьковые маршруты, самостоятельные путешествия близнецов, возврат и слияние только после фактического сближения, а также случай с пластиковой перегородкой. Они не подменяют визуальные проверки на GPU.

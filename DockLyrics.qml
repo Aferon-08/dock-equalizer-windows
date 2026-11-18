@@ -167,10 +167,10 @@ Item {
                 owner: root.host.dock.screenName || "dock", spotify: spotify,
                 sourceReady: root.rawLyricsCurrent || !root.lyrics || !root.lyrics.cacheScript,
                 state: { key: root.signature, playing: root.playing, stamp: stamp,
-                    position: LM.estimate(root.clock, stamp, root.playing),
+                    position: root.timeline.position(),
                     enabled: !root.host.dock.asleep && root.host.settings.enabled !== false
                         && root.host.settings.lyrics !== false && root.host.settings.autoSpotify !== false
-                        && !!root.player && root.player.positionSupported
+                        && !!root.player && root.player.positionSupported && root.timeline.known
  } })
         }
     }
@@ -251,37 +251,30 @@ Item {
     NumberAnimation { id: widen; target: root; property: "wideReveal"; to: 1; duration: root.host.settings.expandDuration ?? 850; easing.type: Easing.OutBack; easing.overshoot: root.host.settings.playerSpring ?? 1.2 }
     NumberAnimation { id: narrow; target: root; property: "wideReveal"; to: 0; duration: 600; easing.type: Easing.InOutCubic }
 
-    property var clock: LM.clockReset(0, Date.now())
-    property real now: Date.now()
-    property real lastPosition: -1
-    property int stale: 0
+    readonly property var sharedTimeline: {
+        const context = host.service?.mediaContext
+        return media?.timeline || (player && context?.player === player ? context.timeline : null)
+    }
+    readonly property var timeline: sharedTimeline || nativeTimeline
+    MediaTimeline {
+        id: nativeTimeline
+        active: !root.sharedTimeline && root.host.working
+        player: active ? root.player : null
+        key: active ? JSON.stringify([root.signature, player?.uniqueId]) : ""
+        playback: !player ? "absent" : root.playing ? "playing" : root.media?.playback || "paused"
+    }
     property real position: 0
-    function tick(stamp) {
-        now = stamp
-        position = Math.max(0, LM.estimate(clock, stamp, playing))
-    }
+    function tick() { position = timeline?.position() ?? 0 }
     readonly property real lyricTime: position + (hasTimingDocument ? 0 : 0.2) + (sameTrack && lyrics ? lyrics.syncTotal / 1000 : 0)
-
-    function poll() {
-        if (!player || !player.positionSupported) { tick(Date.now()); return }
-        player.positionChanged()
-        const value = Number(player.position)
-        if (!isFinite(value) || value < 0) { tick(Date.now()); return }
-        // A browser may briefly return zero without a real restart. Keep the
-        // clock running; a genuine seek is accepted as soon as it advances.
-        if (value === 0 && ((playing && lastPosition === 0) || LM.estimate(clock, Date.now(), playing) > 2)) {
-            tick(Date.now()); return
-        }
-        const trust = LM.pollTrust(lastPosition, value, stale, playing)
-        lastPosition = value; stale = trust.stale
-        if (trust.use) clock = LM.observe(clock, value, Date.now(), playing)
-        tick(Date.now())
+    Connections {
+        target: root.timeline
+        function onModelChanged() { root.tick() }
     }
+    onTimelineChanged: tick()
     onSignatureChanged: {
         rawLyricsText = ""; rawLyricsKey = ""; rawLyricsRequest.restart()
         rememberedDuration = 0; refreshDuration()
-        clock = LM.clockReset(0, Date.now()); lastPosition = -1; stale = 0; tick(Date.now())
-        poll()
+        tick()
     }
     onPlayingChanged: {
         autoTiming.restart()
@@ -289,12 +282,8 @@ Item {
             if (swipeDragging) finishSwipe(false)
             dismissedUntilPlay = false
         }
-        const stamp = Date.now()
-        clock = LM.clockReset(LM.estimate(clock, stamp, !playing), stamp)
-        lastPosition = -1; stale = 0; tick(stamp)
-        poll()
+        tick()
     }
-    Timer { interval: 250; repeat: true; running: root.host.working && !!root.player; onTriggered: root.poll() }
     property real ambientTime: 0
     property real glowTime: 0
     property var heartMotion: Rhythm.motionState(44)
@@ -319,11 +308,11 @@ Item {
                 if (root.ambientBlend > 0.001)
                     root.ambientTime += dt
                 root.visualStamp = stamp
-                if (root.playing) root.tick(stamp)
+                if (root.playing) root.tick()
             }
         }
     }
-    Component.onCompleted: { ready = true; animateLayout(); refreshDuration(); poll(); report(); timingRequest.restart(); rawLyricsRequest.restart() }
+    Component.onCompleted: { ready = true; animateLayout(); refreshDuration(); tick(); report(); timingRequest.restart(); rawLyricsRequest.restart() }
 
     function mixColor(a, b, amount) {
         return Qt.rgba(a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount,
@@ -500,11 +489,8 @@ Item {
         return Math.floor(value / 60) + ":" + (value % 60 < 10 ? "0" : "") + value % 60
     }
     function seekTo(fraction) {
-        if (player && player.canSeek && player.positionSupported && duration > 0) {
-            player.position = fraction * duration
-            clock = LM.clockReset(fraction * duration, Date.now())
-            tick(Date.now())
-        }
+        if (duration > 0 && timeline.seek(Math.max(0, Math.min(1, fraction)) * duration))
+            tick()
     }
 
     // The same art and progress move between the two layouts, without crossfading copies.

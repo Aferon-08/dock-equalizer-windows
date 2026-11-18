@@ -23,8 +23,6 @@
 //   wordAt / hop / hit        the bouncing marker and the squash of the word it lands on
 //   mainIndexes               the words the marker hops over (ad libs are skipped)
 //   cleanTitle / cleanArtist / candidates / pickBest      asking a lyrics service the right question
-//   clockReset / observe / estimate / pollTrust           a play clock that sits between the
-//                             player's (coarse, late) position reports without wobbling
 // ===== LRC =====
 // A parsed line is { t, text } and, only when the file says so:
 //   end    when its singing stops: a stamp with no words right after it ("[00:14.20]"), or a
@@ -840,100 +838,6 @@ function mainIndexes(toks) {
         for (i = 0; i < toks.length; i++)
             out.push(i)
     return out
-}
-
-// ===== a play clock =====
-// The player reports its position now and then (four times a second here); the clock runs on
-// its own between reports. The state is { pos, at, hist, cand }: the clock says `pos` at the
-// wall time `at` (ms) and runs from there. `hist` is the last few readings, as the player's
-// position minus the wall time, which is the same number all through a steadily playing
-// song, and `cand` a reading far off the clock that is waiting to be believed.
-//
-// What the readings get wrong, they get wrong in ONE direction: a reading is the position
-// when the player last worked it out, so it can only be older than the truth (a player that
-// moves its position once a second, a busy bus, a slow reply), never newer. So the right
-// clock is not the average of the readings (which sags behind by half the lateness and
-// jumps about when the lateness does: the lyrics are early, then late, then early) but the
-// best one of the last few, the one that was least late. A reading better than the clock
-// moves it at once (and a big one is a seek forward); a reading worse than the clock
-// is ignored, unless it keeps saying the same thing (a seek back) or is far off.
-
-// How many readings the clock looks back over (two and a half seconds at four a second:
-// longer than a player that moves its position once a second takes between moves).
-var CLOCK_WINDOW = 10
-
-function clockReset(pos, nowMs) {
-    return { pos: pos, at: nowMs, hist: [], cand: null }
-}
-
-function estimate(state, nowMs, playing) {
-    if (!playing)
-        return state.pos
-    return state.pos + (nowMs - state.at) / 1000
-}
-
-function observe(state, polled, nowMs, playing) {
-    if (!playing)
-        return { pos: polled, at: nowMs, hist: [], cand: null }
-    var o = polled - nowMs / 1000
-    var hist = state.hist || []
-    if (hist.length === 0)
-        return { pos: polled, at: nowMs, hist: [o], cand: null }
-    var d = o - (state.pos - state.at / 1000)
-    // a seek, either way, by more than a late reading can be: taken at once
-    if (Math.abs(d) >= 1.5)
-        return { pos: polled, at: nowMs, hist: [o], cand: null }
-    if (d < -0.35) {
-        // behind the clock: a late reading (a stale one keeps getting later, so it never
-        // repeats; a slow reply is gone the next time) or a seek back (it stays where it is):
-        // believed when enough in a row agree. A jump back of under 0.8 s is nearly always a
-        // late reading and hardly ever a seek, so it takes two seconds of saying the same
-        // thing; a bigger one takes three readings.
-        var c = state.cand
-        var n = (c && Math.abs(o - c.o) < 0.12) ? c.n + 1 : 1
-        if (n >= (d > -0.8 ? 8 : 3))
-            return { pos: polled, at: nowMs, hist: [o], cand: null }
-        return { pos: state.pos, at: state.at, hist: hist, cand: { o: o, n: n } }
-    }
-    var next = hist.concat([o])
-    if (next.length > CLOCK_WINDOW)
-        next = next.slice(next.length - CLOCK_WINDOW)
-    var best = next[0]
-    for (var i = 1; i < next.length; i++)
-        if (next[i] > best)
-            best = next[i]
-    return { pos: best + nowMs / 1000, at: nowMs, hist: next, cand: null }
-}
-
-// How far apart the recent readings were, in milliseconds: how much a plain average of them
-// would have wobbled. For the debug line.
-function clockSpread(state) {
-    var h = state && state.hist ? state.hist : []
-    if (h.length < 2)
-        return 0
-    var lo = h[0]
-    var hi = h[0]
-    for (var i = 1; i < h.length; i++) {
-        lo = Math.min(lo, h[i])
-        hi = Math.max(hi, h[i])
-    }
-    return Math.round((hi - lo) * 1000)
-}
-
-// Some players (a browser tab, mostly) report a position that does not move while they play.
-// Trusting it would pull the clock back to the same spot at every reading. `prev` is the
-// last reading, `stale` how many readings in a row were the same while playing. Returns
-// whether to use this reading, and the new count: three equal readings in a row while
-// playing mean the player's position is not being kept, and the clock runs on its own
-// until the position moves again (a seek or a real update).
-function pollTrust(prev, polled, stale, playing) {
-    if (!playing)
-        return { use: true, stale: 0 }
-    if (Math.abs(polled - prev) < 0.001) {
-        stale = stale + 1
-        return { use: stale < 3, stale: stale }
-    }
-    return { use: true, stale: 0 }
 }
 
 // ===== asking a lyrics service =====
