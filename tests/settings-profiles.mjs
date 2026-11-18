@@ -13,7 +13,7 @@ for (const preset of [...ctx.examples.materials, ...ctx.examples.themes]) {
     assert.equal(JSON.stringify(selected.values), JSON.stringify(preset.values), preset.name)
 }
 const calm = ctx.examples.themes.find(theme => theme.id === "calm")
-const personal = {...plugin.settings, glassOpacity: .59, glassRefraction: 1.8, style: "bars"}
+const personal = {...plugin.settings, glassOpacity: .59, glassRefraction: 1.8, style: "bars", progressStyle: "plassglass"}
 const found = ctx.changes(personal, calm.values)
 const result = {...personal, ...found.after}
 assert(ctx.matches(result, calm.values))
@@ -35,6 +35,9 @@ assert.equal(ctx.disabledBy("wallpaperRegenerate", {...personal, proceduralWallp
 const profile = ctx.profile(plugin, "Мой док", "dock", personal)
 assert.equal(profile.version, 1)
 assert.equal(profile.values.style, "bars")
+assert.equal(profile.values.progressStyle, "plassglass")
+assert.equal(plugin.settings.progressStyle, "material")
+assert.equal(ctx.value(plugin, "progressStyle", "unknown"), undefined)
 for (const key of ["analysisDevice", "autoSpotify", "wallpaperRegenerate", "wallpaperMotion", "musicPalette"])
     assert(!Object.hasOwn(profile.values, key), key)
 const payload = JSON.parse(JSON.stringify(profile))

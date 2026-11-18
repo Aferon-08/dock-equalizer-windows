@@ -531,10 +531,7 @@ Item {
             onClicked: root.wordtimeStore.showForTrack(root.wordtimeTrack, root.host.theme, root.standardLyricsText)
         }
     }
-    WavyProgress {
-        amplitude: root.host.settings.progressAmplitude ?? 3.5
-        wavelength: root.host.settings.progressWavelength ?? 30
-        thickness: root.host.settings.progressThickness ?? 3
+    DockProgress {
         id: progress
         x: 68 + 14 * Math.min(1, root.layout)
         y: 45 + 18 * Math.min(1, root.layout)
@@ -542,12 +539,17 @@ Item {
         height: 20
         opacity: root.musicLayout
         visible: opacity > 0.001
-        fraction: root.duration > 0 ? Math.max(0, Math.min(1, root.position / root.duration)) : 0
-        indeterminate: root.duration <= 0
+        settings: root.host.settings
+        palette: root.colors
+        secondary: root.host.theme.accentMint || root.colors.ink
+        glassEnabled: root.material.enabled
+        glowStrength: root.material.light
+        bands: root.host.working ? root.host.service?.bands || [] : []
+        fraction: root.duration > 0 ? root.position / root.duration : 0
+        indeterminate: !(root.duration > 0)
         playing: root.playing
         phase: root.position / 1.8
         seekable: !!root.player && root.player.canSeek && root.player.positionSupported && root.duration > 0
-        ink: root.colors.ink; accent: root.colors.accent
         onSeek: fraction => root.seekTo(fraction)
     }
     Item {

@@ -13,7 +13,7 @@ ShellRoot {
     QtObject {
         id: demoPlayer
         property bool lengthSupported: true
-        property real length: 120
+        property real length: Number(Quickshell.env("DEMO_TRACK_DURATION")) || 120
         property bool positionSupported: true
         property bool canSeek: true
         property bool canGoPrevious: true
@@ -51,7 +51,8 @@ ShellRoot {
     }
     QtObject {
         id: demoHost
-        property var settings: ({ enabled: true, width: 200, height: 38, gap: 12, sensitivity: 1.25, style: "wave", collapseDelay: 600, lyrics: true, expandLyrics: true, lyricsWidth: 560 })
+        property var settings: ({ enabled: true, width: 200, height: 38, gap: 12, sensitivity: 1.25, style: "wave", collapseDelay: 600,
+            lyrics: true, expandLyrics: true, lyricsWidth: 560, progressStyle: Quickshell.env("DEMO_PROGRESS_STYLE") || "material" })
         property bool working: true
         property var service: {
             const phase = (test.elapsed * 118 / 60) % 1

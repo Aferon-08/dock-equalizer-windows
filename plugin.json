@@ -51,6 +51,7 @@
     "trailDelay": 230,
     "mistDelay": 300,
     "orbitRadius": 23,
+    "progressStyle": "material",
     "progressAmplitude": 3.5,
     "progressWavelength": 30,
     "progressThickness": 3,
@@ -353,8 +354,24 @@
       "max": 50,
       "step": 1
     },
+    "progressStyle": {
+      "label": "Стиль прогрессбара",
+      "description": "Волна «Материал» или «Плассгласс» со спектром и светом на сыгранной части.",
+      "group": "Прогресс",
+      "choices": [
+        {
+          "value": "material",
+          "label": "Материал"
+        },
+        {
+          "value": "plassglass",
+          "label": "Плассгласс"
+        }
+      ]
+    },
     "progressAmplitude": {
       "label": "Высота волны прогресса",
+      "description": "Высота волны в стиле «Материал».",
       "group": "Прогресс",
       "min": 0,
       "max": 7,
@@ -362,6 +379,7 @@
     },
     "progressWavelength": {
       "label": "Длина волны прогресса",
+      "description": "Длина волны в стиле «Материал».",
       "group": "Прогресс",
       "min": 12,
       "max": 70,

@@ -14,6 +14,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 audio3;
     float clock;
     float direction;
+    float glowStrength;
 };
 float sampleBand(int i) {
     if (i < 4) return audio0[i];
@@ -38,6 +39,12 @@ void main() {
     float aa = 2.0 / max(1.0, resolution.y);
     vec3 color = vec3(0.0);
     float alpha = 0.0;
+    if (glowStrength > 0.0) {
+        float spread = max(aa, 0.18 + energy * 1.15);
+        alpha = min(glowStrength, 1.4) * 0.42 * sqrt(energy)
+            * exp(-pow(y / spread, 2.0)) * edge;
+        color = mix(primaryColor.rgb, secondaryColor.rgb, 0.35) * alpha;
+    }
     // Each ribbon has a separate drifting spine; no hard individual bars.
     for (int layer=0; layer<3; ++layer) {
         float phase = float(layer)*2.094;

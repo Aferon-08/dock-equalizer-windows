@@ -17,7 +17,8 @@ const wallpaperKeys = [
 ]
 const expandedKeys = ["lyricsWidth", "voiceWidth", "voiceHeight", "expandDuration", "playerSpring"]
 const lyricKeys = expandedKeys.concat(["compactWidth", "expandLyrics", "multivoice", "lyricFontSize", "lyricFade",
-    "followDelay", "trailDelay", "mistDelay", "orbitRadius", "progressAmplitude", "progressWavelength", "progressThickness"])
+    "followDelay", "trailDelay", "mistDelay", "orbitRadius", "progressStyle", "progressAmplitude", "progressWavelength",
+    "progressThickness"])
 const dockKeys = glassKeys.concat([
     "enabled", "width", "height", "gap", "sensitivity", "style", "mirrorLeft", "spectrumFade",
     "collapseDelay", "openDuration", "closeDuration", "spring", "fusionDuration", "outlineDuration",

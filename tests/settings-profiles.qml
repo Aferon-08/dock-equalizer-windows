@@ -101,6 +101,14 @@ ShellRoot {
                     editor.saveProfile("Попытка замены", "all")
                     test.check(!editor.savedProfiles.length, "Incompatible library not replaced")
                 } else if (test.step === 0) {
+                    const row = test.find(panel, item => item.settingKey === "progressStyle")
+                    const picker = test.find(row, item => item.valueRole === "value")
+                    test.check(picker.currentValue === "material", "Material is the default with an old settings file")
+                    picker.currentIndex = 1
+                    picker.activated(1)
+                    test.check(model.settings.progressStyle === "plassglass", "Progress style selected in the settings panel")
+                    editor.undo()
+                    test.check(model.settings.progressStyle === "material", "Undo restores progress style")
                     editor.change("dockGlass", false)
                     const original = model.settings
                     const writes = model.writes
