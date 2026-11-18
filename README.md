@@ -1,3 +1,18 @@
+# Sekai Soundbar для Windows 11
+
+Самостоятельный музыкальный док у верхнего края экрана. Он скрывается перед полноэкранными приложениями, показывает трек и кнопки управления из медиасессии Windows, а боковые полосы реагируют на системный звук в левом и правом каналах.
+
+[Скачать готовую сборку для Windows 11 x64 (ZIP)](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64.zip)
+
+На странице архива нажмите **Download raw file**, распакуйте ZIP целиком и запустите **SekaiSoundbar.exe**. Установщик и сборка из исходников не нужны.
+
+Если у вас уже распакована сборка с исправлением Xbox Game Bar, закройте её через **Выход** и замените исполняемый файл. [Скачать SekaiSoundbar.exe для обновления](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar.exe)
+
+[English](README.en.md) · [План переноса и сборка из исходников](docs/WINDOWS-PORT-PLAN.md)
+
+<details>
+<summary>Документация расширения SekaiPOP для Linux</summary>
+
 # SekaiPOP Dock Equalizer & Living Wallpapers
 
 > **Новый интерфейс · 3.0.0-rc.4.** Стеклянный док, живые обои и общие часы воспроизведения доступны в предварительной версии для SekaiPOP с API расширений. [Актуальная галерея и README](https://github.com/Aferon-08/sekaipop-dock-equalizer/tree/codex/native-extensions) · [Архив и патч](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v3.0.0-rc.4)
@@ -121,3 +136,5 @@ python3 install.py --repair
 ## Лицензия
 
 [GNU GPL v3](LICENSE). Исходники и сборочные инструменты шейдеров включены. SekaiPOP и загружаемые сторонние инструменты/модели имеют собственные условия; см. [THIRD_PARTY.md](THIRD_PARTY.md).
+
+</details>
