@@ -182,10 +182,17 @@ Item {
         id:group;required property string modelData;width:sections.width;spacing:8
         readonly property var keys:Object.keys(root.manifest.settings).filter(k=>(root.manifest.settingsInfo[k]?.group || "")===modelData)
         readonly property var matching:keys.filter(k=>root.query==="" || (root.manifest.settingsInfo[k]?.label+" "+k+" "+modelData).toLowerCase().includes(root.query))
-        visible:matching.length>0
+        visible:matching.length>0 || diagnostics.active
         Label {text:group.modelData;color:root.accent;font.pixelSize:18;font.bold:true;topPadding:14}
         Repeater {model:group.keys
          SettingsControl {required property string modelData;width:group.width;pst:root.pst;settingKey:modelData;ink:root.ink;accent:root.accent;visible:group.matching.includes(modelData)}
+        }
+        Loader {
+         id:diagnostics
+         width:group.width
+         active:root.mode==="open" && group.modelData==="Звук" && typeof root.pst?.service?.audioStatus==="function"
+           && (group.matching.length>0 || "диагностика звука бесшумная проверка".includes(root.query))
+         sourceComponent:AudioDiagnostics {service:root.pst.service;ink:root.ink;accent:root.accent}
         }
        }
       }

@@ -185,11 +185,12 @@ QtObject {
         || (extensionEnabled("wallpaper") && host.settings.wallpaperPet !== false))
     readonly property bool running: tap.running
     readonly property bool audible: bands.some(v => v > 5)
+    readonly property list<string> spectrumCommand: ["setpriv", "--pdeathsig", "TERM", "nice", "-n", "5",
+        "python3", host.path("audio-output.py"), host.path("cava.conf")]
 
     property SpectrumCapture tap: SpectrumCapture {
         wanted: root.wanted
-        // Default output monitor, never the microphone. Clean up on shell crash.
-        command: ["setpriv", "--pdeathsig", "TERM", "nice", "-n", "5", "cava", "-p", root.host.path("cava.conf")]
+        command: root.spectrumCommand
         onCleared: { root.bands = []; root.resetRhythm() }
         onSpectrum: next => {
             root.beatState = BeatTracker.update(root.beatState, next, Date.now())
@@ -198,6 +199,22 @@ QtObject {
             root.beatConfidence = root.beatState.confidence
             ++root.frames
             if (next.length !== root.bands.length || next.some((v, i) => v !== root.bands[i])) root.bands = next
+        }
+    }
+    property AudioSelfTest audioSelfTest: AudioSelfTest {
+        command: Array.from(root.spectrumCommand).concat("--self-test")
+    }
+
+    function audioStatus() {
+        return {
+            state: tap.state, wanted: wanted, ready: tap.ready, failures: tap.failures,
+            signal: !wanted ? "released" : !tap.ready ? "unknown" : audible ? "audible" : "silence",
+            mode: mediaContext.visualizationMode, playerId: mediaContext.playerId, trackId: mediaContext.trackId,
+            processId: tap.pid || null, output: tap.output, bands: bands.length,
+            lastPacketAt: tap.lastPacketAt || null,
+            packetAgeMs: tap.lastPacketAt ? Math.max(0, Date.now() - tap.lastPacketAt) : null,
+            retryInMs: tap.retryIn, reason: tap.error || tap.output?.reason || "",
+            testRunning: audioSelfTest.running, testResult: audioSelfTest.result
         }
     }
 
@@ -209,10 +226,7 @@ QtObject {
             media: Object.assign({},mediaContext.snapshot,{hostShared:integration.sharedMedia,
                 integration:integration.sharedMedia ? "ready" : "degraded",
                 reason:integration.sharedMedia ? "" : "Для общего выбора native-контролов обновите host API (native-media-v1)."}),
-            audio: { state: tap.state, wanted: wanted, ready: tap.ready, failures: tap.failures,
-                signal: !wanted ? "released" : !tap.ready ? "unknown" : audible ? "audible" : "silence",
-                mode: mediaContext.visualizationMode, playerId: mediaContext.playerId, trackId: mediaContext.trackId,
-                retryInMs: tap.retryIn, reason: tap.error },
+            audio: audioStatus(),
             palette: { state: musicPalette.state, active: musicPalette.active,
                 playerId: musicPalette.sourcePlayerId, trackId: musicPalette.sourceTrackId,
                 running: musicPalette.worker.running, message: musicPalette.message, reason: musicPalette.error },
@@ -245,6 +259,8 @@ QtObject {
             return ""
         }
         function settingsPanelStatus(): string {return JSON.stringify({open:root.host.settingsOpen || root.settingsPanelOpen,count:Object.keys(root.host.settings).length})}
+        function audioStatus(): string { return JSON.stringify(root.audioStatus()) }
+        function testAudio(): bool { return root.audioSelfTest.start() }
         function status(): string {
             return JSON.stringify({ nativeIntegration:root.nativeIntegration, playing: root.playing, working: root.wanted, running: root.running,
                 players: root.playerModel.values.length, surfaces: root.surfaces, modules: root.moduleStatus(),

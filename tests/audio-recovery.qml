@@ -29,7 +29,8 @@ ShellRoot {
                 root.phase = 1
                 console.log("PASS recovered after three exits without changing demand")
             }
-            if (root.phase === 1 && tap.failures === 1 && tap.state === "recovering") {
+            if (root.phase === 1 && tap.failures === 1 && tap.state === "recovering"
+                    && tap.lastPacketAt === 0 && tap.error.includes("перестала передавать")) {
                 root.phase = 2
                 root.wanted = false
                 pauseCheck.start()

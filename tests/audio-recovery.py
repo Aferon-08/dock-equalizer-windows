@@ -25,7 +25,8 @@ if n <= 3:
 for _ in range(6):
     print("73;" * 64, flush=True)
     time.sleep(.04)
-sys.exit(8)
+# A still-running child must not leave the last valid frame frozen.
+time.sleep(18)
 """)
     counter = stage / "launches"
     proc = subprocess.run(["qs", "-p", str(stage), "-n"],
