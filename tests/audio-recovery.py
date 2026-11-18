@@ -23,7 +23,7 @@ if n <= 3:
     print("fixture output unavailable", file=sys.stderr)
     sys.exit(9)
 for _ in range(6):
-    print("73;" * 64, flush=True)
+    print("1638;" * 64, flush=True)
     time.sleep(.04)
 # A still-running child must not leave the last valid frame frozen.
 time.sleep(18)

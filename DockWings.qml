@@ -118,8 +118,9 @@ Item {
     Timer { id: contact; interval: 350; onTriggered: { traceDraw.from = root.outline; traceDraw.start() } }
     NumberAnimation { id: traceDraw; target: root; property: "outline"; to: 1; duration: root.host.settings.outlineDuration ?? 1050; easing.type: Easing.OutCubic }
     NumberAnimation { id: traceFade; target: root; property: "outline"; to: 0; duration: 260; easing.type: Easing.InOutCubic }
+    readonly property var spectrumBands: host.working && host.service?.playing ? host.service.bands : []
     function levels(offset) {
-        const a = host.working && host.service && host.service.playing ? host.service.bands : []
+        const a = spectrumBands
         const gain = Math.max(0.1, Math.min(5, host.settings.sensitivity || 1))
         const result = []
         for (let group = 0; group < 3; ++group) {
@@ -136,8 +137,14 @@ Item {
     }
     property vector3d leftLevels: levels(0)
     property vector3d rightLevels: levels(32)
-    Behavior on leftLevels { Vector3dAnimation { duration: 160 } }
-    Behavior on rightLevels { Vector3dAnimation { duration: 160 } }
+    Behavior on leftLevels {
+        enabled: root.spectrumBands.length === 0
+        Vector3dAnimation { duration: 160 }
+    }
+    Behavior on rightLevels {
+        enabled: root.spectrumBands.length === 0
+        Vector3dAnimation { duration: 160 }
+    }
     readonly property color lightPrimary: colors.accent
     readonly property color lightSecondary: host.theme.accentMint || colors.ink
     readonly property color lightTertiary: Qt.tint(lightSecondary,

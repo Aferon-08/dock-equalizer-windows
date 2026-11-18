@@ -26,6 +26,8 @@ jobs:
           python tests/palette-context.py
       - name: Browser duration recovery
         run: node tests/duration-cache.mjs
+      - name: Spectrum gain and time-based smoothing
+        run: node tests/spectrum-envelope.mjs
       - name: Analysis completeness and fingerprint
         run: |
           node tests/analysis-policy.mjs

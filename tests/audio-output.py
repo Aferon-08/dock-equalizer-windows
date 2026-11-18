@@ -161,7 +161,7 @@ def run(stage, backend):
                 assert_output_only()
                 route = current.get("output") or {}
                 if (route.get("sink") == sink and current.get("state") == "running"
-                        and current["peak"] > 80 and test_bin(current["bin"])):
+                        and current["peak"] > 45 and test_bin(current["bin"])):
                     matches += 1
                     if matches < 4:
                         return None

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell.Io
 import "BeatTracker.js" as BeatTracker
+import "SpectrumEnvelope.js" as Envelope
 import "DurationCache.js" as Durations
 import "HostContract.js" as HostContract
 
@@ -108,6 +109,14 @@ QtObject {
         beatPulse = 0; beatBpm = 0; beatConfidence = 0
     }
     property var bands: []
+    property var envelope: Envelope.reset()
+    property bool audible: false
+    function resetAudio() {
+        envelope = Envelope.reset()
+        bands = []
+        audible = false
+        resetRhythm()
+    }
     readonly property string error: tap.error
     property bool profileFrames:false
     property var frameSamples:({})
@@ -179,26 +188,29 @@ QtObject {
     readonly property bool playing: mediaContext.playing
     property Connections contextChanges: Connections {
         target: root.mediaContext
-        function onTrackIdChanged() {root.bands=[];root.resetRhythm()}
+        function onTrackIdChanged() { root.resetAudio() }
     }
     readonly property bool wanted: host.working && playing && (extensionEnabled("dock")
         || (extensionEnabled("wallpaper") && host.settings.wallpaperPet !== false))
     readonly property bool running: tap.running
-    readonly property bool audible: bands.some(v => v > 5)
     readonly property list<string> spectrumCommand: ["setpriv", "--pdeathsig", "TERM", "nice", "-n", "5",
         "python3", host.path("audio-output.py"), host.path("cava.conf")]
 
     property SpectrumCapture tap: SpectrumCapture {
         wanted: root.wanted
         command: root.spectrumCommand
-        onCleared: { root.bands = []; root.resetRhythm() }
+        onCleared: root.resetAudio()
         onSpectrum: next => {
-            root.beatState = BeatTracker.update(root.beatState, next, Date.now())
+            const stamp = root.tap.lastPacketAt
+            const frame = Envelope.update(root.envelope, next, stamp)
+            root.audible = frame.audible
+            root.beatState = BeatTracker.update(root.beatState, frame.drive, stamp)
             root.beatPulse = root.beatState.pulse
             root.beatBpm = root.beatState.bpm
             root.beatConfidence = root.beatState.confidence
             ++root.frames
-            if (next.length !== root.bands.length || next.some((v, i) => v !== root.bands[i])) root.bands = next
+            if (frame.bands.length !== root.bands.length || frame.bands.some((v, i) => v !== root.bands[i]))
+                root.bands = frame.bands
         }
     }
     property AudioSelfTest audioSelfTest: AudioSelfTest {
@@ -211,6 +223,7 @@ QtObject {
             signal: !wanted ? "released" : !tap.ready ? "unknown" : audible ? "audible" : "silence",
             mode: mediaContext.visualizationMode, playerId: mediaContext.playerId, trackId: mediaContext.trackId,
             processId: tap.pid || null, output: tap.output, bands: bands.length,
+            gain: tap.ready ? Math.round(envelope.gain * 100) / 100 : null,
             lastPacketAt: tap.lastPacketAt || null,
             packetAgeMs: tap.lastPacketAt ? Math.max(0, Date.now() - tap.lastPacketAt) : null,
             retryInMs: tap.retryIn, reason: tap.error || tap.output?.reason || "",

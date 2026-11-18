@@ -16,7 +16,7 @@ ShellRoot {
         command: ["python3", Quickshell.env("DOCK_TEST_AUDIO_HELPER"), Quickshell.env("DOCK_TEST_AUDIO_COUNTER")]
         onFailuresChanged: root.worstSeries = Math.max(root.worstSeries, failures)
         onSpectrum: values => {
-            if (values.length !== 64 || values[0] !== 73) throw new Error("bad frame")
+            if (values.length !== 64 || Math.abs(values[0] - 100) >= 0.1) throw new Error("bad frame")
             ++root.samples
         }
     }

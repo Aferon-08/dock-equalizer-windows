@@ -64,6 +64,7 @@ Rectangle {
             wrapMode: Text.Wrap
             text: root.status.packetAgeMs === null || root.status.packetAgeMs === undefined ? ""
                 : root.status.bands + " полос · пакет " + root.status.packetAgeMs + " мс назад"
+                    + (root.status.gain ? " · усиление ×" + root.status.gain : "")
                     + (root.status.output?.pid ? " · CAVA PID " + root.status.output.pid : "")
         }
         Button {

@@ -100,15 +100,13 @@ Item {
                     next.push(value)
                 }
                 amplitudes = next
-                const smooth = []
+                const ribbonBands = []
                 for (let i=0; i<16; ++i) {
                     // Lift quiet audio without turning silence into an idle wave.
                     const raw = Math.max(next[i*2], next[i*2+1])
-                    const lifted = Math.pow(raw, 0.62)
-                    const previous = root.ribbonAmplitudes[i] || 0
-                    smooth.push(previous + (lifted-previous) * (lifted>previous ? 0.68 : 0.38))
+                    ribbonBands.push(Math.pow(raw, 0.62))
                 }
-                root.ribbonAmplitudes = root.level < 0.001 ? [] : smooth
+                root.ribbonAmplitudes = root.level < 0.001 ? [] : ribbonBands
                 if (visible) requestPaint()
             }
 

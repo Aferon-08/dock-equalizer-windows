@@ -34,6 +34,7 @@ python3 build-pet-worker.py --check
 node tests/tube-and-family.mjs
 node tests/bubble-family.mjs
 node tests/duration-cache.mjs
+node tests/spectrum-envelope.mjs
 node tests/analysis-policy.mjs
 python3 tests/analysis-identity.py
 python3 tests/audio-recovery.py

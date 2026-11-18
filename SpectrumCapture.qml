@@ -18,6 +18,8 @@ QtObject {
     property string diagnostic: ""
     property var output: null
     property real lastPacketAt: 0
+    // Keep fine precision at low levels and expose the traditional band scale.
+    readonly property int rawRange: 16384
     signal spectrum(var values)
     signal cleared()
 
@@ -104,7 +106,7 @@ QtObject {
                 for (const field of fields) {
                     const value = Number(field)
                     if (!field.trim() || !Number.isFinite(value)) return
-                    next.push(Math.max(0, Math.min(1000, value)))
+                    next.push(Math.max(0, Math.min(1000, value * (1000 / root.rawRange))))
                 }
                 root.startup.stop()
                 root.lastPacketAt = Date.now()
