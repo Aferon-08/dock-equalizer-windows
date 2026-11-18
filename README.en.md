@@ -1,67 +1,60 @@
 # SekaiPOP Dock Equalizer & Living Wallpapers
 
-> **3.0.0-rc.3 — native extension preview.** Requires a proposed shell API, currently absent from official SekaiPOP. [Integration status and patch](docs/NATIVE-INTEGRATION.md). install.py is now a no-op notice. The last adapter-based stable release is [2.23.0](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v2.23.0).
+A music dock with timed lyrics and living glass wallpapers for **SekaiPOP on Hyprland**. The interface follows the system colours, and the integrated Music Palette can apply temporary colours from the current cover. [SekaiPOP](https://github.com/Blapples/SekaiPop)
 
-[![Checks](https://github.com/Aferon-08/sekaipop-dock-equalizer/actions/workflows/checks.yml/badge.svg)](https://github.com/Aferon-08/sekaipop-dock-equalizer/actions/workflows/checks.yml) [![Version](https://img.shields.io/github/v/release/Aferon-08/sekaipop-dock-equalizer)](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+> **3.0.0-rc.4 · native extensions preview.** This build requires SekaiPOP with the extension API. The tested shell patch targets commit `e629dfe`. The adapter-based stable release is 2.23.0. [Shell patch and compatibility](docs/NATIVE-INTEGRATION.md) · [Stable release](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v2.23.0)
 
-[Русский](README.md) · [Installation](docs/INSTALL.md) · [Releases](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases)
+[Русский](README.md) · [Installation](#installation) · [Settings](docs/SETTINGS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Changelog](CHANGELOG.md)
 
-An independent extension for **[SekaiPOP](https://github.com/Blapples/SekaiPop)** on Hyprland: a liquid music dock, word-timed lyrics and procedural glass wallpapers with a tiny firefly companion. **Version 3.0.0-rc.3 · GPL-3.0.** The settings UI and detailed documentation are currently primarily in Russian.
+## Music dock
 
-![Music dock demo](docs/media/dock.gif)
+![Glass dock expanding with a wavy progress indicator and lyrics](docs/media/dock.gif)
 
-![Living wallpaper demo](docs/media/wallpaper.gif)
+Spectrum light lives inside the side capsules in compact mode. When the dock expands, the capsules flow into its body and soft frequency glows appear at its edges. The player shows cover art, controls, wavy progress and timed lyrics. Hovering restores the app icons. [MP4 video](docs/media/dock.mp4)
 
-[Dock video](docs/media/dock.mp4) · [Wallpaper video](docs/media/wallpaper.mp4)
+Progress, lyrics and local recording share one playback clock. It handles brief zero position reports and confirmed seeks. The spectrum follows the system output, adapts its gain smoothly and releases capture on pause.
 
-These are recordings of the real QML components in a controlled demo scene, using original sample text and a synthetic spectrum, with no audio. The wallpaper split is triggered early for the short demo. These clips are not performance benchmarks.
+## Living wallpapers
 
-![Multiple voices, backing phrase and shared chorus](docs/media/voices.gif)
+![Procedural wallpaper with two fireflies in a glass shape](docs/media/wallpaper.gif)
 
-The multi-voice demo uses explicitly tagged sample data; it demonstrates the UI, not automatic voice-recognition accuracy. [Video](docs/media/voices.mp4).
+Each monitor gets a separate composition with a shared palette. Shapes appear after the background and lighting settle. The firefly travels inside the glass, crosses tubes or rides a bubble. It follows a confident beat, breathes gently in silence and occasionally splits into two companions that roam independently. [MP4 video](docs/media/wallpaper.mp4) · [Wallpaper guide](docs/WALLPAPERS.md)
 
-The **Dock glass** settings group provides a master switch and controls for opacity, refraction, lyric frost/darkening and reactive-light brightness. Disabling it releases window-capture sources and retains your tuned values.
+## Lyrics and voices
 
-## 2.22.0 — Liquid settings panel
+![Separate vocal parts, backing lines and a shared chorus](docs/media/voices.gif)
 
-**63 settings**, search, smooth scrolling and per-setting / confirmed full reset. The phone morphs through an irregular glass droplet into a taller settings panel, then returns on Back or Escape. [Settings catalogue (RU)](docs/SETTINGS.md).
+A bouncing marker follows the words, with a separate firefly trailing it. Vocal parts can occupy their own glass panels, merge for a shared chorus and show backing phrases beside the lead. The expanded player stays open on pause and the progress wave flattens. [MP4 video](docs/media/voices.mp4) · [Lyrics guide](docs/USAGE.md)
 
-![Liquid settings panel](docs/media/settings.gif)
+The optional local engine aligns supplied lyrics with audio and estimates vocal parts. Separation quality depends on the recording and the available lyrics. JSON import, CPU processing and a separate NVIDIA CUDA environment are available. [Data and limitations](docs/PRIVACY.md)
 
-The demo uses a sample phone with the real settings component. [Video](docs/media/settings.mp4).
+## Liquid settings panel
 
-## Features
+![Phone morphing into a glass settings panel](docs/media/settings.gif)
 
-- Two spring-animated visualizer capsules that merge into the dock; waveform and bars, mirrored left side, system palette.
-- Compact and expanded music layouts, cover art, title, playback controls and a wavy progress indicator. Hover restores app icons.
-- Animated lyric lines and word progress, a bouncing marker, landing splashes, waiting dots and a separate trailing firefly.
-- Multiple lyric regions, synchronized chorus merging, backing phrases and animated per-voice endings.
-- Optional local word alignment, JSON import and experimental voice analysis; separate CPU/NVIDIA CUDA runtimes.
-- Procedural compositions per monitor sharing one palette, glass and opaque shapes, entrance animation, bar/widget avoidance and restrained ambient motion.
-- A wallpaper companion with goals, independent twin journeys, physical tube routes, elastic nearby transitions and bubble travel to otherwise unreachable rooms.
+The plugin settings button opens a glass panel with search and 63 controls. A master switch turns the dock glass on or off, with separate settings for refraction, frost, tint and light. The audio section offers a silent check of the output monitor and spectrum. The settings UI is primarily in Russian. [MP4 video](docs/media/settings.mp4) · [Settings catalogue](docs/SETTINGS.md)
 
-Voice analysis is **experimental**: a dense mix or missing parallel text can prevent reliable voice-specific lyrics. Names are not inferred as identities; unnamed roles receive numbered labels. Basic visuals work without any ML runtime.
+The gallery was captured from the QML components of this build in isolated scenes. It uses a synthetic spectrum, sample lyrics and a mock phone. Vocal parts are tagged for the demo, and the wallpaper split is triggered early to fit the clip.
 
-## Install this preview
+## Installation
 
-See [NATIVE-INTEGRATION.md](docs/NATIVE-INTEGRATION.md). The plugin is now pure native surface components; no shell-file patching or install hook. It requires the proposed shell extension API. Old install.py/--repair instructions apply only to the [stable v2 branch](https://github.com/Aferon-08/sekaipop-dock-equalizer/blob/main/docs/INSTALL.md).
+1. Prepare SekaiPOP with the documented extension API. Apply the shell patch to the compatible shell checkout. [Integration guide and requirements](docs/NATIVE-INTEGRATION.md)
+2. Copy the contents of the package folder into `~/.config/sekaipop/plugins/dock-equalizer/` and restart SekaiPOP. [3.0.0-rc.4 package](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v3.0.0-rc.4)
+3. Open **SekaiPOP Settings → Desktop → Plugins → Dock Equalizer**. To follow cover colours, enable the integrated Music Palette setting and disable the standalone Music Palette plugin if installed.
 
-## Use and data
+Basic visuals use an MPRIS player, CAVA and either PipeWire-Pulse or PulseAudio. The ML engine is optional. [Dependencies and upgrades](docs/INSTALL.md)
 
-Open **SekaiPOP Settings → Desktop → Plugins → Dock Equalizer**. Start an MPRIS-compatible player. On an empty desktop, the horizontal dock expands; click the cover to open word-timing settings. Prepare the optional engine before requesting generation with the small glass-area button or the regenerate action.
+## Recording and analysis
 
-Heavy analysis is **manual**. Spotify capture is **enabled by default** and separately saves the Spotify playback stream locally from the beginning of a track, even before analysis is requested. A complete pass is required. Disable it in plugin settings if unwanted; raw audio takes roughly **10 MB per minute**. The microphone is not used. Model setup and online lyric/YouTube sources may use the network; audio inference runs locally. See [PRIVACY.md](docs/PRIVACY.md).
+**Spotify recording is on by default.** The plugin saves the local Spotify playback stream when a track plays from the beginning. The recording setting turns it off. Recordings use about 10 MB per minute.
 
-CUDA is for audio analysis and does not automatically move the shell renderer to the discrete GPU. The installer checks known source anchors and stops if the shell layout is incompatible. Future SekaiPOP revisions may need a new adapter.
+Heavy analysis starts on request through the glass-area button or the regenerate action. Model setup, lyric retrieval and the YouTube source may use the network. Inference runs locally. [Privacy and storage](docs/PRIVACY.md)
 
-## Develop
+## Project
 
-```sh
-python3 build-pet-worker.py --check
-node tests/tube-and-family.mjs
-node tests/bubble-family.mjs
-```
+- [Architecture, shaders and demo reproducibility](docs/DEVELOPMENT.md)
+- [Audio, glass and playback troubleshooting](docs/TROUBLESHOOTING.md)
+- [Changelog](CHANGELOG.md)
+- [Third-party projects](THIRD_PARTY.md) · [Contributing](CONTRIBUTING.md)
 
-See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for rendering demos and compiling the shipped shader sources, [CONTRIBUTING.md](CONTRIBUTING.md) for contributions, and [THIRD_PARTY.md](THIRD_PARTY.md) for upstream projects. Licensed under [GPL-3.0](LICENSE).
-
-Since 3.0.0-rc.3, cover-driven system colours are included in Dock Equalizer. Disable the separate Music Palette plugin before enabling the integrated module. The current native host patch targets SekaiPOP commit `e629dfe`; official shell updates can still replace this local API.
+An independent extension licensed under [GNU GPL v3](LICENSE).

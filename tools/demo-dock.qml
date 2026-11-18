@@ -8,6 +8,7 @@ ShellRoot {
     settings.watchFiles: false
     property real elapsed: 0
     property var spectrum: Array.from({length:64},(_,i)=>100)
+    property var coverSnapshot: null
     DemoRecorder { id: recorder; scene: win.contentItem }
     QtObject {
         id: demoPlayer
@@ -78,16 +79,39 @@ ShellRoot {
             property var palette: ({ fill: Qt.color("#101b18"), rim: Qt.color("#284a3d"), shadow: Qt.color("#060d0a"), ink: Qt.color("#e8f4ee"), accent: Qt.color("#96dcc0"), border: 3, ringWidth: 3, ring: Qt.color("#101b18") })
         }
     }
+    QtObject {
+        id: scenePalette
+        property bool dark: true
+        property color surface: "#182328"
+        property color accentCyan: "#80a7d7"
+        property color accentMint: "#96dcc0"
+    }
     Window {
         id: win
         visible: true
-        width: 1100; height: 360; minimumWidth:1100; maximumWidth:1100; minimumHeight:360; maximumHeight:360; flags:Qt.Tool|Qt.FramelessWindowHint; color: "#29383e"
-        Rectangle {anchors.fill:parent;color:"#29383e"}
-        Repeater { model: 16; Rectangle {
-            required property int index
-            x: index * 69; width: 34; height: win.height
-            color: index % 2 ? "#32546c" : "#407069"; opacity: .7
-        } }
+        width: 1100; height: 360; minimumWidth:1100; maximumWidth:1100; minimumHeight:360; maximumHeight:360; flags:Qt.Tool|Qt.FramelessWindowHint; color: "#182328"
+        Item {
+            id: coverArt
+            width: 96; height: 96
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop {position: 0; color: "#3c6589"}
+                    GradientStop {position: 1; color: "#182633"}
+                }
+            }
+            Rectangle {x: 18; y: 20; width: 61; height: 61; radius: width / 2; color: "#6886aa"}
+            Rectangle {x: 27; y: 34; width: 50; height: 50; radius: width / 2; color: "#263e5b"}
+            Rectangle {x: 49; y: 32; width: 15; height: 15; radius: width / 2; color: "#f1bf97"}
+        }
+        Plugin.ProceduralWallpaper {
+            anchors.fill: parent
+            seed: "dock-preview-glass"
+            screenName: "dock-demo"
+            theme: scenePalette
+            settings: ({wallpaperDensity: "calm", wallpaperMotion: false, wallpaperGlass: .72,
+                wallpaperIntro: 1500, wallpaperPet: false})
+        }
         Plugin.DockWings { id: wings; anchors.fill: parent; host: demoHost }
         Item {
             id: pill
@@ -105,6 +129,14 @@ ShellRoot {
                 Repeater { model: ["search", "folder", "content_paste", "timer", "web", "terminal", "push_pin"]; Text { required property string modelData; text: modelData; color: "white"; font.family: "Material Symbols Rounded"; font.pixelSize: 30 } }
             }
         }
+    }
+    Timer {
+        interval: 250
+        running: true
+        onTriggered: coverArt.grabToImage(result => {
+            test.coverSnapshot = result
+            demoMedia.artUrl = result.url
+        })
     }
     Timer { interval: 50; running:!recorder.finishing; repeat:true; onTriggered: {
         test.elapsed+=.05
