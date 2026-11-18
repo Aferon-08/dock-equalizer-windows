@@ -28,7 +28,6 @@ function update(state, input, stamp) {
     const targetGain = gatePosition > 0.5 ? clamp(280 / Math.max(1, state.peak), 0.65, 5.5) : BASE_GAIN
     state.gain = follow(state.gain, targetGain, elapsed, 1600, 130)
 
-    const drive = []
     const bands = []
     const attack = -Math.expm1(-elapsed / 48)
     const release = -Math.expm1(-elapsed / 145)
@@ -39,8 +38,7 @@ function update(state, input, stamp) {
         const previous = state.levels[i] || 0
         const level = previous + (target - previous) * (target > previous ? attack : release)
         state.levels[i] = target === 0 && level < 0.5 ? 0 : level
-        drive.push(target)
         bands.push(Math.round(state.levels[i]))
     }
-    return { bands, drive, audible: gatePosition > 0.5 }
+    return { bands, audible: gatePosition > 0.5 }
 }

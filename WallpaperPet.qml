@@ -2,6 +2,7 @@ import QtQuick
 import QtQml.WorkerScript
 import "WallpaperPet.js" as Pet
 import "GlassRoutes.js" as Routes
+import "BeatTracker.js" as Rhythm
 QtObject {
  id:root
  required property var scene
@@ -12,6 +13,7 @@ QtObject {
   onMessage:message=>{if(message.generation===root.generation)Pet.acceptPlan(root.state,message)}
  }
  property var state:Pet.create(scene.seed+":"+scene.screenName)
+ property var heartMotion:Rhythm.motionState(39)
  property var targetPoints:[]
  property var fromPoints:[]
  property real blend:1
@@ -44,7 +46,12 @@ QtObject {
  function tick(dt){
   const oldPoints=targetPoints.slice(),oldCarriers=targetCarriers.slice()
   state.splitEnabled=scene.settings.petSplit!==false;state.twinDuration=scene.settings.petTwinDuration ?? 80
-  const s=Pet.advance(state,dt*(scene.settings.petSpeed ?? 1),glass,!!music?.playing,Number(music?.beatPulse)||0,Number(music?.beatBpm)||0,scene.layout.network,plastics,{asynchronous:true,height:scene.height,bounds:scene.layout.network.bounds,widgets:(scene.widgetAreas || []).map(r=>({x:r.x/scene.height,y:r.y/scene.height,width:r.width/scene.height,height:r.height/scene.height}))})
+  const playing=!!music?.playing
+  const motion=Rhythm.animate(heartMotion,dt,playing?music.rhythm:null,Date.now())
+  const s=Pet.advance(state,dt*(scene.settings.petSpeed ?? 1),glass,playing,motion.flash,motion.bpm,
+   scene.layout.network,plastics,{asynchronous:true,height:scene.height,bounds:scene.layout.network.bounds,
+    rhythm:motion,widgets:(scene.widgetAreas || []).map(r=>({x:r.x/scene.height,y:r.y/scene.height,
+     width:r.width/scene.height,height:r.height/scene.height}))})
   if(planner.ready)for(const request of Pet.requests(s))planner.sendMessage(Object.assign({},request,{generation:generation}))
   fromPoints=oldPoints;fromCarriers=oldCarriers;targetCarriers=s.children?(s.carriers||[]):s.carrier?[Object.assign({},s.carrier,{actorIndex:0})]:[]
   impacts=s.impacts.slice();targetPoints=s.points.slice();blend=0

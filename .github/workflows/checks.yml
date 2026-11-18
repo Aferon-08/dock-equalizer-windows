@@ -28,6 +28,8 @@ jobs:
         run: node tests/duration-cache.mjs
       - name: Spectrum gain and time-based smoothing
         run: node tests/spectrum-envelope.mjs
+      - name: Beat grid and heartbeat motion
+        run: node tests/rhythm.mjs
       - name: Analysis completeness and fingerprint
         run: |
           node tests/analysis-policy.mjs

@@ -101,12 +101,13 @@ QtObject {
     }
 
     property var beatState: BeatTracker.reset()
-    property real beatPulse: 0
-    property real beatBpm: 0
-    property real beatConfidence: 0
+    property var rhythm: BeatTracker.reading(beatState)
+    readonly property real beatPulse: rhythm.beat
+    readonly property real beatBpm: rhythm.bpm
+    readonly property real beatConfidence: rhythm.confidence
     function resetRhythm() {
         beatState = BeatTracker.reset()
-        beatPulse = 0; beatBpm = 0; beatConfidence = 0
+        rhythm = BeatTracker.reading(beatState)
     }
     property var bands: []
     property var envelope: Envelope.reset()
@@ -204,10 +205,7 @@ QtObject {
             const stamp = root.tap.lastPacketAt
             const frame = Envelope.update(root.envelope, next, stamp)
             root.audible = frame.audible
-            root.beatState = BeatTracker.update(root.beatState, frame.drive, stamp)
-            root.beatPulse = root.beatState.pulse
-            root.beatBpm = root.beatState.bpm
-            root.beatConfidence = root.beatState.confidence
+            root.rhythm = BeatTracker.update(root.beatState, next, stamp, frame.audible)
             ++root.frames
             if (frame.bands.length !== root.bands.length || frame.bands.some((v, i) => v !== root.bands[i]))
                 root.bands = frame.bands
@@ -224,6 +222,7 @@ QtObject {
             mode: mediaContext.visualizationMode, playerId: mediaContext.playerId, trackId: mediaContext.trackId,
             processId: tap.pid || null, output: tap.output, bands: bands.length,
             gain: tap.ready ? Math.round(envelope.gain * 100) / 100 : null,
+            rhythm: rhythm,
             lastPacketAt: tap.lastPacketAt || null,
             packetAgeMs: tap.lastPacketAt ? Math.max(0, Date.now() - tap.lastPacketAt) : null,
             retryInMs: tap.retryIn, reason: tap.error || tap.output?.reason || "",

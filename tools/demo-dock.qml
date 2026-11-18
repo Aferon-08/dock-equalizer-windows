@@ -52,7 +52,12 @@ ShellRoot {
         id: demoHost
         property var settings: ({ enabled: true, width: 200, height: 38, gap: 12, sensitivity: 1.25, style: "wave", collapseDelay: 600, lyrics: true, expandLyrics: true, lyricsWidth: 560 })
         property bool working: true
-        property var service: ({ playing: demoMedia.playing, bands: test.spectrum, beatPulse: Math.max(0,Math.sin(test.elapsed*7)), beatBpm: 118, beatConfidence: .9 })
+        property var service: {
+            const phase = (test.elapsed * 118 / 60) % 1
+            return {playing: demoMedia.playing, bands: test.spectrum, rhythm: {
+                at: Date.now(), bpm: 118, phase: phase, confidence: .9,
+                beat: .9 * Math.exp(-phase * 5.8), onset: 0, energy: .48}}
+        }
         property var theme: ({ fontFamily: "Noto Sans", iconFont: "Material Symbols Rounded" })
         property QtObject dock: QtObject {
             property var item: pill

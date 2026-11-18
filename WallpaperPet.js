@@ -237,11 +237,16 @@ function advance(s,dt,shapes,playing,beat,bpm,network,walls,context){
  network=network||Routes.build(shapes.map(n=>Object.assign({},n,{glass:1})))
  dt=Math.max(0,Math.min(.05,dt));if(!dt)return s
  s.time+=dt;s.age+=dt
- s.dance+=(Number(playing)-s.dance)*(1-Math.exp(-dt*2.4))
- const energy=Math.max(0,Math.min(1,beat));s.energy+=(energy-s.energy)*(1-Math.exp(-dt*(energy>s.energy?10:3.5)))
+ const rhythm=context.rhythm
+ const dance=playing?(rhythm?.weight ?? 1):0
+ s.dance+=(dance-s.dance)*(1-Math.exp(-dt*2.4))
+ const energy=Math.max(0,Math.min(1,rhythm?rhythm.energy*.6+rhythm.flash*.4:beat))
+ s.energy+=(energy-s.energy)*(1-Math.exp(-dt*(energy>s.energy?10:3.5)))
  s.clock+=dt*(.42+s.dance*(1.15+s.energy*.45))
- s.tempo=(s.tempo||95)+((playing?Math.max(55,Math.min(190,bpm||95)):39)-(s.tempo||95))*(1-Math.exp(-dt*1.4))
- s.heart+=dt*s.tempo/60
+ const previousTempo=s.tempo||95
+ const targetTempo=playing?Math.max(55,Math.min(190,bpm||95)):39
+ s.tempo=rhythm?.bpm ?? (previousTempo+(targetTempo-previousTempo)*(1-Math.exp(-dt*1.4)))
+ s.heart=rhythm?.phase ?? (s.heart+dt*s.tempo/60)
  s.impacts.forEach(h=>h.age+=dt);s.impacts=s.impacts.filter(h=>h.age<1.9)
  if(!shapes.length){s.points=[];s.history=[];s.trip=null;s.carrier=null;s.impacts=[];return s}
  if(s.children)return advanceFamily(s,dt,shapes,playing,beat,bpm,network,walls,context)
@@ -329,7 +334,8 @@ function advance(s,dt,shapes,playing,beat,bpm,network,walls,context){
   }
   q.containerKind=q.containerKind||(q.wire?"pipe":"room");q.containerId=q.containerId===undefined?(q.wire?trip.id:q.owner):q.containerId
   const room=shapes.find(n=>n.id===(trip?trip.target:q.owner)),fit=room?Math.max(.42,Math.min(1,Math.min(room.w,room.h)/.10)):1
-  const pulse=Math.pow(Math.max(0,Math.sin(s.heart*Math.PI*2)),7),breath=.95+.045*Math.sin(s.time*.83)+.025*Math.sin(s.time*1.79)
+  const pulse=rhythm?.pulse ?? Math.pow(Math.max(0,Math.sin(s.heart*Math.PI*2)),7)
+  const breath=.95+.045*Math.sin(s.time*.83)+.025*Math.sin(s.time*1.79)
   q.a=Motion.channel(m,"alpha",p.a*(.84+s.energy*.4)*breath,dt,7)
   q.size=Motion.channel(m,"size",p.size*(.95+.04*Math.sin(s.time*1.3)+s.energy*.12)*fit,dt,5)
   q.core=Motion.channel(m,"core",.55+pulse*(.22+s.dance*.3),dt,13);q.facing=m.facing

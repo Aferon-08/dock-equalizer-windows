@@ -7,6 +7,7 @@ import Quickshell.Widgets
 import Quickshell.Io
 import "LyricsMath.js" as LM
 import "LightMotion.js" as LightMotion
+import "BeatTracker.js" as Rhythm
 import "ImportedLyrics.js" as ImportedLyrics
 import "VoiceAnnotations.js" as VoiceAnnotations
 import "AnalysisPolicy.js" as AnalysisPolicy
@@ -278,7 +279,6 @@ Item {
     }
     onSignatureChanged: {
         rawLyricsText = ""; rawLyricsKey = ""; rawLyricsRequest.restart()
-        if (playing && host.service && typeof host.service.resetRhythm === "function") host.service.resetRhythm()
         rememberedDuration = 0; refreshDuration()
         clock = LM.clockReset(0, Date.now()); lastPosition = -1; stale = 0; tick(Date.now())
         poll()
@@ -297,7 +297,10 @@ Item {
     Timer { interval: 250; repeat: true; running: root.host.working && !!root.player; onTriggered: root.poll() }
     property real ambientTime: 0
     property real glowTime: 0
-    property real heartPhase: 0
+    property var heartMotion: Rhythm.motionState(44)
+    property real heartBpm: 44
+    property real heartPulse: .32
+    property real audioPulse: 0
     property real visualStamp: Date.now()
     FrameAnimation {
         running: root.host.working && (root.playing || root.ambientBlend > 0.001)
@@ -308,7 +311,11 @@ Item {
             if (stamp - root.visualStamp >= 16) {
                 const dt = Math.min(0.06, (stamp - root.visualStamp) / 1000)
                 root.glowTime += dt
-                root.heartPhase = (root.heartPhase + dt * root.heartBpm / 60) % 1
+                const music = root.playing ? root.host.service?.rhythm : null
+                const motion = Rhythm.animate(root.heartMotion, dt, music, stamp)
+                root.heartBpm = motion.bpm
+                root.heartPulse = motion.pulse
+                root.audioPulse = motion.flash
                 if (root.ambientBlend > 0.001)
                     root.ambientTime += dt
                 root.visualStamp = stamp
@@ -343,14 +350,7 @@ Item {
     property real ambientBlend: ambientLight ? 1 : 0
     Behavior on ambientBlend { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
     readonly property real fishTime: LightMotion.motionTime(ambientTime)
-    readonly property real audioPulse: playing && host.service ? (host.service.beatPulse || 0) : 0
-    property real beatGlow: audioPulse
-    Behavior on beatGlow { NumberAnimation { duration: 65 } }
-    readonly property real heartBpm: host.service && host.service.beatBpm > 0
-        && host.service.beatConfidence >= 0.65 ? host.service.beatBpm : 72
-    onAudioPulseChanged: if (audioPulse > 0.9 && playing) heartPhase = 0
-    readonly property real heartPulse: Math.exp(-Math.pow((heartPhase - 0.1) / 0.065, 2))
-        + 0.5 * Math.exp(-Math.pow((heartPhase - 0.32) / 0.08, 2))
+    readonly property real beatGlow: audioPulse
     readonly property vector2d glowBreath: Qt.vector2d(
         1 + 0.035 * Math.sin(glowTime * 1.3) + 0.015 * Math.sin(glowTime * 0.71 + 0.8) + beatGlow * 0.065,
         1 + 0.055 * Math.sin(glowTime * 1.05 + 0.4) + 0.025 * Math.sin(glowTime * 1.81) + beatGlow * 0.2)

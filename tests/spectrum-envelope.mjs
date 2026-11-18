@@ -28,13 +28,12 @@ assert(result.audible && result.bands[10] >= 11, "Quiet audio survives the floor
 assert(state.gain > 4 && state.gain <= 5.5, "Quiet boost is bounded")
 
 const loud = envelope.update(state, frame(640), 9000)
-assert(loud.drive[10] < 1000, "A loud attack should stay within headroom")
-assert(loud.bands[10] < loud.drive[10], "A frame starts the attack without snapping")
+assert(loud.bands[10] > 20 && loud.bands[10] < 650, "A loud attack should start without snapping to full scale")
 for (let t = 9033; t < 10800; t += 33) {
     result = envelope.update(state, frame(640), t)
 }
 assert(state.gain >= 0.65 && state.gain < 1, "Loud audio brings the gain down")
-assert(result.bands[10] > 300 && result.bands[10] < loud.drive[10])
+assert(result.bands[10] > 300 && result.bands[10] < 500)
 
 const released = envelope.update(state, frame(0), 10800)
 assert.equal(released.audible, false)

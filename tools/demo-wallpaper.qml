@@ -11,7 +11,11 @@ ShellRoot {
  Window {id:win;visible:true;width:1280;height:720;minimumWidth:1280;maximumWidth:1280;minimumHeight:720;maximumHeight:720;flags:Qt.Tool|Qt.FramelessWindowHint;color:"black"
   Plugin.ProceduralWallpaper {id:scene;anchors.fill:parent;seed:"living-glass-release";screenName:"showcase";theme:palette
    settings:({wallpaperPet:true,wallpaperMotion:true,wallpaperDensity:"rich",wallpaperGlass:.85})
-   music:({playing:demo.elapsed>12,beatPulse:Math.max(0,Math.sin(demo.elapsed*6.8)),beatBpm:130,beatConfidence:.9})
+   music:{
+    const phase=(demo.elapsed*130/60)%1
+    return {playing:demo.elapsed>12,rhythm:{at:Date.now(),bpm:130,phase:phase,confidence:.9,
+     beat:.9*Math.exp(-phase*5.8),onset:0,energy:.48}}
+   }
   }
  }
  Timer {interval:70;repeat:true;running:!recorder.finishing;onTriggered:{
