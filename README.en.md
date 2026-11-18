@@ -1,3 +1,18 @@
+# Sekai Soundbar for Windows 11
+
+A standalone music dock at the top of the screen. It hides over fullscreen apps, shows track information and playback controls from Windows media sessions, and visualizes the left and right channels of system audio.
+
+[Download the Windows 11 x64 build (ZIP)](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64.zip)
+
+Select **Download raw file**, extract the entire ZIP, and start **SekaiSoundbar.exe**. The archive includes the DLLs needed to run the app.
+
+If you have already extracted the build with the Xbox Game Bar fix, exit it and replace the executable. [Download SekaiSoundbar.exe for an update](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar.exe)
+
+[Русский](README.md) · [Windows port plan and build instructions (RU)](docs/WINDOWS-PORT-PLAN.md)
+
+<details>
+<summary>Documentation for the SekaiPOP extension on Linux</summary>
+
 # SekaiPOP Dock Equalizer & Living Wallpapers
 
 > **New interface · 3.0.0-rc.4.** The glass dock, living wallpapers and shared playback clock are available in the native extensions preview. [Current gallery and README](https://github.com/Aferon-08/sekaipop-dock-equalizer/tree/codex/native-extensions) · [Package and shell patch](https://github.com/Aferon-08/sekaipop-dock-equalizer/releases/tag/v3.0.0-rc.4)
@@ -86,3 +101,5 @@ node tests/bubble-family.mjs
 ```
 
 See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for rendering demos and compiling the shipped shader sources, [CONTRIBUTING.md](CONTRIBUTING.md) for contributions, and [THIRD_PARTY.md](THIRD_PARTY.md) for upstream projects. Licensed under [GPL-3.0](LICENSE).
+
+</details>
