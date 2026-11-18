@@ -164,12 +164,14 @@ Rectangle {
             verify(spectrum.parent.clip)
 
             progress.bands = Array.from({length: 64}, (_, i) => i === 26 ? 80 : i === 37 ? 150 : 0)
-            tryCompare(spectrum, "peak", .15)
-            compare(spectrum.amplitudes[5], .15)
+            tryVerify(() => Math.abs(spectrum.peak - .181875) < .00001)
+            compare(spectrum.amplitudes[5], spectrum.peak)
             progress.bands = Array(64).fill(0)
             tryCompare(spectrum, "peak", 0)
             progress.bands = Array(64).fill(800)
-            tryCompare(spectrum, "peak", .8)
+            tryVerify(() => Math.abs(spectrum.peak - .84) < .00001)
+            progress.bands = Array(64).fill(1000)
+            tryCompare(spectrum, "peak", 1)
             progress.glassEnabled = false
             compare(spectrum.useRibbon, false)
             progress.playing = false

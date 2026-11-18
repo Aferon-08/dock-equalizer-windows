@@ -12,6 +12,7 @@ Item {
     property bool allowShader: true
     property string style: "wave"
     property real sensitivity: 1
+    property real quietBoost: 0
     property real glowStrength: 0
     property real clock: 0
     property int fadeDuration: 280
@@ -30,7 +31,8 @@ Item {
             const raw = channel < 0
                 ? Math.max(heldBands[31 - i] || 0, heldBands[32 + i] || 0)
                 : heldBands[channel * 32 + i] || 0
-            values.push(Math.min(1, raw / 1000 * gain) * level)
+            const amplitude = Math.min(1, raw / 1000 * gain)
+            values.push(amplitude * (1 + quietBoost * (1 - amplitude)) * level)
         }
         return values
     }

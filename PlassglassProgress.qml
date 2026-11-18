@@ -65,6 +65,7 @@ Item {
             playing: root.playing
             style: root.style
             sensitivity: root.sensitivity
+            quietBoost: 0.25
             palette: root.palette
             secondary: root.secondary
             mirrored: root.mirrored
