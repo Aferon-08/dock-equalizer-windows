@@ -17,6 +17,7 @@ function resolve(host) {
     const api = host ? host.apiVersion : undefined
     return { api: Number.isInteger(api) && api > 0 ? api : null, supported, missing,
         sharedMedia: advertised.includes("native-media-v1"),
+        dockInput: advertised.includes("native-dock-input-v1"),
         paletteLease: advertised.includes("transient-palette-v1"),
         state: missing.length === 0 ? "ready" : missing.length < Object.keys(required).length ? "degraded" : "unsupported" }
 }

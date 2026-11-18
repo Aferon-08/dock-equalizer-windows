@@ -243,6 +243,7 @@ QtObject {
         return {
             host: { state: integration.state, api: integration.api, capabilities: integration.supported,
                 missing: integration.missing, paletteLease: integration.paletteLease,
+                dockInput: integration.dockInput,
                 demand: host.working, surfaces: Object.keys(surfaces).length },
             media: Object.assign({},mediaContext.snapshot,{hostShared:integration.sharedMedia,
                 integration:integration.sharedMedia ? "ready" : "degraded",

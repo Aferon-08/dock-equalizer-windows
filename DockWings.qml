@@ -166,6 +166,11 @@ Item {
     readonly property real iconsScale: lyricLayer.iconsScale
     readonly property bool suppressMediaKey: lyricLayer.wide
     readonly property real iconsOpacity: 1 - lyricLayer.lyricsOpacity
+    readonly property bool holdingDockPointer: lyricLayer.holdingMediaPointer
+    readonly property bool wantsDockKeyboard: lyricLayer.wantsProgressKeyboard
+    function handlesDockPoint(from, point) {
+        return visible && lyricLayer.handlesDockPoint(from, point)
+    }
     readonly property real glassAmount: material.enabled && useHousingShader ? Math.min(1, Math.max(phase, lyricLayer.musicLayout)) : 0
 
     visible: surfaceSupported && host.settings.enabled && fits && !host.dock.asleep

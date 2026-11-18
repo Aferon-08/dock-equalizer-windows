@@ -1,7 +1,7 @@
 diff --git a/docs/PLUGINS.md b/docs/PLUGINS.md
 --- a/docs/PLUGINS.md
 +++ b/docs/PLUGINS.md
-@@ -433,3 +433,16 @@
+@@ -433,3 +433,18 @@
  sh sekaipop/tests/plugin-test/plugin_state_test.sh     # the state script, against a throwaway folder
  node sekaipop/tests/preset-widgets-test/registry_unit.js
  ```
@@ -11,9 +11,11 @@ diff --git a/docs/PLUGINS.md b/docs/PLUGINS.md
 +
 +`extensions: ["dock", "wallpaper", "settings"]` declares optional surfaces, implemented by fixed entry files `Dock.qml`, `Wallpaper.qml`, `Settings.qml`. The manager only clones/links the repository. No install hooks run. One dock/wallpaper provider is selected deterministically by plugin id; conflicting providers must not be installed together in this initial proposal.
 +
-+The service host advertises `capabilities`: `native-dock-v1`, `native-wallpaper-v1`, `native-settings-v1`, `transient-palette-v1`, `native-media-v1`. Services may implement `extensionEnabled(slot)` to switch off a surface without changing shell files.
++The service host advertises `capabilities`: `native-dock-v1`, `native-wallpaper-v1`, `native-settings-v1`, `transient-palette-v1`, `native-media-v1`, `native-dock-input-v1`. Services may implement `extensionEnabled(slot)` to switch off a surface without changing shell files.
 +
 +Dock host: base widget settings/service/theme plus the live dock item, geometry, media source, lyrics, hover/edit/desktop-empty state and monitor palette. Dock entry outputs `fits`, `ownsHousing`, `widthExtra`, `heightExtra`, `headerHeight`, `iconsOffset`, `iconsOpacity`, `iconsScale`, `suppressMediaKey`. Wallpaper host: theme/settings/service, screenName, configured widget rectangles, barEdge/barExtent, working and setSetting. Settings host: state/theme, opened, close(), screenName, native phone capture item/rect and viewport rect. Settings entry exposes `showing` while its exit animation completes.
++
++With `native-dock-input-v1`, `host.dock.appInteraction` means the stock app row, its drag or a dock card is receiving input. An entry may implement `handlesDockPoint(item, point)` for its own controls. The stock hit area yields those points before a press and retains its existing grab after a press. An entry may expose `holdingDockPointer` during a gesture and `wantsDockKeyboard` for its focused or hovered control. The dock uses on-demand keyboard interactivity and releases it when the control clears the request.
 +
 +Theme IPC exposes renewable palette leases (`musicSet`, `musicClear`, `musicStatus`) with baseline restoration and expiry. Persistent theme settings are not the music override. Existing desktop/bar plugins are unchanged.
 +
@@ -226,7 +228,28 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
              out.push({ kind: "divider", key: "div3" })
              out.push({ kind: "media", key: "media" })
          }
-@@ -1577,7 +1578,7 @@
+@@ -1395,6 +1396,7 @@
+     readonly property bool revealed: !dockWindow.autoHideOn || !dockWindow.wantsHidden || dockWindow.editing
+                                      || dockWindow.hovered || hideGrace.running || dockWindow.dragOver
+                                      || dockWindow.menuOpen || dockWindow.folderOpen || dockWindow.toolOpen !== "" || dockWindow.dragging
++                                     || pluginDockAdapter.item?.holdingDockPointer === true
+     // How far the pill is pushed toward its edge, design pixels (animated).
+     property real hideOffset: dockWindow.revealed ? 0 : (dockWindow.pillThickness + mt.shadowOffset
+                                                           + dockWindow.innerGap + 4
+@@ -1463,9 +1465,10 @@
+     WlrLayershell.layer: (dockWindow.dockPinned || dockWindow.autoHideOn || dockWindow.editing
+                           || dockWindow.toolOpen === "files" || dockWindow.toolOpen === "shelf") ? WlrLayer.Top : WlrLayer.Bottom
+     WlrLayershell.namespace: "sekaipop-dock"
+-    // Rename and custom timer fields need typing; the Files stack listens for Esc / Backspace.
++    // Native fields and an active extension control can accept local keys.
+     WlrLayershell.keyboardFocus: (dockWindow.folderOpen || dockWindow.toolOpen === "files"
+-        || (dockWindow.toolOpen === "timer" && timerCard.tab === "timer"))
++        || (dockWindow.toolOpen === "timer" && timerCard.tab === "timer")
++        || (pluginDockAdapter.working && pluginDockAdapter.item?.wantsDockKeyboard === true))
+         ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+
+     // The window itself runs the whole length of its edge and is transparent, so
+@@ -1577,7 +1580,7 @@
      // How thick the pill is across (design pixels): the key, its padding and, on a
      // flat dock, its hard shadow underneath.
      readonly property real pillThickness: dockWindow.iconSize + dockWindow.pillPaddingV * 2
@@ -235,7 +258,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
      // ...and as the window sees it (real pixels): how far the strip reaches in from the edge.
      readonly property real stripSize: Math.round(dockWindow.pillThickness * dockWindow.uiScale)
      // The window is as big as the screen from the edge the pill is `lift` away from,
-@@ -1784,6 +1785,121 @@
+@@ -1784,6 +1787,123 @@
              anchors.fill: parent
              factor: dockWindow.uiScale
 
@@ -319,6 +342,8 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
 +                        readonly property var lyrics: LyricsService
 +                        readonly property bool hovered: dockWindow.hovered || dockWindow.dragOver
 +                            || dockWindow.menuOpen || dockWindow.folderOpen || dockWindow.toolOpen !== ""
++                        readonly property bool appInteraction: hit.containsMouse || hit.pressed || dockWindow.dragOver
++                            || dockWindow.menuOpen || dockWindow.folderOpen || dockWindow.toolOpen !== ""
 +                        readonly property bool editing: dockWindow.editing
 +                        readonly property real baseWidth: dockWindow.rowLen + dockWindow.magData.total + dockWindow.pillPaddingH * 2
 +                        readonly property real baseCapHeight: dockWindow.iconSize + dockWindow.pillPaddingV * 2
@@ -357,7 +382,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
              Pill {
                  id: dockPill
                  // On the dock's edge, centered along it.
-@@ -1803,9 +1919,9 @@
+@@ -1803,9 +1923,9 @@
                  // Flat: as wide as its keys (and what the magnification adds), one
                  // key tall. Standing: one key wide, as tall as its keys.
                  width: dockWindow.vertical ? dockWindow.iconSize + dockWindow.pillPaddingV * 2
@@ -369,7 +394,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
 
                  // A modest rounded rectangle, not a full capsule — same radius
                  // MediaPill/BatteryPopup/ResourcePopup/TrayMenu all use for their
-@@ -1821,7 +1937,7 @@
+@@ -1821,7 +1941,7 @@
                  cornerRadius: dockWindow.look === "capsule"
                      ? Math.min(dockPill.capWidth, dockPill.capHeight) / 2 : mt.radiusOuter
                  // Transparent: no background, only the keys.
@@ -378,7 +403,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
                  capRim: dockWindow.look === "capsule"
                  borderWidth: dockWindow.look === "capsule" ? mt.capRimWidth : mt.borderWidth
                  // Same navy-outline / pale-ring / white-fill construction as the
-@@ -1841,6 +1957,9 @@
+@@ -1841,6 +1961,9 @@
                  Item {
                      id: dockRow
                      anchors.centerIn: parent
@@ -388,7 +413,7 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
                      width: dockWindow.vertical ? dockWindow.iconSize : dockWindow.rowLen
                      height: dockWindow.vertical ? dockWindow.rowLen : dockWindow.iconSize + mt.shadowOffset
 
-@@ -1860,9 +1979,9 @@
+@@ -1860,9 +1983,19 @@
              MouseArea {
                  id: hit
                  x: dockWindow.hitX
@@ -397,6 +422,16 @@ diff --git a/sekaipop/modules/sekai/dock/Dock.qml b/sekaipop/modules/sekai/dock/
                  width: dockWindow.hitW
 -                height: dockWindow.hitH
 +                height: Math.max(1, dockWindow.hitH - (pluginDockAdapter.item ? pluginDockAdapter.item.headerHeight : 0))
++                containmentMask: QtObject {
++                    function contains(point: point): bool {
++                        if (point.x < 0 || point.y < 0 || point.x >= hit.width || point.y >= hit.height)
++                            return false
++                        const extension = pluginDockAdapter.item
++                        return hit.pressed || !pluginDockAdapter.working
++                            || typeof extension?.handlesDockPoint !== "function"
++                            || !extension.handlesDockPoint(hit, point)
++                    }
++                }
                  enabled: !dockWindow.editing && !dockWindow.tucked
                  hoverEnabled: true
                  acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
@@ -638,7 +673,7 @@ diff --git a/sekaipop/services/PluginState.qml b/sekaipop/services/PluginState.q
      // What Service.qml is handed: the part of `host` that is not about a surface (no theme,
      // monitor or size). Its `working` is true while any surface shows; `wanted` says which.
      readonly property QtObject serviceHost: QtObject {
-+        readonly property var capabilities: ["native-dock-v1","native-wallpaper-v1","native-settings-v1","transient-palette-v1","native-media-v1"]
++        readonly property var capabilities: ["native-dock-v1","native-wallpaper-v1","native-settings-v1","transient-palette-v1","native-media-v1","native-dock-input-v1"]
 +        readonly property bool settingsOpen: PluginService.settingsExtensionId===root.pluginId && PluginService.settingsExtensionOpen
 +        function setSettingsOpen(on) {if(on)PluginService.openExtensionSettings(root.pluginId);else PluginService.settingsExtensionOpen=false}
          readonly property int apiVersion: PM.API_VERSION

@@ -202,7 +202,7 @@ Item {
         offline: "Нет связи с источником лирики", missing: "Лирика не найдена", loading: "Поиск лирики…"
     })[emptyState]
     readonly property bool wide: wantsMusic && host.settings.expandLyrics !== false && !!host.dock.desktopEmpty
-    readonly property string mode: !wantsMusic ? "icons" : host.dock.hovered ? (wide ? "icons+controls" : "icons")
+    readonly property string mode: !wantsMusic ? "icons" : showingApps ? (wide ? "icons+controls" : "icons")
         : wide ? (available ? "lyrics-expanded" : emptyState + "-expanded")
             : (available ? "lyrics-compact" : emptyState + "-compact")
     function report() {
@@ -221,7 +221,18 @@ Item {
     readonly property real baseHeight: host.dock.baseCapHeight || 69
     readonly property real maxBody: Math.max(280,
         (host.dock.stageWidth || 1100) - 2 * (Math.min(host.settings.width || 200, 200) + (host.settings.gap || 12) + 26))
-    readonly property bool showMusic: wantsMusic && (!host.dock.hovered || wide)
+    readonly property bool holdingMediaPointer: progress.scrubbing || volumePointer.pressed || swipeDragging
+    readonly property bool wantsProgressKeyboard: progress.wantsKeyboard
+    property bool showingApps: false
+    readonly property bool appsIntent: wantsMusic && !holdingMediaPointer
+        && ((host.dock.appInteraction ?? host.dock.hovered) || (!wide && showingApps && host.dock.hovered))
+    onAppsIntentChanged: if (!appsIntent) showingApps = false
+    Timer {
+        interval: 140
+        running: root.appsIntent && !root.showingApps
+        onTriggered: root.showingApps = true
+    }
+    readonly property bool showMusic: wantsMusic && (!showingApps || wide)
     property real musicReveal: showMusic ? 1 : 0
     Behavior on musicReveal { NumberAnimation { duration: 320; easing.type: Easing.InOutCubic } }
     readonly property real musicLayout: Math.max(0, Math.min(1, musicReveal))
@@ -236,7 +247,7 @@ Item {
     readonly property real iconsOffset: 84 * layout
     readonly property real iconsScale: 1 - (1 - Math.min(1,
         Math.max(1, dock.capWidth - 48) / Math.max(1, baseWidth - 36))) * Math.min(1, layout)
-    property real lyricsOpacity: wantsMusic && !host.dock.hovered ? 1 : 0
+    property real lyricsOpacity: wantsMusic && !showingApps ? 1 : 0
     Behavior on lyricsOpacity { NumberAnimation { duration: root.host.settings.lyricFade ?? 240; easing.type: Easing.InOutCubic } }
 
     function animateLayout() {
@@ -387,6 +398,9 @@ Item {
                 marker: [reel.markerPose.x, reel.markerPose.y, reel.markerPose.alpha], handoff: reel.transfer,
                 splashes: reel.landings.length, loadingLight: root.waitingLightAmount, heartBpm: root.heartBpm, beatGlow: root.beatGlow, wordLight: [root.wordLight.x, root.wordLight.y, root.wordLight.z],
                 opacity: root.lyricsOpacity, musicLayout: root.musicLayout, iconsScale: root.iconsScale,
+                seekControl: { style: progress.plassglass ? "plassglass" : "material",
+                    ready: progress.inputReady, scrubbing: progress.scrubbing, preview: progress.previewing,
+                    previewSeconds: progress.previewSeconds, keyboard: progress.activeFocus, wantsKeys: progress.wantsKeyboard },
                 bare: root.dock.bare, color: String(root.colors.ink), accent: String(root.colors.accent), visible: root.visible,
                 box: [root.x, root.y, root.width, root.height], dock: [root.dock.x, root.dock.y, root.dock.width, root.dock.height] })
         }
@@ -484,9 +498,15 @@ Item {
     width: Math.max(1, dock.capWidth)
     height: Math.max(1, dock.capHeight)
 
-    function timeLabel(seconds) {
-        const value = Math.max(0, Math.floor(seconds || 0))
-        return Math.floor(value / 60) + ":" + (value % 60 < 10 ? "0" : "") + value % 60
+    function handlesDockPoint(from, point) {
+        if (!showMusic || musicLayout < .75) return false
+        for (const control of [progress, volumePointer]) {
+            if (!control.visible || !control.enabled) continue
+            const local = control.mapFromItem(from, point.x, point.y)
+            if (local.x >= 0 && local.y >= 0 && local.x < control.width && local.y < control.height)
+                return true
+        }
+        return false
     }
     function seekTo(fraction) {
         if (duration > 0 && timeline.seek(Math.max(0, Math.min(1, fraction)) * duration))
@@ -533,10 +553,12 @@ Item {
     }
     DockProgress {
         id: progress
+        objectName: "dockProgress"
         x: 68 + 14 * Math.min(1, root.layout)
         y: 45 + 18 * Math.min(1, root.layout)
         width: Math.max(1, root.width - x - (68 + 14 * Math.min(1, root.layout)))
         height: 20
+        z: previewing ? 1 : 0
         opacity: root.musicLayout
         visible: opacity > 0.001
         settings: root.host.settings
@@ -546,10 +568,14 @@ Item {
         glowStrength: root.material.light
         bands: root.host.working ? root.host.service?.bands || [] : []
         fraction: root.duration > 0 ? root.position / root.duration : 0
+        duration: root.duration
+        trackIdentity: JSON.stringify([root.timeline?.key, root.timeline?.identity, root.timeline?.serial])
         indeterminate: !(root.duration > 0)
         playing: root.playing
         phase: root.position / 1.8
-        seekable: !!root.player && root.player.canSeek && root.player.positionSupported && root.duration > 0
+        seekable: root.showMusic && root.musicLayout >= .75 && !!root.timeline?.current
+            && !!root.player && root.player.canSeek && root.player.positionSupported
+        fontFamily: root.host.theme.fontFamily || ""
         onSeek: fraction => root.seekTo(fraction)
     }
     Item {
@@ -571,8 +597,10 @@ Item {
             }
         }
         MouseArea {
+            id: volumePointer
             anchors.fill: parent; anchors.margins: -5
-            enabled: !!root.player && root.player.volumeSupported && root.player.canControl
+            enabled: root.showMusic && root.musicLayout >= .75
+                && !!root.player && root.player.volumeSupported && root.player.canControl
             cursorShape: Qt.PointingHandCursor
             onClicked: {
                 if (root.player.volume > 0) { volume.unmutedVolume = root.player.volume; root.player.volume = 0 }
@@ -658,13 +686,14 @@ Item {
         }
         Text {
             x: progress.x; y: 51
-            text: root.timeLabel(root.position)
+            visible: !progress.previewing
+            text: progress.timeText(root.position)
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 10
         }
         Text {
             x: progress.x + progress.width - width; y: 51
-            text: root.duration > 0 ? root.timeLabel(root.duration) : "—:—"
+            text: root.duration > 0 ? progress.timeText(root.duration) : "—:—"
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 10
         }

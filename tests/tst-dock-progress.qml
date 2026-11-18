@@ -16,6 +16,7 @@ Rectangle {
         settings: ({})
         palette: ({ink: Qt.color("#e8f4ee"), accent: Qt.color("#96dcc0")})
         secondary: "#77bcea"
+        duration: 120
         seekable: true
     }
     SignalSpy {
@@ -35,6 +36,8 @@ Rectangle {
             progress.playing = false
             progress.bands = []
             progress.fraction = 0
+            progress.duration = 120
+            progress.trackIdentity = "track-a"
             progress.indeterminate = false
             progress.seekable = true
             progress.palette = {ink: Qt.color("#e8f4ee"), accent: Qt.color("#96dcc0")}
@@ -92,6 +95,63 @@ Rectangle {
             compare(progress.positionX, progress.trackLeft)
             progress.visible = false
             tryVerify(() => !findChild(progress, "plassglassProgressRenderer"))
+        }
+
+        function test_scrub_data() { return [{tag: "material"}, {tag: "plassglass"}] }
+
+        function test_scrub(data) {
+            progress.settings = {progressStyle: data.tag}
+            progress.fraction = .25
+            mouseMove(progress, 204, 10)
+            verify(progress.previewing)
+            compare(progress.previewSeconds, 60)
+            compare(progress.positionX, 104)
+            mousePress(progress, 204, 10, Qt.LeftButton)
+            verify(progress.scrubbing)
+            compare(progress.positionX, 204)
+            mouseMove(progress, 304, 10)
+            compare(progress.previewSeconds, 90)
+            progress.fraction = .28
+            compare(progress.positionX, 304)
+            compare(seeks.count, 0)
+            mouseRelease(progress, 304, 10, Qt.LeftButton)
+            verify(!progress.scrubbing)
+            compare(seeks.count, 1)
+            compare(seeks.signalArguments[0][0], .75)
+        }
+
+        function test_cancel_pressed_seek_data() {
+            return [{tag: "escape"}, {tag: "track"}, {tag: "disabled"}, {tag: "unknown"}]
+        }
+
+        function test_cancel_pressed_seek(data) {
+            progress.fraction = .25
+            mousePress(progress, 204, 10, Qt.LeftButton)
+            verify(progress.scrubbing)
+            switch (data.tag) {
+            case "escape": keyClick(Qt.Key_Escape); break
+            case "track": progress.trackIdentity = "track-b"; break
+            case "disabled": progress.seekable = false; break
+            case "unknown": progress.indeterminate = true; break
+            }
+            verify(!progress.scrubbing)
+            compare(progress.positionX, 104)
+            mouseRelease(progress, 204, 10, Qt.LeftButton)
+            compare(seeks.count, 0)
+        }
+
+        function test_keyboard_seek() {
+            progress.fraction = .5
+            progress.forceActiveFocus()
+            verify(progress.activeFocus)
+            keyClick(Qt.Key_Left)
+            keyClick(Qt.Key_Right)
+            keyClick(Qt.Key_Home)
+            keyClick(Qt.Key_End)
+            compare(seeks.signalArguments.map(values => Math.round(values[0] * 120)), [55, 65, 0, 120])
+            progress.duration = 0
+            keyClick(Qt.Key_Right)
+            compare(seeks.count, 4)
         }
 
         function test_stereo_fade_and_clipping() {

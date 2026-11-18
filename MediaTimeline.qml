@@ -105,7 +105,8 @@ QtObject {
     }
     function position() { return current ? Clock.estimate(model, timer.elapsedMs()) : 0 }
     function seek(seconds) {
-        if (!current || !player?.canSeek || !player.positionSupported || !Number.isFinite(seconds) || seconds < 0)
+        if (!current || identity !== verifiedIdentity || !player?.canSeek || !player.positionSupported
+            || !Number.isFinite(seconds) || seconds < 0)
             return false
         model = Clock.seek(model, seconds, timer.elapsedMs(), true)
         player.position = seconds
