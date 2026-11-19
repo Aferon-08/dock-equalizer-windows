@@ -2,11 +2,11 @@
 
 A standalone music dock at the top of the screen. It hides over fullscreen apps, shows track information and playback controls from Windows media sessions, and visualizes the left and right channels of system audio. It imports LRC and Wordtime files and searches for existing lyrics using Windows curl.exe.
 
-[Download the Windows 11 x64 build (ZIP)](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64.zip)
+[Windows 11 x64 installer](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64-Setup.exe) · [Portable ZIP](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64.zip)
 
-Select **Download raw file**, extract the entire ZIP, and start **SekaiSoundbar.exe**. The archive includes the DLLs needed to run the app.
+Select **Download raw file**. Run the installer or extract the entire ZIP and start **SekaiSoundbar.exe**. The [Windows x64 workflow](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/actions/workflows/windows.yml) also produces an installer, a portable ZIP and a source archive.
 
-Right-click the dock and choose **Оформление дока…** (Dock appearance) to adjust glass and lighting. The app saves these settings between launches.
+Right-click the dock and choose **Оформление дока…** (Dock appearance) to adjust glass and lighting. The **Преломлять фон рабочего стола** switch uses the desktop behind the dock for refraction. Windows may show its capture border. The app saves these settings between launches.
 
 Open **Выровнять лирику…** (Align lyrics) to align existing lyrics to a local audio file and export Wordtime JSON. Initial setup of the aligner downloads about 450 MB.
 

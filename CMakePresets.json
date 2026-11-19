@@ -7,7 +7,10 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/stage/${presetName}"
+      "installDir": "${sourceDir}/out/stage/${presetName}",
+      "cacheVariables": {
+        "CMAKE_INSTALL_BINDIR": "."
+      }
     }
   ],
   "buildPresets": [

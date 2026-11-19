@@ -7,6 +7,8 @@ Dialog {
     required property var appearance
     required property var ownerWindow
     required property bool effectsAvailable
+    required property bool desktopGlassAvailable
+    required property string desktopGlassStatus
     readonly property bool glassEnabled: appearance.values.dockGlass
 
     width: Math.min(460, ownerWindow.width)
@@ -41,6 +43,22 @@ Dialog {
                 text: "Используется упрощённое оформление."
                 visible: !panel.effectsAvailable
                 wrapMode: Text.WordWrap
+            }
+            Switch {
+                text: "Преломлять фон рабочего стола"
+                checked: panel.appearance.values.desktopGlass
+                visible: panel.desktopGlassAvailable
+                enabled: panel.glassEnabled
+                onToggled: panel.appearance.setDesktopGlass(checked)
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: panel.desktopGlassAvailable && panel.glassEnabled
+                text: panel.appearance.values.desktopGlass && panel.desktopGlassStatus !== ""
+                    ? panel.desktopGlassStatus
+                    : "Windows может показать рамку захвата. Док исключается из снимков экрана, пока эффект активен."
+                wrapMode: Text.WordWrap
+                opacity: 0.8
             }
             Repeater {
                 model: panel.appearance.sliders

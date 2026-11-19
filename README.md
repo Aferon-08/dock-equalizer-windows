@@ -2,11 +2,11 @@
 
 Самостоятельный музыкальный док у верхнего края экрана. Он скрывается перед полноэкранными приложениями, показывает трек и кнопки управления из медиасессии Windows, а боковые полосы реагируют на системный звук в левом и правом каналах. Док поддерживает импорт LRC и Wordtime и поиск готовой лирики через системный curl.exe.
 
-[Скачать готовую сборку для Windows 11 x64 (ZIP)](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64.zip)
+[Установщик для Windows 11 x64](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64-Setup.exe) · [Переносимый ZIP](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64.zip)
 
-На странице архива нажмите **Download raw file**, распакуйте ZIP целиком и запустите **SekaiSoundbar.exe**. Установщик и сборка из исходников не нужны.
+На странице файла нажмите **Download raw file**. Запустите установщик или распакуйте ZIP целиком и запустите **SekaiSoundbar.exe**. Установщик, ZIP и исходники также формирует [сборка Windows x64](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/actions/workflows/windows.yml).
 
-Пункт **«Оформление дока…»** в меню по правому клику управляет стеклом и подсветкой. Настройки сохраняются после перезапуска.
+Пункт **«Оформление дока…»** в меню по правому клику управляет стеклом и подсветкой. Переключатель **«Преломлять фон рабочего стола»** включает захват фона за доком. Windows может показать рамку захвата монитора. Настройки сохраняются после перезапуска.
 
 В меню **«Выровнять лирику…»** можно привязать готовый текст к локальному аудиофайлу и сохранить результат в JSON Wordtime. При первой подготовке обработчика скачивается около 450 МБ.
 

@@ -3,10 +3,12 @@ target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackC
     DockAppearance.cpp DockAppearance.h
     LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
-    SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h)
+    SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h
+    MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2)
+target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}")
 if(WIN32)
-    target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h)
+    target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h WinCaptureAbi.h)
     target_link_libraries(SekaiSoundbar PRIVATE d3d11 dwmapi runtimeobject ole32 shcore)
 endif()
 
@@ -76,12 +78,22 @@ if(WIN32)
     if(SOUNDBAR_ALIGNMENT_PYTHON)
         install(DIRECTORY "${SOUNDBAR_ALIGNMENT_PYTHON}/" DESTINATION "${CMAKE_INSTALL_BINDIR}/alignment/python")
     endif()
+    if(MSVC)
+        # Deploy the app-local Visual C++ DLLs so the ZIP runs without setup.
+        set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION "${CMAKE_INSTALL_BINDIR}")
+        include(InstallRequiredSystemLibraries)
+        set(deploy_compiler_runtime NO_COMPILER_RUNTIME)
+    endif()
     qt_generate_deploy_qml_app_script(
         TARGET SekaiSoundbar
         OUTPUT_SCRIPT deploy_script
+        ${deploy_compiler_runtime}
+        NO_TRANSLATIONS
         DEPLOY_TOOL_OPTIONS --include-plugins qsvg,qschannelbackend
     )
     install(SCRIPT "${deploy_script}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt" "${PROJECT_VERSION}\n")
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt" DESTINATION .)
 endif()
 
 if(BUILD_TESTING)
@@ -89,6 +101,9 @@ if(BUILD_TESTING)
     add_test(NAME soundbar.clock COMMAND soundbar_clock_test)
     add_executable(soundbar_spectrum_test tests/SpectrumAnalyzerTest.cpp SpectrumAnalyzer.cpp)
     add_test(NAME soundbar.spectrum COMMAND soundbar_spectrum_test)
+    add_executable(soundbar_backdrop_test tests/BackdropGeometryTest.cpp)
+    target_link_libraries(soundbar_backdrop_test PRIVATE Qt6::Core)
+    add_test(NAME soundbar.backdrop-geometry COMMAND soundbar_backdrop_test)
     add_executable(soundbar_lyrics_test tests/LyricsImportTest.cpp LyricsImport.cpp LyricsImport.h)
     target_link_libraries(soundbar_lyrics_test PRIVATE Qt6::Core)
     add_test(NAME soundbar.lyrics-import COMMAND soundbar_lyrics_test)

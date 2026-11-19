@@ -9,6 +9,8 @@ Item {
     required property var host
     // Platform behavior is injected. A plain Qt host needs neither component.
     property Component backdropComponent: null
+    property bool backdropEnabled: true
+    readonly property Item backdropItem: dockUnderlay.item
     property Component lyricsBridgeComponent: null
     property bool previewGlass: false
     readonly property Item lyricsView: lyricLayer
@@ -177,7 +179,7 @@ Item {
                 id: dockUnderlay
                 anchors.fill: parent
                 sourceComponent: root.backdropComponent
-                readonly property bool capturing: !!root.backdropComponent && root.visible
+                readonly property bool capturing: !!root.backdropComponent && root.backdropEnabled && root.visible
                     && root.glassAmount > 0.001 && !root.vertical
                 readonly property rect globalViewport: {
                     // Keep dependencies on the shell's slide/lift and local geometry.
@@ -186,8 +188,10 @@ Item {
                     return Qt.rect(origin.x, origin.y, width, height)
                 }
                 onLoaded: {
-                    item.screenName = Qt.binding(() => root.host.dock.screenName || "")
-                    item.globalViewport = Qt.binding(() => dockUnderlay.globalViewport)
+                    if ("screenName" in item)
+                        item.screenName = Qt.binding(() => root.host.dock.screenName || "")
+                    if ("globalViewport" in item)
+                        item.globalViewport = Qt.binding(() => dockUnderlay.globalViewport)
                     item.active = Qt.binding(() => dockUnderlay.capturing)
                 }
             }
