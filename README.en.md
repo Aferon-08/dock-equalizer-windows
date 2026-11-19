@@ -1,12 +1,12 @@
 # Sekai Soundbar for Windows 11
 
-A standalone music dock at the top of the screen. It hides over fullscreen apps, shows track information and playback controls from Windows media sessions, and visualizes the left and right channels of system audio.
+A standalone music dock at the top of the screen. It hides over fullscreen apps, shows track information and playback controls from Windows media sessions, and visualizes the left and right channels of system audio. It imports LRC and Wordtime files and searches for existing lyrics using Windows curl.exe.
 
 [Download the Windows 11 x64 build (ZIP)](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64.zip)
 
 Select **Download raw file**, extract the entire ZIP, and start **SekaiSoundbar.exe**. The archive includes the DLLs needed to run the app.
 
-If you have already extracted the build with the Xbox Game Bar fix, exit it and replace the executable. [Download SekaiSoundbar.exe for an update](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar.exe)
+If you have already extracted a build with lyrics import or search, exit the dock and extract the entire update ZIP into its folder. Replace the existing files when prompted. [Download the update](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-update.zip)
 
 [Русский](README.md) · [Windows port plan and build instructions (RU)](docs/WINDOWS-PORT-PLAN.md)
 

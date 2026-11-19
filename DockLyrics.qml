@@ -46,7 +46,8 @@ Item {
     readonly property var wordtimeTrack: ({ title: media ? media.title : "", artist: media ? media.artist : "",
         url: trackUrl, duration: reportedDuration || rememberedDuration
             || (youtubeId && host.service && host.service.durationCache ? host.service.durationCache[youtubeId] || 0 : 0) })
-    readonly property var wordtimeResult: wordtimeStore ? wordtimeStore.resultFor(wordtimeTrack) : null
+    readonly property var wordtimeResult: wordtimeStore ? wordtimeStore.resultFor(wordtimeTrack)
+        : nativeClock ? (host.dock.timingDocument ?? null) : null
     readonly property bool importedTiming: !!wordtimeResult && wordtimeResult.status === "ready"
     readonly property bool hasTimingDocument: importedTiming || (!!wordtimeResult && wordtimeResult.status === "partial")
     readonly property bool processingForLyrics: !!wordtimeStore && !!wordtimeStore.generationJob
@@ -88,7 +89,9 @@ Item {
         ? (rawLyricsCurrent ? VoiceAnnotations.rawLines(rawLyricsText) : lyrics.lines) : []
     readonly property string standardLyricsText: rawLyricsCurrent ? rawLyricsText : ImportedLyrics.toLrc(standardLines)
     readonly property var annotatedDocument: VoiceAnnotations.fromLines(standardLines, duration)
-    readonly property var presentationDocument: BackingLayout.project(hasTimingDocument ? wordtimeResult : annotatedDocument,standardLines,duration)
+    readonly property var presentationDocument: hasTimingDocument && wordtimeResult.format === "lrc"
+        ? wordtimeResult : BackingLayout.project(hasTimingDocument ? wordtimeResult : annotatedDocument,
+            hasTimingDocument && wordtimeResult.format === "enhanced-lrc" ? wordtimeResult.lines : standardLines, duration)
     readonly property var voiceDocument: presentationDocument
     readonly property var allLines: presentationDocument.lines
     readonly property var lines: allLines.filter(l=>l.role!=="backing")
@@ -144,7 +147,8 @@ Item {
     property bool dismissedUntilPlay: false
     readonly property bool wantsMusic: host.working && !!player && !!media && !!media.title
         && !dismissedUntilPlay && host.settings.lyrics !== false && !host.dock.vertical && !host.dock.editing
-    readonly property string emptyLabel: nativeClock && !lyrics ? "Лирика недоступна" : sameTrack && lyrics
+    readonly property string emptyLabel: nativeClock && !lyrics
+        ? (host.dock.lyricsStatus || "Лирика недоступна") : sameTrack && lyrics
         && (lyrics.status === "none" || lyrics.status === "instrumental") ? "Инструментальная"
         : sameTrack && lyrics && lyrics.status === "offline" ? "Лирика недоступна" : "Поиск лирики…"
     readonly property bool wide: wantsMusic && host.settings.expandLyrics !== false && !!host.dock.desktopEmpty
@@ -341,7 +345,9 @@ Item {
             voices: root.multiVoiceAvailable ? root.voiceDocument.voices.map(v => ({id: v.id, label: v.label})) : [],
             voiceRegions: root.multiVoiceActive ? multiReel.regions : [],
             lyricsEnded: root.lyricsEnded, finale: root.finaleState.phase, playing: root.playing, content: root.available ? "lyrics" : root.emptyLabel, ambient: root.ambientLight, dismissed: root.dismissedUntilPlay, swipe: [root.swipeX, root.swipeY], swipeDirection: root.lastSwipeDirection, position: root.position, duration: root.duration, reportedDuration: root.reportedDuration, youtubeId: root.youtubeId, index: reel.currentIndex,
-            text: reel.current.text, trackHeaderVisible: header.visible && header.opacity > 0.95,
+            text: reel.current.text, lineOnly: reel.current.lineOnly === true,
+            wordSpans: (reel.current.wordSpans || []).length,
+            trackHeaderVisible: header.visible && header.opacity > 0.95,
             waiting: reel.waiting, waitProgress: reel.waitProgress, cursor: reel.cursor,
             marker: [reel.markerPose.x, reel.markerPose.y, reel.markerPose.alpha], handoff: reel.transfer,
             splashes: reel.landings.length, loadingLight: root.waitingLightAmount, heartBpm: root.heartBpm, beatGlow: root.beatGlow, wordLight: [root.wordLight.x, root.wordLight.y, root.wordLight.z],

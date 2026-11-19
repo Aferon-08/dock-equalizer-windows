@@ -1,11 +1,15 @@
 #include "DesktopOverlay.h"
+#include "LyricsImport.h"
+#include "LyricsSearch.h"
 #include "MediaSessions.h"
 #include "SystemAudio.h"
 
 #include <QGuiApplication>
+#include <QNetworkProxyFactory>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSettings>
 
 int main(int argc, char *argv[])
 {
@@ -18,6 +22,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
 #ifdef Q_OS_WIN
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
+    QNetworkProxyFactory::setUseSystemConfiguration(true);
 #endif
 
     DesktopOverlay desktop;
@@ -26,10 +31,30 @@ int main(int argc, char *argv[])
         && !args.contains(QStringLiteral("--demo-preview"));
     MediaSessions media(liveInputs);
     SystemAudio audio(liveInputs);
+    LyricsImport lyrics;
+    LyricsSearch search;
+    QSettings settings(QStringLiteral("SekaiSoundbar"), QStringLiteral("Settings"));
+    const auto autoSearchSetting = QStringLiteral("lyrics/automatic");
+    search.setAutomatic(settings.value(autoSearchSetting, true).toBool());
+    QObject::connect(&search, &LyricsSearch::automaticChanged, &app, [&] {
+        settings.setValue(autoSearchSetting, search.automatic());
+    });
+    QObject::connect(&media, &MediaSessions::changed, &search, [&] {
+        search.setTrack(media.trackKey(), media.trackTitle(), media.trackArtist(),
+                        media.trackAlbum(), media.length());
+    });
+    QVariantMap properties{{QStringLiteral("desktop"), QVariant::fromValue(&desktop)},
+                           {QStringLiteral("mediaSessions"), QVariant::fromValue(&media)},
+                           {QStringLiteral("systemAudio"), QVariant::fromValue(&audio)},
+                           {QStringLiteral("lyricsImport"), QVariant::fromValue(&lyrics)},
+                           {QStringLiteral("lyricsSearch"), QVariant::fromValue(&search)}};
+    const auto smoke = args.indexOf(QStringLiteral("--smoke-test"));
+    if (smoke >= 0 && smoke + 2 < args.size()) {
+        properties.insert(QStringLiteral("smokeLrc"), QUrl::fromLocalFile(args.at(smoke + 1)));
+        properties.insert(QStringLiteral("smokeWordtime"), QUrl::fromLocalFile(args.at(smoke + 2)));
+    }
     QQmlApplicationEngine engine;
-    engine.setInitialProperties({{QStringLiteral("desktop"), QVariant::fromValue(&desktop)},
-                                 {QStringLiteral("mediaSessions"), QVariant::fromValue(&media)},
-                                 {QStringLiteral("systemAudio"), QVariant::fromValue(&audio)}});
+    engine.setInitialProperties(properties);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("Sekai.Soundbar", "Main");

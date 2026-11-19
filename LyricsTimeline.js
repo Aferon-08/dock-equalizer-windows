@@ -13,7 +13,7 @@ function units(text) {
 }
 
 function sungEnd(line, next, rate) {
-    if (line.imported && line.end > line.t) return line.end
+    if ((line.imported || line.lineOnly) && line.end > line.t) return line.end
     var room = next - line.t
     var known = line.end > line.t ? line.end - line.t : undefined
     var span = LM.sungSpan(line.text, room, rate, known)

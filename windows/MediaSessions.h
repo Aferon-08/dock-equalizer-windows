@@ -15,6 +15,7 @@ struct MediaState
     QString trackKey;
     QString title;
     QString artist;
+    QString album;
     QString sourceName;
     QUrl artUrl;
     TimelineSample timeline;
@@ -79,6 +80,9 @@ public:
     QObject *player() { return m_state.sessionId.isEmpty() ? nullptr : this; }
     QString title() const;
     QString artist() const;
+    QString trackTitle() const { return m_state.title; }
+    QString trackArtist() const { return m_state.artist; }
+    QString trackAlbum() const { return m_state.album; }
     QUrl artUrl() const { return m_state.artUrl; }
     QString trackKey() const { return m_state.trackKey; }
     bool playing() const { return m_state.timeline.playing; }

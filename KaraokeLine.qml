@@ -20,16 +20,18 @@ Item {
     property real pixelSize: 22
     property color ink: "white"
     property color accent: "#9ce9c2"
+    readonly property bool lineOnly: line.lineOnly === true
     readonly property var tokens: LM.tokens(line.text || "")
-    readonly property var spans: line.wordSpans && line.wordSpans.length === tokens.length
+    readonly property var spans: lineOnly ? [] : line.wordSpans && line.wordSpans.length === tokens.length
         ? line.wordSpans : LM.spansFor(tokens, line.t, Math.max(0.1, endTime - line.t), line.marks || [])
     readonly property int activeWord: LM.wordAt(spans, time)
     readonly property var mainIndexes: LM.mainIndexes(tokens)
-    readonly property var mainSpans: mainIndexes.map(index => spans[index])
+    readonly property var mainSpans: lineOnly ? [] : mainIndexes.map(index => spans[index])
     readonly property int markerWord: LM.wordAt(mainSpans, time)
     readonly property bool singing: active && time >= line.t && time < endTime && tokens.length > 0
     readonly property int here: mainIndexes[Math.max(0, markerWord)] ?? 0
-    readonly property int there: mainIndexes[Math.min(mainIndexes.length - 1, Math.max(0, markerWord) + 1)] ?? here
+    readonly property int there: lineOnly ? here
+        : mainIndexes[Math.min(mainIndexes.length - 1, Math.max(0, markerWord) + 1)] ?? here
     readonly property real fromX: row.implicitWidth > 0 ? wordCenter(here) : 0
     readonly property real toX: row.implicitWidth > 0 ? wordCenter(there) : 0
     readonly property real wordStart: mainSpans[Math.max(0, markerWord)]?.from ?? line.t
@@ -42,7 +44,7 @@ Item {
     // Only the contact word may deform. The marker's combined impact also
     // contains recoil from the previous landing, so it cannot drive a neighbour.
     readonly property real approachingHit: there !== here ? Motion.smooth((motion.phase - 0.8) / 0.2) : 0
-    readonly property int deformedWord: entryImpact > 0 ? (mainIndexes[0] ?? -1)
+    readonly property int deformedWord: lineOnly ? -1 : entryImpact > 0 ? (mainIndexes[0] ?? -1)
         : !singing || time >= handoffStart ? -1 : approachingHit > 0 ? there : here
     readonly property real wordImpact: entryImpact > 0 ? entryImpact
         : deformedWord < 0 ? 0 : approachingHit > 0 ? approachingHit
@@ -75,7 +77,7 @@ Item {
                 required property int index
                 required property var modelData
                 readonly property var span: root.spans[index] || ({ from: 0, to: 1 })
-                readonly property real sung: LM.sung(span, root.time)
+                readonly property real sung: root.lineOnly ? (root.singing ? 1 : 0) : LM.sung(span, root.time)
                 readonly property real hit: index === root.deformedWord ? root.wordImpact : 0
                 readonly property real gap: modelData.gap ? root.pixelSize * 0.28 : 0
                 width: glyph.implicitWidth + gap
@@ -91,6 +93,7 @@ Item {
                     id: glyph
                     x: word.gap
                     text: word.modelData.s
+                    textFormat: Text.PlainText
                     font.family: root.theme.fontFamily
                     font.pixelSize: root.pixelSize
                     font.weight: Font.Medium
@@ -104,6 +107,7 @@ Item {
                     clip: true
                     Text {
                         text: glyph.text
+                        textFormat: Text.PlainText
                         font: glyph.font
                         color: root.accent
                     }
@@ -124,6 +128,7 @@ Item {
     }
     function landingsAt(stamp) {
         const result = []
+        if (lineOnly) return result
         for (let n = mainIndexes.length - 1; n >= 0; --n) {
             const index = mainIndexes[n]
             const born = spans[index]?.from ?? line.t
@@ -138,7 +143,7 @@ Item {
     function markerAt(stamp) {
         const k = Math.max(0, LM.wordAt(mainSpans, stamp))
         const index = mainIndexes[k] ?? 0
-        const nextIndex = mainIndexes[Math.min(mainIndexes.length - 1, k + 1)] ?? index
+        const nextIndex = lineOnly ? index : mainIndexes[Math.min(mainIndexes.length - 1, k + 1)] ?? index
         const start = mainSpans[k]?.from ?? line.t
         const next = nextIndex !== index ? (mainSpans[k + 1]?.from ?? endTime) : start
         const m = Motion.sample(stamp, start, next, wordCenter(index), wordCenter(nextIndex), arc)
