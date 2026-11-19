@@ -20,13 +20,14 @@ struct Slider
 
 constexpr Slider settings[] = {
     {"glassOpacity", u"Непрозрачность корпуса", .78, .1, 1, .02},
-    {"glassRefraction", u"Преломление в лирике", 1, 0, 2, .05},
+    {"glassRefraction", u"Сила преломления", 1, 0, 2, .05},
     {"glassBlur", u"Матовость лирики", 3.8, 0, 8, .2, true},
     {"glassDarkening", u"Затемнение лирики", .23, 0, .8, .01},
     {"glassLight", u"Яркость музыкальной подсветки", 1, 0, 2, .05},
 };
 
 const QString glassEnabled = QStringLiteral("dockGlass");
+const QString desktopGlass = QStringLiteral("desktopGlass");
 
 QString key(const QString &name)
 {
@@ -39,6 +40,7 @@ DockAppearance::DockAppearance(QSettings *settingsStore)
     : m_settings(settingsStore)
 {
     m_values.insert(glassEnabled, !m_settings || m_settings->value(key(glassEnabled), true).toBool());
+    m_values.insert(desktopGlass, m_settings && m_settings->value(key(desktopGlass), false).toBool());
     for (const auto &setting : settings) {
         const auto name = QString::fromLatin1(setting.key);
         double value = setting.initial;
@@ -69,6 +71,11 @@ void DockAppearance::setGlassEnabled(bool enabled)
     setValue(glassEnabled, enabled);
 }
 
+void DockAppearance::setDesktopGlass(bool enabled)
+{
+    setValue(desktopGlass, enabled);
+}
+
 void DockAppearance::setNumber(const QString &name, double value)
 {
     if (!std::isfinite(value))
@@ -84,8 +91,11 @@ void DockAppearance::setNumber(const QString &name, double value)
 void DockAppearance::reset()
 {
     m_values.insert(glassEnabled, true);
-    if (m_settings)
+    m_values.insert(desktopGlass, false);
+    if (m_settings) {
         m_settings->remove(key(glassEnabled));
+        m_settings->remove(key(desktopGlass));
+    }
     for (const auto &setting : settings) {
         const auto name = QString::fromLatin1(setting.key);
         m_values.insert(name, setting.initial);

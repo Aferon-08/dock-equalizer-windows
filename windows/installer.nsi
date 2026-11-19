@@ -1,0 +1,143 @@
+Target amd64-unicode
+RequestExecutionLevel user
+
+!include "MUI2.nsh"
+!include "LogicLib.nsh"
+
+Name "Sekai Soundbar"
+OutFile "${SETUP}"
+InstallDir "$LOCALAPPDATA\Programs\SekaiSoundbar"
+VIProductVersion "${VERSION}.0"
+VIAddVersionKey "ProductName" "Sekai Soundbar"
+VIAddVersionKey "FileDescription" "Sekai Soundbar setup"
+VIAddVersionKey "FileVersion" "${VERSION}"
+VIAddVersionKey "ProductVersion" "${VERSION}"
+VIAddVersionKey "LegalCopyright" "Sekai Soundbar contributors. GPL-3.0."
+SetCompressor /SOLID lzma
+
+!define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SekaiSoundbar"
+!define MUI_ABORTWARNING
+!insertmacro MUI_PAGE_LICENSE "${PAYLOAD}/LICENSE"
+!insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_RUN "$INSTDIR\app\SekaiSoundbar.exe"
+!insertmacro MUI_PAGE_FINISH
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+!insertmacro MUI_LANGUAGE "English"
+!insertmacro MUI_LANGUAGE "Russian"
+
+LangString Running ${LANG_ENGLISH} "Close Sekai Soundbar from its menu, then run setup again."
+LangString Running ${LANG_RUSSIAN} "Закройте Sekai Soundbar через меню дока и запустите установщик снова."
+LangString InstallFailed ${LANG_ENGLISH} "The program files could not be installed."
+LangString InstallFailed ${LANG_RUSSIAN} "Не удалось установить файлы программы."
+
+Var InstanceGuard
+
+!macro ACQUIRE_LOCK
+    SetShellVarContext current
+    SetRegView 64
+    System::Call 'kernel32::SetLastError(i 0)'
+    System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\SekaiSoundbar.Instance") p .r0 ?e'
+    Pop $1
+    StrCpy $InstanceGuard $0
+    ${If} $0 == 0
+    ${OrIf} $1 == 183
+        SetErrorLevel 2
+        IfSilent +2
+        MessageBox MB_ICONEXCLAMATION "$(Running)"
+        Abort
+    ${EndIf}
+!macroend
+
+Function .onInit
+    !insertmacro ACQUIRE_LOCK
+FunctionEnd
+
+Function un.onInit
+    !insertmacro ACQUIRE_LOCK
+FunctionEnd
+
+Section "Sekai Soundbar"
+    SetOutPath "$INSTDIR"
+    ; Recover the previous runtime if a prior upgrade was interrupted.
+    IfFileExists "$INSTDIR\previous\SekaiSoundbar.exe" 0 stage
+    IfFileExists "$INSTDIR\app\SekaiSoundbar.exe" discardBackup
+    ClearErrors
+    Rename "$INSTDIR\previous" "$INSTDIR\app"
+    IfErrors failed
+    Goto stage
+
+discardBackup:
+    RMDir /r "$INSTDIR\previous"
+
+stage:
+    RMDir /r "$INSTDIR\staging"
+    SetOutPath "$INSTDIR\staging"
+    ClearErrors
+    File /r "${PAYLOAD}/*"
+    IfErrors failed
+
+    SetOutPath "$INSTDIR"
+    WriteUninstaller "$INSTDIR\Uninstall.exe"
+    IfErrors failed
+    IfFileExists "$INSTDIR\app\SekaiSoundbar.exe" 0 replace
+    Rename "$INSTDIR\app" "$INSTDIR\previous"
+    IfErrors failed
+
+replace:
+    Rename "$INSTDIR\staging" "$INSTDIR\app"
+    IfErrors rollback
+    RMDir /r "$INSTDIR\previous"
+
+    SetOutPath "$INSTDIR\app"
+    CreateDirectory "$SMPROGRAMS\Sekai Soundbar"
+    CreateShortCut "$SMPROGRAMS\Sekai Soundbar\Sekai Soundbar.lnk" "$INSTDIR\app\SekaiSoundbar.exe"
+    WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Sekai Soundbar"
+    WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
+    WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\app\SekaiSoundbar.exe"
+    WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
+    WriteRegStr HKCU "${UNINSTALL_KEY}" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
+    WriteRegStr HKCU "${UNINSTALL_KEY}" "QuietUninstallString" '$\"$INSTDIR\Uninstall.exe$\" /S'
+    WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify" 1
+    WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
+    System::Call 'kernel32::CloseHandle(p $InstanceGuard)'
+    Goto done
+
+rollback:
+    IfFileExists "$INSTDIR\previous\SekaiSoundbar.exe" 0 failed
+    Rename "$INSTDIR\previous" "$INSTDIR\app"
+
+failed:
+    SetOutPath "$INSTDIR"
+    RMDir /r "$INSTDIR\staging"
+    SetErrorLevel 1
+    IfSilent +2
+    MessageBox MB_ICONSTOP "$(InstallFailed)"
+    Abort
+
+done:
+SectionEnd
+
+Section "Uninstall"
+    SetOutPath "$TEMP"
+    ClearErrors
+    IfFileExists "$INSTDIR\app\*.*" 0 +2
+    RMDir /r "$INSTDIR\app"
+    IfFileExists "$INSTDIR\previous\*.*" 0 +2
+    RMDir /r "$INSTDIR\previous"
+    IfFileExists "$INSTDIR\staging\*.*" 0 +2
+    RMDir /r "$INSTDIR\staging"
+    IfErrors uninstallFailed
+    Delete "$SMPROGRAMS\Sekai Soundbar\Sekai Soundbar.lnk"
+    RMDir "$SMPROGRAMS\Sekai Soundbar"
+    DeleteRegKey HKCU "${UNINSTALL_KEY}"
+    Delete "$INSTDIR\Uninstall.exe"
+    RMDir "$INSTDIR"
+    Goto uninstallDone
+
+uninstallFailed:
+    SetErrorLevel 1
+    Abort
+
+uninstallDone:
+SectionEnd

@@ -18,6 +18,7 @@ public:
     QVariantMap values() const { return m_values; }
     QVariantList sliders() const;
     Q_INVOKABLE void setGlassEnabled(bool enabled);
+    Q_INVOKABLE void setDesktopGlass(bool enabled);
     Q_INVOKABLE void setNumber(const QString &name, double value);
     Q_INVOKABLE void reset();
 

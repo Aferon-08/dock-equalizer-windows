@@ -11,6 +11,7 @@
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSettings>
 
 #ifdef Q_OS_WIN
@@ -36,6 +37,7 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("SekaiSoundbar"));
     app.setApplicationDisplayName(QStringLiteral("Sekai Soundbar"));
+    app.setApplicationVersion(QStringLiteral(SOUNDBAR_VERSION));
     app.setQuitOnLastWindowClosed(false);
 
     const auto args = app.arguments();
@@ -44,6 +46,12 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QQuickWindow::setDefaultAlphaBuffer(true);
 #ifdef Q_OS_WIN
+    // The installer uses this same guard while switching the runtime folder.
+    const HANDLE instance = smokeMode ? nullptr : CreateMutexW(nullptr, FALSE, L"Local\\SekaiSoundbar.Instance");
+    const bool alreadyRunning = instance && GetLastError() == ERROR_ALREADY_EXISTS;
+    const auto releaseInstance = qScopeGuard([instance] { if (instance) CloseHandle(instance); });
+    if (alreadyRunning)
+        return 0;
     QQuickWindow::setGraphicsApi(software || !hasHardwareD3d11()
         ? QSGRendererInterface::Software : QSGRendererInterface::Direct3D11);
     QNetworkProxyFactory::setUseSystemConfiguration(true);

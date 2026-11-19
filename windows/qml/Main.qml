@@ -49,6 +49,8 @@ Window {
     property real elapsed: 0
     readonly property bool smokeMode: Qt.application.arguments.indexOf("--smoke-test") >= 0
     readonly property bool demoMode: smokeMode || Qt.application.arguments.indexOf("--demo-preview") >= 0
+    readonly property bool desktopGlassAvailable: !smokeMode && wings.shaderAvailable
+        && stage.GraphicsInfo.api === GraphicsInfo.Direct3D11
     readonly property var media: demoMode ? demoMedia : mediaSessions
     readonly property string activeTrackKey: media.player ? media.player.trackKey : ""
     property var localLyrics: null
@@ -371,6 +373,12 @@ Window {
             anchors.fill: parent
             host: demoHost
             previewGlass: appearanceDialog.visible
+            backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
+            backdropEnabled: window.visible && window.appearance.values.desktopGlass
+        }
+        Component {
+            id: monitorBackdrop
+            MonitorBackdrop {}
         }
         Item {
             id: pill
@@ -452,6 +460,8 @@ Window {
         appearance: window.appearance
         ownerWindow: window
         effectsAvailable: wings.shaderAvailable
+        desktopGlassAvailable: window.desktopGlassAvailable
+        desktopGlassStatus: wings.backdropItem ? wings.backdropItem.status : ""
     }
     Connections {
         target: window.lyricsAlignment
