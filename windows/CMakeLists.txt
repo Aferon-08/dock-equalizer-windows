@@ -1,12 +1,13 @@
 qt_add_executable(SekaiSoundbar WIN32 main.cpp DesktopOverlay.cpp DesktopOverlay.h)
 target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackClock.h
+    DockAppearance.cpp DockAppearance.h
     LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h)
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2)
 if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h)
-    target_link_libraries(SekaiSoundbar PRIVATE dwmapi runtimeobject ole32 shcore)
+    target_link_libraries(SekaiSoundbar PRIVATE d3d11 dwmapi runtimeobject ole32 shcore)
 endif()
 
 # Explicit inputs keep the SekaiPOP adapters out of QML scanning and deployment.
@@ -54,7 +55,7 @@ list(TRANSFORM shared_assets PREPEND "${PROJECT_SOURCE_DIR}/")
 
 qt_add_qml_module(SekaiSoundbar
     URI Sekai.Soundbar
-    QML_FILES qml/Main.qml qml/AlignmentDialog.qml ${shared_ui}
+    QML_FILES qml/Main.qml qml/AlignmentDialog.qml qml/AppearanceDialog.qml ${shared_ui}
     RESOURCES ${shared_assets}
 )
 
@@ -104,10 +105,12 @@ if(BUILD_TESTING)
         add_test(NAME soundbar.lyrics-search-curl COMMAND soundbar_lyrics_search_test "${SOUNDBAR_TEST_CURL}")
         set_tests_properties(soundbar.lyrics-search-curl PROPERTIES TIMEOUT 45)
     endif()
-    add_test(NAME soundbar.overlay COMMAND SekaiSoundbar --smoke-test
+    set(smoke_fixtures
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/lyrics.lrc"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/wordtime.json")
-    set_tests_properties(soundbar.overlay PROPERTIES
+    add_test(NAME soundbar.overlay COMMAND SekaiSoundbar --smoke-test ${smoke_fixtures})
+    add_test(NAME soundbar.overlay-software COMMAND SekaiSoundbar --software-rendering --smoke-test ${smoke_fixtures})
+    set_tests_properties(soundbar.overlay soundbar.overlay-software PROPERTIES
         TIMEOUT 25
         FAIL_REGULAR_EXPRESSION
             "Error decoding;Error loading;Failed to deserialize QShader;ReferenceError:;TypeError:"

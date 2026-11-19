@@ -14,6 +14,7 @@ Window {
     required property var lyricsImport
     required property var lyricsSearch
     required property var lyricsAlignment
+    required property var appearance
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
     title: "Sekai Soundbar"
@@ -25,8 +26,12 @@ Window {
     y: workArea.y
     visible: workArea.width > 0 && !desktop.fullscreenActive
     onVisibleChanged: {
-        if (!visible && panelMenu.opened)
-            panelMenu.close()
+        if (!visible) {
+            if (menuLoader && menuLoader.item && menuLoader.item.visible)
+                menuLoader.item.dismiss()
+            if (appearanceDialog && appearanceDialog.visible)
+                appearanceDialog.close()
+        }
     }
     onClosing: Qt.quit()
 
@@ -259,12 +264,12 @@ Window {
             property real gap: 12
             property real sensitivity: 1.25
             property string style: "wave"
-            property bool dockGlass: true
-            property real glassOpacity: 0.78
-            property real glassRefraction: 1
-            property real glassBlur: 3.8
-            property real glassDarkening: 0.23
-            property real glassLight: 1
+            property bool dockGlass: window.appearance.values.dockGlass
+            property real glassOpacity: window.appearance.values.glassOpacity
+            property real glassRefraction: window.appearance.values.glassRefraction
+            property real glassBlur: window.appearance.values.glassBlur
+            property real glassDarkening: window.appearance.values.glassDarkening
+            property real glassLight: window.appearance.values.glassLight
             property int collapseDelay: 600
             property bool lyrics: true
             property bool expandLyrics: true
@@ -328,10 +333,24 @@ Window {
 
     Item {
         id: stage
-        width: Math.max(600, window.width)
+        width: Math.max(760, window.width)
         height: pill.y + pill.height + 32 + Math.max(0, wings.lyricsView.swipeY)
         scale: window.width / width
         transformOrigin: Item.TopLeft
+
+        Rectangle {
+            id: solidHousing
+            x: pill.x + wings.lyricsView.swipeX
+            y: pill.y + wings.lyricsView.swipeY
+            width: pill.capWidth
+            height: pill.capHeight
+            radius: wings.radius
+            visible: !wings.ownsHousing
+            color: demoHost.dock.palette.fill
+            border.color: demoHost.dock.palette.rim
+            border.width: 2
+            antialiasing: true
+        }
 
         MouseArea {
             x: pill.x + wings.lyricsView.swipeX
@@ -348,6 +367,7 @@ Window {
             objectName: "standaloneDockWings"
             anchors.fill: parent
             host: demoHost
+            previewGlass: appearanceDialog.visible
         }
         Item {
             id: pill
@@ -376,7 +396,15 @@ Window {
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.RightButton
-        onClicked: mouse => panelMenu.popup(mouse.x, mouse.y)
+        onClicked: mouse => {
+            menuLoader.active = true
+            menuLoader.item.popup(mouse.x, mouse.y)
+        }
+    }
+    Loader {
+        id: menuLoader
+        active: false
+        sourceComponent: contextMenu
     }
     Dialogs.FileDialog {
         id: lyricsPicker
@@ -414,6 +442,13 @@ Window {
         parent: Overlay.overlay
         controller: window.lyricsAlignment
         ownerWindow: window
+    }
+    AppearanceDialog {
+        id: appearanceDialog
+        parent: Overlay.overlay
+        appearance: window.appearance
+        ownerWindow: window
+        effectsAvailable: wings.shaderAvailable
     }
     Connections {
         target: window.lyricsAlignment
@@ -543,119 +578,149 @@ Window {
             }
         }
     }
-    Menu {
-        id: panelMenu
-        popupType: Popup.Window
-        MenuItem {
-            text: window.lyricsExpanded ? "Свернуть лирику" : "Развернуть лирику"
-            enabled: !!window.media.player
-            onTriggered: window.lyricsExpanded = !window.lyricsExpanded
-        }
-        MenuItem {
-            text: "Загрузить лирику…"
-            enabled: window.activeTrackKey !== ""
-            onTriggered: {
-                lyricsPicker.targetKey = window.activeTrackKey
-                Qt.callLater(() => lyricsPicker.open())
-            }
-        }
-        MenuItem {
-            text: "Выровнять лирику…"
-            enabled: !window.demoMode
-            onTriggered: Qt.callLater(() => {
-                const player = window.media.player
-                const length = player && player.lengthSupported ? player.length : 0
-                const lines = window.timingDocument ? (window.timingDocument.lines || []) : []
-                alignmentDialog.openForTrack(window.activeTrackKey, length, lines)
-            })
-        }
-        MenuItem {
-            text: "Убрать загруженную лирику"
-            visible: !!window.localLyrics
-            height: visible ? implicitHeight : 0
-            enabled: visible
-            onTriggered: window.clearLyrics()
-        }
+    Component {
+        id: contextMenu
         Menu {
-            title: "Поиск лирики"
-            enabled: !window.demoMode
-            MenuItem {
-                text: "Автопоиск лирики"
-                checkable: true
-                checked: window.lyricsSearch.automatic
-                onTriggered: window.lyricsSearch.automatic = checked
+            id: panelMenu
+            popupType: Popup.Window
+            property bool openAppearanceAfterClose: false
+            function openAppearance() {
+                if (window.visible)
+                    appearanceDialog.open()
+            }
+            onClosed: {
+                const showAppearance = openAppearanceAfterClose
+                openAppearanceAfterClose = false
+                Qt.callLater(() => {
+                    // Release the software backing store when its top-level popup closes.
+                    if (stage.GraphicsInfo.api === GraphicsInfo.Software && !panelMenu.visible)
+                        menuLoader.active = false
+                    if (showAppearance && window.visible)
+                        appearanceDialog.open()
+                })
             }
             MenuItem {
-                text: "Найти лирику"
-                enabled: window.lyricsSearch.canSearch && !window.lyricsSearch.searching
-                onTriggered: window.lyricsSearch.retry()
+                text: window.lyricsExpanded ? "Свернуть лирику" : "Развернуть лирику"
+                enabled: !!window.media.player
+                onTriggered: window.lyricsExpanded = !window.lyricsExpanded
             }
             MenuItem {
-                text: "Прокси поиска…"
-                onTriggered: Qt.callLater(() => proxyDialog.open())
-            }
-            MenuItem {
-                text: "Выбрать версию лирики…"
-                enabled: window.lyricsSearch.choices.length > 0
+                text: "Загрузить лирику…"
+                enabled: window.activeTrackKey !== ""
                 onTriggered: {
-                    matchPicker.targetKey = window.activeTrackKey
-                    Qt.callLater(() => matchPicker.open())
+                    lyricsPicker.targetKey = window.activeTrackKey
+                    Qt.callLater(() => lyricsPicker.open())
                 }
             }
             MenuItem {
-                text: "Состояние источников…"
-                enabled: window.lyricsSearch.sourceDetails !== ""
-                onTriggered: {
-                    lyricsMessage.title = "Состояние источников"
-                    lyricsMessage.text = window.lyricsSearch.sourceDetails
-                    Qt.callLater(() => lyricsMessage.open())
-                }
+                text: "Выровнять лирику…"
+                enabled: !window.demoMode
+                onTriggered: Qt.callLater(() => {
+                    const player = window.media.player
+                    const length = player && player.lengthSupported ? player.length : 0
+                    const lines = window.timingDocument ? (window.timingDocument.lines || []) : []
+                    alignmentDialog.openForTrack(window.activeTrackKey, length, lines)
+                })
             }
             MenuItem {
-                text: window.lyricsSearch.statusText
-                enabled: false
-                visible: text !== ""
+                text: "Убрать загруженную лирику"
+                visible: !!window.localLyrics
                 height: visible ? implicitHeight : 0
+                enabled: visible
+                onTriggered: window.clearLyrics()
             }
-        }
-        MenuItem {
-            text: window.media.playing ? "Пауза" : "Воспроизвести"
-            enabled: !!window.media.player && window.media.player.canTogglePlaying
-            onTriggered: window.media.togglePlaying()
-        }
-        Menu {
-            id: sourcesMenu
-            title: "Источник"
-            enabled: !window.demoMode && window.mediaSessions.sessions.length > 0
-            MenuItem {
-                text: "Автоматически"
-                checkable: true
-                checked: window.mediaSessions.preference === ""
-                onTriggered: window.mediaSessions.selectSession("")
-            }
-            Instantiator {
-                model: window.mediaSessions.sessions
-                delegate: MenuItem {
-                    required property var modelData
-                    text: modelData.label
+            Menu {
+                title: "Поиск лирики"
+                enabled: !window.demoMode
+                MenuItem {
+                    text: "Автопоиск лирики"
                     checkable: true
-                    checked: window.mediaSessions.preference === modelData.id
-                    onTriggered: window.mediaSessions.selectSession(modelData.id)
+                    checked: window.lyricsSearch.automatic
+                    onTriggered: window.lyricsSearch.automatic = checked
                 }
-                onObjectAdded: (index, item) => sourcesMenu.insertItem(index + 1, item)
-                onObjectRemoved: (index, item) => sourcesMenu.removeItem(item)
+                MenuItem {
+                    text: "Найти лирику"
+                    enabled: window.lyricsSearch.canSearch && !window.lyricsSearch.searching
+                    onTriggered: window.lyricsSearch.retry()
+                }
+                MenuItem {
+                    text: "Прокси поиска…"
+                    onTriggered: Qt.callLater(() => proxyDialog.open())
+                }
+                MenuItem {
+                    text: "Выбрать версию лирики…"
+                    enabled: window.lyricsSearch.choices.length > 0
+                    onTriggered: {
+                        matchPicker.targetKey = window.activeTrackKey
+                        Qt.callLater(() => matchPicker.open())
+                    }
+                }
+                MenuItem {
+                    text: "Состояние источников…"
+                    enabled: window.lyricsSearch.sourceDetails !== ""
+                    onTriggered: {
+                        lyricsMessage.title = "Состояние источников"
+                        lyricsMessage.text = window.lyricsSearch.sourceDetails
+                        Qt.callLater(() => lyricsMessage.open())
+                    }
+                }
+                MenuItem {
+                    text: window.lyricsSearch.statusText
+                    enabled: false
+                    visible: text !== ""
+                    height: visible ? implicitHeight : 0
+                }
             }
-        }
-        MenuItem {
-            visible: !window.demoMode && window.mediaSessions.commandError !== ""
-            height: visible ? implicitHeight : 0
-            enabled: false
-            text: window.mediaSessions.commandError
-        }
-        MenuSeparator {}
-        MenuItem {
-            text: "Выход"
-            onTriggered: Qt.quit()
+            MenuItem {
+                text: window.media.playing ? "Пауза" : "Воспроизвести"
+                enabled: !!window.media.player && window.media.player.canTogglePlaying
+                onTriggered: window.media.togglePlaying()
+            }
+            Menu {
+                id: sourcesMenu
+                title: "Источник"
+                enabled: !window.demoMode && window.mediaSessions.sessions.length > 0
+                MenuItem {
+                    text: "Автоматически"
+                    checkable: true
+                    checked: window.mediaSessions.preference === ""
+                    onTriggered: window.mediaSessions.selectSession("")
+                }
+                Instantiator {
+                    model: window.mediaSessions.sessions
+                    delegate: MenuItem {
+                        required property var modelData
+                        text: modelData.label
+                        checkable: true
+                        checked: window.mediaSessions.preference === modelData.id
+                        onTriggered: window.mediaSessions.selectSession(modelData.id)
+                    }
+                    onObjectAdded: (index, item) => sourcesMenu.insertItem(index + 1, item)
+                    onObjectRemoved: (index, item) => sourcesMenu.removeItem(item)
+                }
+            }
+            MenuItem {
+                visible: !window.demoMode && window.mediaSessions.commandError !== ""
+                height: visible ? implicitHeight : 0
+                enabled: false
+                text: window.mediaSessions.commandError
+            }
+            MenuSeparator {}
+            MenuItem {
+                text: "Оформление дока…"
+                onTriggered: {
+                    if (panelMenu.visible) {
+                        panelMenu.openAppearanceAfterClose = true
+                        panelMenu.dismiss()
+                    } else {
+                        Qt.callLater(panelMenu.openAppearance)
+                    }
+                }
+            }
+            MenuItem {
+                text: "Выход"
+                onTriggered: Qt.quit()
+            }
         }
     }
 
@@ -700,7 +765,11 @@ Window {
                     window.failSmoke("panel is not frameless, transparent and centered on the top edge")
                     return
                 }
-                if (!wings.visible || !wings.ownsHousing || !isFinite(pill.width)
+                if (stage.GraphicsInfo.api === GraphicsInfo.Software && !solidHousing.visible) {
+                    window.failSmoke("the software renderer needs a solid housing")
+                    return
+                }
+                if (!wings.visible || (wings.ownsHousing === solidHousing.visible) || !isFinite(pill.width)
                         || Math.abs(pill.width - Math.min(demoHost.settings.compactWidth,
                             wings.lyricsView.maxBody)) > 0.5
                         || wings.suppressMediaKey || wings.reveal < 0.95
