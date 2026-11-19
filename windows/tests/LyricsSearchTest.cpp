@@ -57,8 +57,11 @@ public:
     QString lastArtist;
     QStringList requests;
     QStringList paths;
+    QStringList socksTargets;
+    QStringList httpProxyTargets;
     bool escapedPlus = false;
     bool lateResponse = false;
+    int retryRequests = 0;
 
     Fixture()
     {
@@ -66,14 +69,51 @@ public:
         QObject::connect(&server, &QTcpServer::newConnection, &server, [this] {
             while (auto *socket = server.nextPendingConnection()) {
                 QObject::connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
-                    if (socket->property("received").toBool() || !socket->canReadLine())
+                    if (socket->property("received").toBool())
+                        return;
+                    const auto pending = socket->peek(socket->bytesAvailable());
+                    if (pending.startsWith('\x05')) {
+                        readSocks(socket, pending);
+                        return;
+                    }
+                    if (!pending.contains("\r\n\r\n"))
                         return;
                     const auto request = socket->readLine().split(' ');
-                    if (request.size() < 2)
+                    if (request.size() < 3)
                         return;
                     socket->setProperty("received", true);
+                    const auto headers = socket->readAll().toLower().split('\n');
+                    if (request[0] == "CONNECT") {
+                        socket->write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        socket->disconnectFromHost();
+                        return;
+                    }
                     const auto target = QUrl::fromEncoded(request[1]);
+                    if (!target.host().isEmpty())
+                        httpProxyTargets.append(target.host());
                     paths.append(target.path());
+                    if (target.path() == QStringLiteral("/hang"))
+                        return;
+                    if (target.path() == QStringLiteral("/open-json") || target.path() == QStringLiteral("/open-error")
+                            || target.path() == QStringLiteral("/broken-json") || target.path() == QStringLiteral("/retry")) {
+                        if (request[2].trimmed() != "HTTP/1.1" || !headers.contains("connection: close\r")) {
+                            socket->disconnectFromHost();
+                            return;
+                        }
+                        const bool retry = target.path() == QStringLiteral("/retry");
+                        const bool retrySucceeded = retry && ++retryRequests == 2;
+                        const bool unavailable = target.path() == QStringLiteral("/open-error");
+                        QByteArray body;
+                        if (!unavailable)
+                            body = retrySucceeded || target.path() == QStringLiteral("/open-json") ? R"({"lyrics":[]})" : "{";
+                        const auto length = body.size() + (retrySucceeded ? 0 : 32);
+                        socket->write(QByteArray(unavailable ? "HTTP/1.1 503 Test" : "HTTP/1.1 200 Test")
+                            + "\r\nContent-Type: application/json\r\nContent-Length: " + QByteArray::number(length)
+                            + "\r\n\r\n" + body);
+                        if (retry || target.path() == QStringLiteral("/broken-json"))
+                            socket->disconnectFromHost();
+                        return;
+                    }
                     const QUrlQuery query(target);
                     const auto title = query.queryItemValue(QStringLiteral("track_name"), QUrl::FullyDecoded);
                     lastArtist = query.queryItemValue(QStringLiteral("artist_name"), QUrl::FullyDecoded);
@@ -89,7 +129,7 @@ public:
                         rows.append(record(3, title, 181, QStringLiteral("[00:01]Вторая версия")));
                     if (title == QStringLiteral("Без тайминга"))
                         rows = {record(4, title, 180, QString())};
-                    if (title == QStringLiteral("Ошибка"))
+                    if (title == QStringLiteral("Ошибка") || title == QStringLiteral("Через NetEase"))
                         status = 503;
                     auto body = QJsonDocument(rows).toJson(QJsonDocument::Compact);
                     if (target.path() == QStringLiteral("/api/search") && title == QStringLiteral("Через SimpMusic"))
@@ -112,6 +152,16 @@ public:
                     if (target.path() == QStringLiteral("/simp/X1234567890"))
                         body = R"({"success":true,"data":[{"songTitle":"Через SimpMusic","artistName":"Исполнитель",
                             "durationSeconds":180,"syncedLyrics":"[00:01]Вторая база"}]})";
+                    if (target.path() == QStringLiteral("/netease/search/get/web"))
+                        body = R"({"code":200,"result":{"songs":[
+                            {"id":801,"name":"Через NetEase","duration":195000,"artists":[{"name":"Исполнитель"}]},
+                            {"id":802,"name":"Через NetEase","duration":180000,"artists":[{"name":"Исполнитель"}],
+                             "album":{"name":"Альбом"}}]}})";
+                    if (target.path() == QStringLiteral("/netease/song/lyric/v1")) {
+                        status = query.queryItemValue(QStringLiteral("id")) == QStringLiteral("802") ? 200 : 404;
+                        body = R"({"code":200,"yrc":{"lyric":"[1000,1900](1000,900,0)Другой (2000,900,0)каталог"},
+                            "lrc":{"lyric":"[00:01]Другой каталог"}})";
+                    }
                     const auto respond = [socket, status, body] {
                         if (socket->state() != QAbstractSocket::ConnectedState)
                             return;
@@ -133,6 +183,31 @@ public:
     {
         return QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()) + path);
     }
+
+private:
+    void readSocks(QTcpSocket *socket, const QByteArray &pending)
+    {
+        if (!socket->property("socksGreeting").toBool()) {
+            if (pending.size() < 2 || pending.size() < 2 + quint8(pending[1]))
+                return;
+            socket->read(2 + quint8(pending[1]));
+            socket->setProperty("socksGreeting", true);
+            socket->write("\x05\x00", 2);
+            return;
+        }
+        if (pending.size() < 5)
+            return;
+        if (!pending.startsWith(QByteArray("\x05\x01\x00\x03", 4))) {
+            socket->disconnectFromHost();
+            return;
+        }
+        const qsizetype hostLength = quint8(pending[4]);
+        if (pending.size() < 7 + hostLength)
+            return;
+        socksTargets.append(QString::fromLatin1(pending.mid(5, hostLength)));
+        socket->read(7 + hostLength);
+        socket->write("\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x50", 10);
+    }
 };
 
 } // namespace
@@ -153,7 +228,7 @@ int main(int argc, char **argv)
 
     const auto artist = QStringLiteral("Исполнитель");
     const auto album = QStringLiteral("Альбом");
-    const LyricsSearch::Endpoints primary{fixture.url(), {}, {}, {}};
+    const LyricsSearch::Endpoints primary{fixture.url(), {}, {}, {}, {}};
     LyricsSearch search(primary, cache.path(), curl);
     search.setTrack(QStringLiteral("session1:one"), QStringLiteral("Песня C++"), artist, album, 180);
     if (!expect(until([&] { return !search.searching(); })
@@ -208,7 +283,8 @@ int main(int argc, char **argv)
         return 1;
 
     LyricsSearch multi(LyricsSearch::Endpoints{fixture.url(), fixture.url(QStringLiteral("/plus")),
-        fixture.url(QStringLiteral("/simp/")), fixture.url(QStringLiteral("/better"))}, QString(), curl);
+        fixture.url(QStringLiteral("/simp/")), fixture.url(QStringLiteral("/better")),
+        fixture.url(QStringLiteral("/netease/"))}, QString(), curl);
     multi.setTrack(QStringLiteral("session1:multi"), QStringLiteral("Ошибка (Official Video)"), artist, album, 180);
     if (!expect(until([&] { return !multi.searching(); }) && firstLine(multi) == QStringLiteral("Найдено здесь")
             && multi.document().value(QStringLiteral("wordCount")).toInt() == 2
@@ -228,11 +304,46 @@ int main(int argc, char **argv)
             && multi.document().value(QStringLiteral("wordCount")).toInt() == 2
             && multi.statusText().contains(QStringLiteral("Better Lyrics")), "Better Lyrics TTML must win with word timing"))
         return 1;
+    multi.setTrack(QStringLiteral("session1:netease"), QStringLiteral("Через NetEase"), artist, album, 180);
+    if (!expect(until([&] { return !multi.searching(); }) && firstLine(multi) == QStringLiteral("Другой каталог")
+            && multi.document().value(QStringLiteral("wordCount")).toInt() == 2
+            && multi.statusText().contains(QStringLiteral("NetEase Cloud Music"))
+            && multi.sourceDetails().contains(QStringLiteral("LRCLIB · HTTP 503")),
+            "NetEase must choose by duration and keep YRC timings when LRCLIB fails"))
+        return 1;
 
     LyricsSearch fallback(primary, {}, cache.filePath(QStringLiteral("missing-curl.exe")));
     fallback.setTrack(QStringLiteral("session1:fallback"), QStringLiteral("Резерв"), artist, album, 180);
     if (!expect(until([&] { return !fallback.searching(); }) && firstLine(fallback) == QStringLiteral("Текст Резерв"),
                 "A curl startup failure must fall back to Qt transport"))
+        return 1;
+
+    qputenv("NO_PROXY", "*");
+    qputenv("no_proxy", "*");
+    const QUrl origin(QStringLiteral("http://lyrics-test.invalid"));
+    const QString socksAddress = QStringLiteral("socks5://127.0.0.1:%1").arg(fixture.server.serverPort());
+    const QString httpAddress = fixture.url(QStringLiteral("/")).toString(QUrl::RemovePath);
+    LyricsSearch proxied({origin.resolved(QUrl(QStringLiteral("/api/search"))), {}, {}, {}, {}}, {}, curl);
+    if (!expect(proxied.configureProxy(socksAddress).isEmpty()
+            && proxied.proxyAddress().startsWith(QStringLiteral("socks5h://"))
+            && !proxied.configureProxy(QStringLiteral("http://example.invalid:10809")).isEmpty()
+            && !proxied.configureProxy(QStringLiteral("http://user:password@127.0.0.1:10809")).isEmpty()
+            && proxied.proxyAddress().startsWith(QStringLiteral("socks5h://")),
+            "Validate the local address and preserve the current route if an address is rejected"))
+        return 1;
+    proxied.setTrack(QStringLiteral("proxy:socks"), QStringLiteral("Через SOCKS5"), artist, album, 180);
+    if (!expect(until([&] { return !proxied.searching(); }) && firstLine(proxied) == QStringLiteral("Текст Через SOCKS5")
+            && fixture.socksTargets == QStringList{origin.host()} && proxied.sourceDetails().contains(proxied.proxyAddress()),
+            "The local SOCKS5 proxy must resolve the hostname and be shown in the diagnostics"))
+        return 1;
+    if (!expect(proxied.configureProxy(httpAddress).isEmpty() && firstLine(proxied) == QStringLiteral("Текст Через SOCKS5"),
+            "Changing the proxy must preserve current lyrics"))
+        return 1;
+    proxied.setTrack(QStringLiteral("proxy:http"), QStringLiteral("Через HTTP"), artist, album, 180);
+    if (!expect(until([&] { return !proxied.searching(); }) && firstLine(proxied) == QStringLiteral("Текст Через HTTP")
+            && fixture.httpProxyTargets == QStringList{origin.host()} && proxied.configureProxy({}).isEmpty()
+            && proxied.proxyAddress().isEmpty(),
+            "An explicit HTTP proxy must override proxy exclusions and be clearable"))
         return 1;
 
     if (!curl.isEmpty()) {
@@ -248,6 +359,56 @@ int main(int argc, char **argv)
         });
         if (!expect(until([&] { return !error.isEmpty(); }) && error.contains(QStringLiteral("curl 7")),
                     "A connection failure must expose curl's exit code"))
+            return 1;
+
+        LyricsHttp qt(QString{});
+        LyricsHttp proxyRetry(curl);
+        const auto previousTunnels = fixture.socksTargets.size();
+        if (!expect(proxyRetry.setProxyAddress(socksAddress), "Could not configure the proxy for the retry test"))
+            return 1;
+        LyricsHttp::Result hanging, full, unavailable, broken, recovered, qtFull;
+        const auto check = [&](LyricsHttp &client, const char *path, LyricsHttp::Result &result) {
+            client.get(fixture.url(QString::fromLatin1(path)), [&result](LyricsHttp::Result reply) {
+                result = std::move(reply);
+            });
+        };
+        check(http, "/hang", hanging);
+        check(http, "/open-json", full);
+        check(http, "/open-error", unavailable);
+        check(http, "/broken-json", broken);
+        proxyRetry.get(origin.resolved(QUrl(QStringLiteral("/retry"))), [&](LyricsHttp::Result result) {
+            recovered = std::move(result);
+        });
+        check(qt, "/open-json", qtFull);
+        if (!expect(until([&] { return http.pendingCount() == 0 && qt.pendingCount() == 0 && proxyRetry.pendingCount() == 0; }, 27000),
+                    "Interrupted requests must complete within the two transport deadlines")
+                || !expect(hanging.error.contains(QStringLiteral("curl 28"))
+                    && hanging.error.contains(QStringLiteral("ожидание HTTP-ответа"))
+                    && hanging.error.contains(QStringLiteral("(Qt)")),
+                    "A server that never replies must report the HTTP wait and retry failure")
+                || !expect(full.error.isEmpty() && full.status == 200 && full.body == R"({"lyrics":[]})"
+                    && qtFull.error.isEmpty() && qtFull.status == 200 && qtFull.body == full.body,
+                    "An entire JSON document is usable when either transport times out afterwards")
+                || !expect(unavailable.error.isEmpty() && unavailable.status == 503,
+                    "An HTTP error status is usable even if its response body times out")
+                || !expect(broken.error.contains(QStringLiteral("HTTP 200, получено 1 Б")),
+                    "A truncated JSON body must be rejected and report the received byte count")
+                || !expect(recovered.error.isEmpty() && recovered.status == 200 && recovered.body == full.body
+                    && fixture.retryRequests == 2 && fixture.socksTargets.size() == previousTunnels + 2,
+                    "An interrupted incomplete JSON response must be retried through Qt and the same SOCKS5 proxy"))
+            return 1;
+
+        qunsetenv("NO_PROXY");
+        qunsetenv("no_proxy");
+        const auto proxy = fixture.url(QStringLiteral("/")).toEncoded(QUrl::RemovePath);
+        qputenv("HTTPS_PROXY", proxy);
+        qputenv("https_proxy", proxy);
+        error.clear();
+        http.get(QUrl(QStringLiteral("https://lyrics-test.invalid/")), [&](const LyricsHttp::Result &result) {
+            error = result.error;
+        });
+        if (!expect(until([&] { return !error.isEmpty(); }) && error.contains(QStringLiteral("прокси HTTP 403")),
+                    "An HTTPS tunnel error must report the proxy response instead of an origin status"))
             return 1;
     }
     return 0;

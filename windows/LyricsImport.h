@@ -12,4 +12,5 @@ public:
     using QObject::QObject;
     Q_INVOKABLE QVariantMap read(const QUrl &file, double trackDuration) const;
     static QVariantMap parseLrc(const QString &text, double duration);
+    static QVariantMap parseWordtime(const QString &text, double duration);
 };

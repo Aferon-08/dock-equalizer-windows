@@ -6,7 +6,7 @@ A standalone music dock at the top of the screen. It hides over fullscreen apps,
 
 Select **Download raw file**, extract the entire ZIP, and start **SekaiSoundbar.exe**. The archive includes the DLLs needed to run the app.
 
-If you have already extracted a build with lyrics import or search, exit the dock and extract the entire update ZIP into its folder. Replace the existing files when prompted. [Download the update](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-update.zip)
+Open **Выровнять лирику…** (Align lyrics) to align existing lyrics to a local audio file and export Wordtime JSON. Initial setup of the aligner downloads about 450 MB.
 
 [Русский](README.md) · [Windows port plan and build instructions (RU)](docs/WINDOWS-PORT-PLAN.md)
 

@@ -19,6 +19,7 @@ class LyricsSearch final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool automatic READ automatic WRITE setAutomatic NOTIFY automaticChanged FINAL)
+    Q_PROPERTY(QString proxyAddress READ proxyAddress NOTIFY proxyAddressChanged FINAL)
     Q_PROPERTY(bool canSearch READ canSearch NOTIFY changed FINAL)
     Q_PROPERTY(bool searching READ searching NOTIFY changed FINAL)
     Q_PROPERTY(QString trackKey READ trackKey NOTIFY changed FINAL)
@@ -34,6 +35,7 @@ public:
         QUrl lyricsPlus;
         QUrl simpMusic;
         QUrl betterLyrics;
+        QUrl netEase;
     };
 
     explicit LyricsSearch(QObject *parent = nullptr);
@@ -44,23 +46,26 @@ public:
                   const QString &album, double duration);
     bool automatic() const { return m_automatic; }
     void setAutomatic(bool enabled);
+    QString proxyAddress() const { return m_http.proxyAddress(); }
     bool canSearch() const { return !m_key.isEmpty() && !m_title.isEmpty(); }
     bool searching() const { return m_http.pendingCount() > 0 || m_delay.isActive(); }
     QString trackKey() const { return m_key; }
     QString statusText() const { return m_status; }
-    QString sourceDetails() const { return QStringList(m_sourceState.values()).join(u'\n'); }
+    QString sourceDetails() const;
     QVariantMap document() const { return m_document; }
     QVariantList choices() const { return m_choices; }
 
     Q_INVOKABLE void retry();
     Q_INVOKABLE bool choose(const QString &key, int index);
+    Q_INVOKABLE QString configureProxy(const QString &address);
 
 signals:
     void changed();
     void automaticChanged();
+    void proxyAddressChanged();
 
 private:
-    enum class Step { Lrclib, LyricsPlus, SimpSearch, SimpLyrics, BetterLyrics };
+    enum class Step { Lrclib, LyricsPlus, SimpSearch, SimpLyrics, BetterLyrics, NetEaseSearch, NetEaseLyrics };
 
     struct Match
     {
@@ -71,9 +76,10 @@ private:
     void reset();
     void cancel();
     void request();
-    void send(Step step, const QUrl &url, const QString &videoId = {});
-    void finish(Step step, const QString &videoId, LyricsHttp::Result response);
-    void receive(Step step, const QJsonDocument &json, const QString &videoId);
+    void send(Step step, const QUrl &url, const QJsonObject &track = {});
+    void finish(Step step, const QJsonObject &track, LyricsHttp::Result response);
+    void receive(Step step, const QJsonDocument &json, const QJsonObject &track);
+    void netEaseSearchResult(const QJsonObject &response);
     void appendMatch(const QJsonObject &record);
     void updateSelection();
     Match match(const QJsonObject &record);
