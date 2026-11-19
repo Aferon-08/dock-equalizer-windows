@@ -7,6 +7,7 @@
 #include <QTimer>
 #include <QWindow>
 
+#include <string_view>
 #include <utility>
 
 #ifdef Q_OS_WIN
@@ -57,10 +58,46 @@ bool desktopSurface(HWND window, HWND shell)
     return process == shellProcess && FindWindowExW(window, nullptr, L"SHELLDLL_DefView", nullptr);
 }
 
+bool applicationWindow(HWND window, HWND foreground, bool shellProcess)
+{
+    wchar_t name[128]{};
+    const std::wstring_view type(name, size_t(GetClassNameW(window, name, 128)));
+    if (type == L"Progman" || type == L"WorkerW" || type == L"SHELLDLL_DefView"
+            || type == L"Shell_TrayWnd" || type == L"Shell_SecondaryTrayWnd"
+            || type == L"Windows.UI.Composition.DesktopWindowContentBridge"
+            || type == L"Windows.UI.Input.InputSite.WindowClass")
+        return false;
+
+    const LONG_PTR exStyle = GetWindowLongPtrW(window, GWL_EXSTYLE);
+    if (exStyle & WS_EX_LAYERED) {
+        DWORD flags = 0;
+        BYTE alpha = 0;
+        if ((exStyle & WS_EX_TRANSPARENT)
+                || (GetLayeredWindowAttributes(window, nullptr, &alpha, &flags)
+                    && (flags & LWA_ALPHA) && alpha == 0))
+            return false;
+    }
+
+    const LONG_PTR style = GetWindowLongPtrW(window, GWL_STYLE);
+    if ((style & WS_CAPTION) == WS_CAPTION || (style & WS_THICKFRAME) || (exStyle & WS_EX_APPWINDOW))
+        return true;
+    if (type == L"Windows.UI.Core.CoreWindow")
+        return false;
+    if (window == foreground)
+        return true;
+
+    // Unframed shell hosts and click-through helpers may fill a monitor
+    // without displaying an application window.
+    return !shellProcess && !(exStyle & (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT))
+        && !GetWindow(window, GW_OWNER) && GetWindowTextLengthW(window) > 0;
+}
+
 struct DesktopWindows
 {
     HWND panel = nullptr;
     HWND shell = GetShellWindow();
+    HWND foreground = GetAncestor(GetForegroundWindow(), GA_ROOT);
+    DWORD shellProcess = 0;
     QRegion expanded;
     HWND lastOrdinary = nullptr;
     bool passedPanel = false;
@@ -83,7 +120,8 @@ BOOL CALLBACK scanDesktopWindow(HWND window, LPARAM data)
     }
     DWORD process = 0;
     GetWindowThreadProcessId(window, &process);
-    if (process == GetCurrentProcessId() || window == GetDesktopWindow())
+    if (process == GetCurrentProcessId() || window == GetDesktopWindow()
+            || !applicationWindow(window, state.foreground, process == state.shellProcess))
         return TRUE;
 
     if (!(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST)) {
@@ -107,8 +145,11 @@ bool fullscreenOnPrimaryMonitor()
         return false;
 
     DWORD processId = 0;
+    DWORD shellProcess = 0;
     GetWindowThreadProcessId(window, &processId);
-    if (processId == GetCurrentProcessId())
+    if (const HWND shell = GetShellWindow())
+        GetWindowThreadProcessId(shell, &shellProcess);
+    if (processId == GetCurrentProcessId() || !applicationWindow(window, window, processId == shellProcess))
         return false;
 
     const LONG_PTR style = GetWindowLongPtrW(window, GWL_STYLE);
@@ -191,13 +232,18 @@ void DesktopOverlay::updateDesktopState()
     const HWND panel = m_panel->handle() ? reinterpret_cast<HWND>(m_panel->winId()) : nullptr;
     const qreal scale = m_panel->devicePixelRatio();
     const QPoint offset = m_panel->position() - m_workArea.topLeft();
-    const QPointF origin = QPointF(info.rcWork.left, info.rcWork.top) + offset * scale;
+    POINT clientOrigin{};
+    const QPointF origin = panel && !IsIconic(panel) && ClientToScreen(panel, &clientOrigin)
+        ? QPointF(clientOrigin.x, clientOrigin.y)
+        : QPointF(info.rcWork.left, info.rcWork.top) + offset * scale;
     const QRectF nativeBounds(origin + m_expandedBounds.topLeft() * scale, m_expandedBounds.size() * scale);
     const QRect monitorBounds(info.rcMonitor.left, info.rcMonitor.top,
         info.rcMonitor.right - info.rcMonitor.left, info.rcMonitor.bottom - info.rcMonitor.top);
 
     DesktopWindows windows;
     windows.panel = panel;
+    if (windows.shell)
+        GetWindowThreadProcessId(windows.shell, &windows.shellProcess);
     windows.expanded = roundedRegion(nativeBounds, m_expandedRadius * scale) & monitorBounds;
     EnumWindows(scanDesktopWindow, reinterpret_cast<LPARAM>(&windows));
     if (panel && m_panel->isVisible() && !active && windows.needsRestack) {

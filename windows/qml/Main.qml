@@ -48,8 +48,9 @@ Window {
     palette.highlightedText: "#101b18"
 
     property bool demoPlaying: true
+    property bool smokeStopped: false
     property bool lyricsExpanded: !smokeMode
-    readonly property bool expandedDock: lyricsExpanded && expandedSpaceReady
+    readonly property bool expandedDock: lyricsExpanded && expandedSpaceReady && !playbackPaused
     readonly property bool expansionClear: !desktop.fullscreenActive
         && !(smokeMode ? smokeObstructed : desktop.expandedObstructed)
     property bool expandedSpaceReady: false
@@ -60,6 +61,7 @@ Window {
     property bool sustainedAudio: false
     onAudioFallbackChanged: if (!audioFallback) sustainedAudio = false
     readonly property bool playbackActive: media.player ? media.playing : sustainedAudio
+    readonly property bool playbackPaused: !!media.player && media.paused
     onPlaybackActiveChanged: if (playbackActive) trayPreview = false
     property real elapsed: 0
     readonly property bool smokeMode: Qt.application.arguments.indexOf("--smoke-test") >= 0
@@ -95,8 +97,10 @@ Window {
     DockPresence {
         id: presence
         playing: window.playbackActive
+        paused: window.playbackPaused
         fullscreen: window.desktop.fullscreenActive
-        hideDelay: demoHost.settings.collapseDelay
+        idleDelay: demoHost.settings.collapseDelay
+        pauseDelay: window.smokeMode ? 1700 : 60000
         holdOpen: window.trayPreview || window.trayAppearancePending
             || (window.smokeMode && window.smokeHoldOpen)
             || (menuLoader.item?.visible ?? false) || appearanceDialog.visible
@@ -272,6 +276,7 @@ Window {
         id: demoMedia
         property var player: demoPlayer
         readonly property bool playing: window.demoPlaying
+        readonly property bool paused: !window.demoPlaying && !window.smokeStopped
         readonly property string title: "A little light"
         readonly property string artist: "Sekai Soundbar"
         property string artUrl: ""
@@ -698,7 +703,7 @@ Window {
             }
             MenuItem {
                 text: window.expandedDock ? "Свернуть лирику" : "Развернуть лирику"
-                enabled: !!window.media.player && window.expansionClear
+                enabled: !!window.media.player && window.expansionClear && !window.playbackPaused
                 onTriggered: window.toggleLyricsLayout()
             }
             MenuItem {
@@ -1004,10 +1009,26 @@ Window {
                 window.demoPlaying = false
                 window.smokePhase = 9
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 9) {
+            } else if (window.smokePhase === 9 && wait >= 950) {
+                if (wings.lyricsView.wide || wings.lyricsHeightExtra > 25 || !presence.interactive) {
+                    window.failSmoke("pause should leave the compact dock available until its delay expires")
+                    return
+                }
+                window.demoPlaying = true
+                window.smokePhase = 10
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 10 && wait >= 850) {
+                if (!presence.interactive || !wings.lyricsView.wide) {
+                    window.failSmoke("resuming within the pause delay did not cancel the departure")
+                    return
+                }
+                window.smokeStarted = Date.now()
+                window.demoPlaying = false
+                window.smokePhase = 11
+            } else if (window.smokePhase === 11) {
                 const progress = presence.hideProgress
-                if (wait < 500 && progress > 0) {
-                    window.failSmoke("the dock started to leave before the pause delay")
+                if (wait < 1550 && progress > 0) {
+                    window.failSmoke("the dock started to leave " + wait + " ms after pausing")
                     return
                 }
                 if (progress <= 0.2) return
@@ -1020,17 +1041,18 @@ Window {
                     window.failSmoke("resuming playback reset the drop position")
                     return
                 }
-                window.smokePhase = 10
+                window.smokePhase = 12
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 10 && wait >= 500) {
+            } else if (window.smokePhase === 12 && wait >= 500) {
                 if (!presence.interactive || presence.hideProgress !== 0) {
                     window.failSmoke("the reversed animation did not restore the panel")
                     return
                 }
+                window.smokeStopped = true
                 window.demoPlaying = false
-                window.smokePhase = 11
+                window.smokePhase = 13
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 11 && wait >= 1250) {
+            } else if (window.smokePhase === 13 && wait >= 1250) {
                 if (window.visible || presence.hideProgress !== 1 || window.bodyRegion.width > 0
                         || wings.housingRect.y + wings.housingRect.height > 0) {
                     window.failSmoke("the idle drop did not fully leave through the top edge")
@@ -1038,9 +1060,10 @@ Window {
                 }
                 window.smokeObstructed = true
                 window.demoPlaying = true
-                window.smokePhase = 12
+                window.smokeStopped = false
+                window.smokePhase = 14
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 12 && wait >= 850) {
+            } else if (window.smokePhase === 14 && wait >= 850) {
                 if (!presence.interactive || !window.visible || wings.lyricsView.wide) {
                     window.failSmoke("resuming playback did not restore the unobscured compact layout")
                     return

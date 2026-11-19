@@ -543,6 +543,7 @@ private:
         }
         TimelineSample sample;
         sample.playing = status == PlaybackStatus::Playing;
+        m_state.paused = status == PlaybackStatus::Paused;
         sample.rate = rate;
         sample.observedMs = playbackTimeMs();
         m_canPlay = capability(controls.Get(), &PlaybackControls::get_IsPlayEnabled);
