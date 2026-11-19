@@ -72,7 +72,6 @@ class MediaSessions final : public QObject
     Q_PROPERTY(bool positionSupported READ positionSupported NOTIFY changed FINAL)
     Q_PROPERTY(QVariantList sessions READ sessions NOTIFY sessionsChanged FINAL)
     Q_PROPERTY(QString preference READ preference NOTIFY sessionsChanged FINAL)
-    Q_PROPERTY(QString statusText READ statusText NOTIFY changed FINAL)
     Q_PROPERTY(QString commandError READ commandError NOTIFY changed FINAL)
 
 public:
@@ -100,7 +99,6 @@ public:
     bool positionSupported() const { return m_state.timeline.valid; }
     QVariantList sessions() const { return m_sessions; }
     QString preference() const { return m_preference; }
-    QString statusText() const;
     QString commandError() const { return m_commandError; }
 
     Q_INVOKABLE qreal positionNow() const { return m_clock.positionAt(playbackTimeMs()); }
@@ -128,8 +126,6 @@ private:
     QString m_preference;
     QString m_commandError;
     quint64 m_revision = 0;
-    bool m_available = false;
-    bool m_connecting = false;
 #ifdef Q_OS_WIN
     std::unique_ptr<WinMediaWorker> m_worker;
 #endif

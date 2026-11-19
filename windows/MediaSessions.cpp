@@ -11,10 +11,8 @@
 MediaSessions::MediaSessions(bool enabled)
 {
 #ifdef Q_OS_WIN
-    if (enabled) {
-        m_connecting = true;
+    if (enabled)
         m_worker = std::make_unique<WinMediaWorker>(this);
-    }
 #else
     Q_UNUSED(enabled);
 #endif
@@ -33,13 +31,6 @@ QString MediaSessions::artist() const
     return m_state.artist.isEmpty() ? m_state.sourceName : m_state.artist;
 }
 
-QString MediaSessions::statusText() const
-{
-    if (m_connecting)
-        return tr("Подключение к плеерам…");
-    return m_available ? tr("Откройте музыкальный плеер") : tr("Медиасессии недоступны");
-}
-
 void MediaSessions::applyUpdate(MediaUpdate update)
 {
     if (update.revision != m_revision)
@@ -49,8 +40,6 @@ void MediaSessions::applyUpdate(MediaUpdate update)
         || m_state.sessionId != update.state.sessionId;
     m_clock.observe(update.state.timeline, resetClock);
     m_state = std::move(update.state);
-    m_available = update.available;
-    m_connecting = false;
     m_commandError = std::move(update.commandError);
     const bool listChanged = m_sessions != update.sessions || m_preference != update.preference;
     m_sessions = std::move(update.sessions);
@@ -71,7 +60,6 @@ void MediaSessions::selectSession(const QString &id)
         return;
 
     m_preference = id;
-    m_connecting = true;
     m_state = {};
     m_clock = {};
     m_commandError.clear();
