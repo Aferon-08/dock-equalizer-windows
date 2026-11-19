@@ -68,6 +68,8 @@ Window {
     property int smokePhase: 0
     property real smokeStarted: 0
     property bool smokeCapturePending: false
+    property real smokeLandingTime: 0
+    property real smokeFirstMarkerX: 0
 
     readonly property rect bodyRegion: {
         const padding = 26
@@ -272,6 +274,7 @@ Window {
             property real glassLight: window.appearance.values.glassLight
             property int collapseDelay: 600
             property bool lyrics: true
+            readonly property bool estimateWordMotion: true
             property bool expandLyrics: true
             property real lyricsWidth: 560
             property bool autoSpotify: false
@@ -782,7 +785,7 @@ Window {
                             window.failSmoke(message)
                             return
                         }
-                        demoPlayer.seek(6)
+                        demoPlayer.seek(4.8)
                     } else {
                         demoLyrics.status = "ready"
                     }
@@ -800,10 +803,16 @@ Window {
                     ? lyrics.text === "Вторая строка" && lyrics.lineOnly && lyrics.wordSpans === 0
                     : demoLyrics.lines.some(line => line.text === lyrics.text)
                 if (!expected) return
+                if (window.smokeImports && (lyrics.wordStart !== 4
+                        || !(lyrics.nextWordStart > 4.9 && lyrics.nextWordStart < 9))) {
+                    window.failSmoke("the LRC line has no estimated second word landing")
+                    return
+                }
                 window.captureSmoke("expanded lyrics", function() {
                     if (window.smokeImports) {
-                        demoMedia.togglePlaying()
-                        demoPlayer.seek(1.25)
+                        window.smokeLandingTime = lyrics.nextWordStart
+                        window.smokeFirstMarkerX = lyrics.marker[0]
+                        demoPlayer.seek(window.smokeLandingTime - 0.12)
                         window.smokePhase = 2
                         window.smokeStarted = Date.now()
                         return
@@ -812,7 +821,28 @@ Window {
                     console.log("PASS standalone soundbar smoke test")
                     Qt.exit(0)
                 })
-            } else if (window.smokePhase === 2 && wait >= 350) {
+            } else if (window.smokePhase === 2 && wait >= 250) {
+                const lyrics = JSON.parse(wings.lyricsView.diagnostics())
+                if (lyrics.text !== "Вторая строка" || lyrics.wordStart !== 4
+                        || !(lyrics.markerAir > 0.2 && lyrics.marker[0] > window.smokeFirstMarkerX + 2)) {
+                    window.failSmoke("the marker did not arc between words of the LRC line")
+                    return
+                }
+                demoPlayer.seek(window.smokeLandingTime + 0.1)
+                window.smokePhase = 3
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 3 && wait >= 250) {
+                const lyrics = JSON.parse(wings.lyricsView.diagnostics())
+                if (lyrics.text !== "Вторая строка" || lyrics.wordStart !== window.smokeLandingTime
+                        || !(lyrics.marker[0] > window.smokeFirstMarkerX + 8 && lyrics.splashes > 0)) {
+                    window.failSmoke("the marker did not land with a splash on the second LRC word")
+                    return
+                }
+                demoMedia.togglePlaying()
+                demoPlayer.seek(1.25)
+                window.smokePhase = 4
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 4 && wait >= 350) {
                 const lyrics = JSON.parse(wings.lyricsView.diagnostics())
                 if (lyrics.playing || lyrics.position !== 1.25 || lyrics.text !== "Первая строка") {
                     window.failSmoke("paused rewind did not restore the first LRC line")
@@ -824,12 +854,13 @@ Window {
                     return
                 }
                 demoPlayer.seek(6)
-                window.smokePhase = 3
+                window.smokePhase = 5
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 3 && wait >= 250) {
+            } else if (window.smokePhase === 5 && wait >= 250) {
                 const lyrics = JSON.parse(wings.lyricsView.diagnostics())
                 if (lyrics.playing || lyrics.position !== 6 || lyrics.text !== "Свет звучит"
-                        || lyrics.lineOnly || lyrics.wordSpans !== 2 || lyrics.timingWords !== 4) {
+                        || lyrics.lineOnly || lyrics.wordSpans !== 2 || lyrics.timingWords !== 4
+                        || !(Math.abs(lyrics.nextWordStart - 6.05) < 0.001)) {
                     window.failSmoke("the Wordtime document did not follow the paused seek")
                     return
                 }
@@ -839,15 +870,15 @@ Window {
                     window.failSmoke("an import started for the previous track was accepted")
                     return
                 }
-                window.smokePhase = 4
+                window.smokePhase = 6
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 4 && wait >= 250) {
+            } else if (window.smokePhase === 6 && wait >= 250) {
                 if (window.timingDocument || JSON.parse(wings.lyricsView.diagnostics()).available) {
                     window.failSmoke("lyrics from the previous track remain visible")
                     return
                 }
                 smokeTimer.stop()
-                console.log("PASS imported LRC and Wordtime, paused seeks and track change")
+                console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
                 Qt.exit(0)
             }
         }

@@ -350,6 +350,7 @@ Item {
             trackHeaderVisible: header.visible && header.opacity > 0.95,
             waiting: reel.waiting, waitProgress: reel.waitProgress, cursor: reel.cursor,
             marker: [reel.markerPose.x, reel.markerPose.y, reel.markerPose.alpha], handoff: reel.transfer,
+            wordStart: reel.markerPose.start, nextWordStart: reel.markerPose.next, markerAir: reel.markerPose.air,
             splashes: reel.landings.length, loadingLight: root.waitingLightAmount, heartBpm: root.heartBpm, beatGlow: root.beatGlow, wordLight: [root.wordLight.x, root.wordLight.y, root.wordLight.z],
             opacity: root.lyricsOpacity, musicLayout: root.musicLayout, iconsScale: root.iconsScale,
             bare: root.dock.bare, color: String(root.colors.ink), accent: String(root.colors.accent), visible: root.visible,
@@ -666,6 +667,7 @@ Item {
         lines: root.lines
         duration: root.duration
         rendering: root.available && !root.multiVoiceActive && !root.lyricsEnded
+        estimateWordMotion: root.host.settings.estimateWordMotion === true
         time: rendering ? root.lyricTime : 0
         playing: rendering && root.playing
         pixelSize: (root.host.settings.lyricFontSize ?? 17) - 1 + Math.min(1, root.layout)
@@ -692,6 +694,7 @@ Item {
         resumeOrigin: Qt.point(root.fishPosition.x-x,root.fishPosition.y-y)
         allowFinale: !root.processingForLyrics && (!root.hasTimingDocument || !root.wordtimeResult.analysis || root.wordtimeResult.analysis.timelineComplete !== false)
         document: root.multiVoiceAvailable ? root.voiceDocument : null
+        estimateWordMotion: root.host.settings.estimateWordMotion === true
         lyricTime: root.lyricTime
         duration: root.duration
         playing: root.playing
