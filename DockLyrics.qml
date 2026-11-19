@@ -15,6 +15,7 @@ import "MultiVoiceMath.js" as Voices
 Item {
     id: root
     property var glassSource: null
+    property bool desktopLens: false
     readonly property var material: Material.read(host.settings)
     readonly property vector4d materialStyle: Qt.vector4d(material.enabled ? 1 : 0, material.blur, material.darkening, material.refraction)
     property rect glassRect: Qt.rect(0, 0, 1, 1)
@@ -648,6 +649,7 @@ Item {
             property color tintColor: root.colors.module
             property color highlightColor: root.colors.ink
             property vector4d materialStyle: root.materialStyle
+            property real desktopLens: root.desktopLens ? 1 : 0
             fragmentShader: Qt.resolvedUrl("glass.frag.qsb")
             visible: !root.multiVoiceActive && !!root.glassSource && status !== ShaderEffect.Error
         }
@@ -701,6 +703,7 @@ Item {
         theme: root.host.theme
         ink: root.colors.ink; accent: root.colors.accent; moduleColor: root.colors.module
         glassSource: root.glassSource
+        desktopLens: root.desktopLens
         materialStyle: root.materialStyle
         glassRect: Qt.rect(root.glassRect.x + 8, root.glassRect.y + 8, width, height)
         opacity: root.multiVoiceActive && root.available ? root.lyricsOpacity : 0

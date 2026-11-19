@@ -27,6 +27,7 @@ Item {
     property color accent: "#acf4da"
     property color moduleColor: "#20342f"
     property var glassSource: null
+    property bool desktopLens: false
     property rect glassRect: Qt.rect(0, 0, width, height)
     property bool showGlass: true
     property vector4d materialStyle: Qt.vector4d(1,3.8,0.23,1)
@@ -175,6 +176,7 @@ Item {
                 property color tintColor: root.moduleColor
                 property color highlightColor: panel.voiceAccent
                 property vector4d materialStyle: root.materialStyle
+                property real desktopLens: root.desktopLens ? 1 : 0
                 fragmentShader: Qt.resolvedUrl("glass.frag.qsb")
                 visible: root.showGlass && !!root.glassSource && GraphicsInfo.api !== GraphicsInfo.Software && status !== ShaderEffect.Error
             }

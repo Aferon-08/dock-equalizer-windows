@@ -10,6 +10,7 @@ Item {
     // Platform behavior is injected. A plain Qt host needs neither component.
     property Component backdropComponent: null
     property bool backdropEnabled: true
+    property bool desktopLens: false
     readonly property Item backdropItem: dockUnderlay.item
     property Component lyricsBridgeComponent: null
     property bool previewGlass: false
@@ -223,6 +224,7 @@ Item {
             readonly property vector4d lightData: Qt.vector4d(Math.max(0, Math.min(1, root.fusion)), root.outline, lyricLayer.waitingLightAmount, root.edgeLight * root.material.light)
             readonly property real lightClock: root.lightClock
             readonly property real glassAmount: root.glassAmount
+            readonly property real desktopLens: root.desktopLens ? 1 : 0
             readonly property vector2d materialStyle: Qt.vector2d(root.material.opacity, root.material.refraction)
             readonly property var backdrop: dockBackdrop
             readonly property vector4d leftAudio: Qt.vector4d(root.leftLevels.x, root.leftLevels.y, root.leftLevels.z, 0)
@@ -267,6 +269,7 @@ Item {
         host: root.host
         bridgeComponent: root.lyricsBridgeComponent
         glassSource: root.shaderAvailable ? skin : null
+        desktopLens: root.desktopLens
         glassRect: Qt.rect((liquid.width - root.bodyWidth) / 2 + 16,
             root.pad + 93, Math.max(1, root.bodyWidth - 32), 110)
     }

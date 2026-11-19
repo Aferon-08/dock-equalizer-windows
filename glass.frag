@@ -8,6 +8,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 tintColor;
     vec4 highlightColor;
     vec4 materialStyle;
+    float desktopLens;
 };
 layout(binding = 1) uniform sampler2D backdrop;
 
@@ -28,7 +29,8 @@ void main() {
     vec2 n = normalize((p - center) - clamp(p - center,
         -center + vec2(26.0), center - vec2(26.0)) + vec2(0.0001));
     float bevel = exp(-max(0.0, -d) / 7.0);
-    vec2 uv = (p + vec2(8.0) + n * bevel * 4.5 * materialStyle.w) / (resolution + vec2(16.0));
+    float bend = desktopLens > 0.5 ? 0.0 : 4.5 * materialStyle.w;
+    vec2 uv = (p + vec2(8.0) + n * bevel * bend) / (resolution + vec2(16.0));
     vec2 texel = materialStyle.y / (resolution + vec2(16.0));
     vec4 scene = texture(backdrop, uv) * 0.2;
     scene += texture(backdrop, uv + vec2(texel.x, 0.0)) * 0.12;
@@ -39,10 +41,10 @@ void main() {
     scene += texture(backdrop, uv - texel) * 0.08;
     scene += texture(backdrop, uv + vec2(texel.x,-texel.y)) * 0.08;
     scene += texture(backdrop, uv + vec2(-texel.x,texel.y)) * 0.08;
-    // Preserve source alpha: the old opaque output hid the actual desktop.
-    // A small dark coating and a wider blur give the lens a matte finish.
+    // Retain transparency where capture has no pixel. The live lens already
+    // contains the desktop, so the lyrics apply just one matte coating.
     float coating = materialStyle.z;
-    float transmission = 0.58;
+    float transmission = desktopLens > 0.5 ? 1.0 : 0.58;
     float alpha = coating + scene.a * transmission * (1.0-coating);
     vec3 surface = tintColor.rgb * coating + scene.rgb * transmission * (1.0-coating);
     float specular = pow(max(0.0, dot(n, normalize(vec2(-0.55, -1.0)))), 3.0);
