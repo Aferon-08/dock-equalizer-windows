@@ -56,6 +56,29 @@ struct SessionCursor : IInspectable
 };
 inline constexpr IID sessionCursorId{0x2c39ae40, 0x7d2e, 0x5044, {0x80, 0x4e, 0x8b, 0x67, 0x99, 0xd4, 0xcf, 0x9e}};
 
+struct SessionBorder : IInspectable
+{
+    virtual HRESULT STDMETHODCALLTYPE get_IsBorderRequired(boolean *) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_IsBorderRequired(boolean) = 0;
+};
+inline constexpr IID sessionBorderId{0xf2cdd966, 0x22ae, 0x5ea1, {0x95, 0x96, 0x3a, 0x28, 0x93, 0x44, 0xc3, 0xbe}};
+
+enum class AccessKind : INT32 { Borderless = 0 };
+enum class AccessStatus : INT32 { Allowed = 4 };
+
+struct AccessOperation : IInspectable
+{
+    virtual HRESULT STDMETHODCALLTYPE put_Completed(IUnknown *) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Completed(IUnknown **) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetResults(AccessStatus *) = 0;
+};
+
+struct AccessFactory : IInspectable
+{
+    virtual HRESULT STDMETHODCALLTYPE RequestAccessAsync(AccessKind, AccessOperation **) = 0;
+};
+inline constexpr IID accessFactoryId{0x743ed370, 0x06ec, 0x5040, {0xa5, 0x8a, 0x90, 0x1f, 0x0f, 0x75, 0x70, 0x95}};
+
 struct FramePool : IInspectable
 {
     virtual HRESULT STDMETHODCALLTYPE Recreate(IInspectable *, INT32 format, INT32 buffers, Size) = 0;

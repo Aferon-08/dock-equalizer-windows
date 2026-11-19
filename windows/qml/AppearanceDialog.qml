@@ -8,7 +8,7 @@ Dialog {
     required property var ownerWindow
     required property bool effectsAvailable
     required property bool desktopGlassAvailable
-    required property string desktopGlassStatus
+    required property var backdrop
     readonly property bool glassEnabled: appearance.values.dockGlass
 
     width: Math.min(460, ownerWindow.width)
@@ -54,10 +54,27 @@ Dialog {
                 Layout.fillWidth: true
                 visible: panel.glassEnabled
                 text: !panel.desktopGlassAvailable ? "Для преломления фона нужен Direct3D 11."
-                    : panel.appearance.values.desktopGlass && panel.desktopGlassStatus !== "" ? panel.desktopGlassStatus
+                    : panel.appearance.values.desktopGlass && panel.backdrop?.status ? panel.backdrop.status
                     : "Windows может показать рамку захвата. Док исключается из снимков экрана, пока эффект активен."
                 wrapMode: Text.WordWrap
                 opacity: 0.8
+            }
+            Button {
+                visible: panel.desktopGlassAvailable && panel.glassEnabled && panel.appearance.values.desktopGlass
+                enabled: !!panel.backdrop && !panel.backdrop.requestingBorderless
+                text: panel.appearance.values.captureBorderless ? "Показывать рамку Windows" : "Скрыть жёлтую рамку"
+                onClicked: {
+                    if (panel.appearance.values.captureBorderless)
+                        panel.appearance.setCaptureBorderless(false)
+                    else
+                        panel.backdrop.requestBorderless()
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: panel.desktopGlassAvailable && panel.glassEnabled && panel.appearance.values.desktopGlass && text !== ""
+                text: panel.backdrop?.borderStatus ?? ""
+                wrapMode: Text.WordWrap
             }
             Repeater {
                 model: panel.appearance.sliders
