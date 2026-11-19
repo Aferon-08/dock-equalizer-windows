@@ -3,9 +3,11 @@ import QtQuick
 QtObject {
     id: root
     required property bool playing
+    required property bool paused
     required property bool holdOpen
     required property bool fullscreen
-    property int hideDelay: 600
+    property int idleDelay: 600
+    property int pauseDelay: 60000
 
     property real hideProgress: 1
     readonly property bool wanted: playing || holdOpen
@@ -39,7 +41,7 @@ QtObject {
     }
 
     property Timer delay: Timer {
-        interval: root.hideDelay
+        interval: root.paused ? root.pauseDelay : root.idleDelay
         onTriggered: root.animateTo(1)
     }
     property NumberAnimation motion: NumberAnimation {
@@ -47,6 +49,7 @@ QtObject {
         property: "hideProgress"
     }
     onWantedChanged: update()
+    onPausedChanged: update()
     onFullscreenChanged: update()
     Component.onCompleted: {
         ready = true

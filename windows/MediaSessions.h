@@ -19,6 +19,7 @@ struct MediaState
     QString sourceName;
     QUrl artUrl;
     TimelineSample timeline;
+    bool paused = false;
     bool canTogglePlaying = false;
     bool canGoNext = false;
     bool canGoPrevious = false;
@@ -58,6 +59,7 @@ class MediaSessions final : public QObject
     Q_PROPERTY(QUrl artUrl READ artUrl NOTIFY changed FINAL)
     Q_PROPERTY(QString trackKey READ trackKey NOTIFY changed FINAL)
     Q_PROPERTY(bool playing READ playing NOTIFY changed FINAL)
+    Q_PROPERTY(bool paused READ paused NOTIFY changed FINAL)
     Q_PROPERTY(bool canTogglePlaying READ canTogglePlaying NOTIFY changed FINAL)
     Q_PROPERTY(bool canGoNext READ canGoNext NOTIFY changed FINAL)
     Q_PROPERTY(bool canGoPrevious READ canGoPrevious NOTIFY changed FINAL)
@@ -86,6 +88,7 @@ public:
     QUrl artUrl() const { return m_state.artUrl; }
     QString trackKey() const { return m_state.trackKey; }
     bool playing() const { return m_state.timeline.playing; }
+    bool paused() const { return m_state.paused; }
     bool canTogglePlaying() const { return m_state.canTogglePlaying; }
     bool canGoNext() const { return m_state.canGoNext; }
     bool canGoPrevious() const { return m_state.canGoPrevious; }
