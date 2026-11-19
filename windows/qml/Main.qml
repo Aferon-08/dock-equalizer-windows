@@ -379,7 +379,10 @@ Window {
         }
         Component {
             id: monitorBackdrop
-            MonitorBackdrop {}
+            MonitorBackdrop {
+                borderless: window.appearance.values.captureBorderless
+                onBorderlessGranted: window.appearance.setCaptureBorderless(true)
+            }
         }
         Item {
             id: pill
@@ -462,7 +465,7 @@ Window {
         ownerWindow: window
         effectsAvailable: wings.shaderAvailable
         desktopGlassAvailable: window.desktopGlassAvailable
-        desktopGlassStatus: wings.backdropItem ? wings.backdropItem.status : ""
+        backdrop: wings.backdropItem
     }
     Connections {
         target: window.lyricsAlignment

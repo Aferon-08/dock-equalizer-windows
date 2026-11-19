@@ -28,6 +28,7 @@ constexpr Slider settings[] = {
 
 const QString glassEnabled = QStringLiteral("dockGlass");
 const QString desktopGlass = QStringLiteral("desktopGlass");
+const QString captureBorderless = QStringLiteral("captureBorderless");
 
 QString key(const QString &name)
 {
@@ -41,6 +42,7 @@ DockAppearance::DockAppearance(QSettings *settingsStore)
 {
     m_values.insert(glassEnabled, !m_settings || m_settings->value(key(glassEnabled), true).toBool());
     m_values.insert(desktopGlass, m_settings && m_settings->value(key(desktopGlass), false).toBool());
+    m_values.insert(captureBorderless, m_settings && m_settings->value(key(captureBorderless), false).toBool());
     for (const auto &setting : settings) {
         const auto name = QString::fromLatin1(setting.key);
         double value = setting.initial;
@@ -76,6 +78,11 @@ void DockAppearance::setDesktopGlass(bool enabled)
     setValue(desktopGlass, enabled);
 }
 
+void DockAppearance::setCaptureBorderless(bool enabled)
+{
+    setValue(captureBorderless, enabled);
+}
+
 void DockAppearance::setNumber(const QString &name, double value)
 {
     if (!std::isfinite(value))
@@ -92,9 +99,11 @@ void DockAppearance::reset()
 {
     m_values.insert(glassEnabled, true);
     m_values.insert(desktopGlass, false);
+    m_values.insert(captureBorderless, false);
     if (m_settings) {
         m_settings->remove(key(glassEnabled));
         m_settings->remove(key(desktopGlass));
+        m_settings->remove(key(captureBorderless));
     }
     for (const auto &setting : settings) {
         const auto name = QString::fromLatin1(setting.key);

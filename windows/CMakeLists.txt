@@ -8,8 +8,9 @@ target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackC
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2)
 target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}")
 if(WIN32)
-    target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h WinCaptureAbi.h)
-    target_link_libraries(SekaiSoundbar PRIVATE d3d11 dwmapi runtimeobject ole32 shcore)
+    target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
+        WinCaptureAbi.h BackdropTextureNode.h)
+    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore)
 endif()
 
 # Explicit inputs keep the SekaiPOP adapters out of QML scanning and deployment.
