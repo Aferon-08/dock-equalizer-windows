@@ -1,7 +1,9 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs as Dialogs
 import QtQml.Models
 import "BeatTracker.js" as BeatTracker
+import "ImportedLyrics.js" as ImportedLyrics
 
 Window {
     id: window
@@ -9,6 +11,8 @@ Window {
     required property var desktop
     required property var mediaSessions
     required property var systemAudio
+    required property var lyricsImport
+    required property var lyricsSearch
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
     title: "Sekai Soundbar"
@@ -40,6 +44,21 @@ Window {
     readonly property bool smokeMode: Qt.application.arguments.indexOf("--smoke-test") >= 0
     readonly property bool demoMode: smokeMode || Qt.application.arguments.indexOf("--demo-preview") >= 0
     readonly property var media: demoMode ? demoMedia : mediaSessions
+    readonly property string activeTrackKey: media.player ? media.player.trackKey : ""
+    property var localLyrics: null
+    readonly property var onlineLyrics: !demoMode && lyricsSearch.trackKey === activeTrackKey
+        && lyricsSearch.document.ok === true ? lyricsSearch.document : null
+    readonly property var timingDocument: localLyrics && localLyrics.key === activeTrackKey
+        ? localLyrics.document : onlineLyrics
+    onActiveTrackKeyChanged: {
+        if (matchPicker && matchPicker.opened)
+            matchPicker.close()
+        if (localLyrics && localLyrics.key !== activeTrackKey)
+            clearLyrics()
+    }
+    property url smokeLrc
+    property url smokeWordtime
+    readonly property bool smokeImports: smokeMode && smokeLrc.toString() !== "" && smokeWordtime.toString() !== ""
     property int smokePhase: 0
     property real smokeStarted: 0
     property bool smokeCapturePending: false
@@ -93,6 +112,31 @@ Window {
         visualizerService.demoBands = spectrumAt(0)
     }
 
+    function clearLyrics() {
+        localLyrics = null
+        lyricsExpanded = false
+    }
+
+    function importLyrics(file, targetKey) {
+        if (!targetKey || targetKey !== activeTrackKey || !media.player)
+            return "Трек сменился. Выберите файл для текущего трека."
+        const result = lyricsImport.read(file, media.player.lengthSupported ? media.player.length : 0)
+        if (!result.ok)
+            return result.message
+        let document = result
+        if (result.format === "wordtime") {
+            try {
+                const lines = ImportedLyrics.convert(result)
+                document = Object.assign({}, result, {lines: lines, voices: ImportedLyrics.voices(result, lines)})
+            } catch (error) {
+                return String(error.message)
+            }
+        }
+        localLyrics = {key: targetKey, document: document}
+        lyricsExpanded = true
+        return ""
+    }
+
     function failSmoke(message) {
         smokeTimer.stop()
         console.error("FAIL standalone soundbar: " + message)
@@ -132,6 +176,8 @@ Window {
         property real position: 2.2
         property string trackKey: "sample"
         property real previousVolume: 0.8
+        signal changed()
+        onPositionChanged: changed()
         function positionNow() { return position }
         function seek(seconds) { position = seconds }
         function toggleMute() {
@@ -252,7 +298,9 @@ Window {
             property real shadow: 4
             property bool asleep: false
             property var mediaSource: window.media
-            property var lyrics: window.demoMode ? demoLyrics : null
+            property var lyrics: window.demoMode && !window.timingDocument ? demoLyrics : null
+            readonly property var timingDocument: window.timingDocument
+            readonly property string lyricsStatus: window.demoMode ? "" : window.lyricsSearch.statusText
             property bool hovered: false
             property bool editing: false
             readonly property bool desktopEmpty: window.lyricsExpanded
@@ -325,6 +373,85 @@ Window {
         acceptedButtons: Qt.RightButton
         onClicked: mouse => panelMenu.popup(mouse.x, mouse.y)
     }
+    Dialogs.FileDialog {
+        id: lyricsPicker
+        property string targetKey: ""
+        parentWindow: window
+        title: "Выбрать файл лирики"
+        nameFilters: ["Лирика (*.lrc *.json)"]
+        onAccepted: {
+            const message = window.importLyrics(selectedFile, targetKey)
+            if (message) {
+                lyricsMessage.title = "Импорт лирики"
+                lyricsMessage.text = message
+                lyricsMessage.open()
+            }
+        }
+    }
+    Dialog {
+        id: lyricsMessage
+        property alias text: errorText.text
+        parent: Overlay.overlay
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(396, window.width)
+        popupType: Popup.Window
+        modal: true
+        title: "Импорт лирики"
+        standardButtons: Dialog.Ok
+        contentItem: Label {
+            id: errorText
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+        }
+    }
+    Dialog {
+        id: matchPicker
+        property string targetKey: ""
+        parent: Overlay.overlay
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(440, window.width)
+        popupType: Popup.Window
+        modal: true
+        title: "Найденные версии лирики"
+        standardButtons: Dialog.Cancel
+        contentItem: ListView {
+            clip: true
+            implicitHeight: Math.min(count * 56, 280)
+            model: window.lyricsSearch.choices
+            ScrollBar.vertical: ScrollBar {}
+            delegate: ItemDelegate {
+                id: trackChoice
+                required property int index
+                required property var modelData
+                width: ListView.view.width - 12
+                height: 56
+                contentItem: Column {
+                    spacing: 3
+                    Label {
+                        width: parent.width
+                        text: trackChoice.modelData.title
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        width: parent.width
+                        text: [trackChoice.modelData.source, trackChoice.modelData.album,
+                            trackChoice.modelData.duration].filter(Boolean).join(" · ")
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        opacity: 0.7
+                    }
+                }
+                onClicked: {
+                    if (window.lyricsSearch.choose(matchPicker.targetKey, index)) {
+                        window.localLyrics = null
+                        window.lyricsExpanded = true
+                    }
+                    matchPicker.close()
+                }
+            }
+        }
+    }
     Menu {
         id: panelMenu
         popupType: Popup.Window
@@ -332,6 +459,59 @@ Window {
             text: window.lyricsExpanded ? "Свернуть лирику" : "Развернуть лирику"
             enabled: !!window.media.player
             onTriggered: window.lyricsExpanded = !window.lyricsExpanded
+        }
+        MenuItem {
+            text: "Загрузить лирику…"
+            enabled: window.activeTrackKey !== ""
+            onTriggered: {
+                lyricsPicker.targetKey = window.activeTrackKey
+                Qt.callLater(() => lyricsPicker.open())
+            }
+        }
+        MenuItem {
+            text: "Убрать загруженную лирику"
+            visible: !!window.localLyrics
+            height: visible ? implicitHeight : 0
+            enabled: visible
+            onTriggered: window.clearLyrics()
+        }
+        Menu {
+            title: "Поиск лирики"
+            enabled: !window.demoMode
+            MenuItem {
+                text: "Автопоиск лирики"
+                checkable: true
+                checked: window.lyricsSearch.automatic
+                onTriggered: window.lyricsSearch.automatic = checked
+            }
+            MenuItem {
+                text: "Найти лирику"
+                enabled: window.lyricsSearch.canSearch && !window.lyricsSearch.searching
+                onTriggered: window.lyricsSearch.retry()
+            }
+            MenuItem {
+                text: "Выбрать версию лирики…"
+                enabled: window.lyricsSearch.choices.length > 0
+                onTriggered: {
+                    matchPicker.targetKey = window.activeTrackKey
+                    Qt.callLater(() => matchPicker.open())
+                }
+            }
+            MenuItem {
+                text: "Состояние источников…"
+                enabled: window.lyricsSearch.sourceDetails !== ""
+                onTriggered: {
+                    lyricsMessage.title = "Состояние источников"
+                    lyricsMessage.text = window.lyricsSearch.sourceDetails
+                    Qt.callLater(() => lyricsMessage.open())
+                }
+            }
+            MenuItem {
+                text: window.lyricsSearch.statusText
+                enabled: false
+                visible: text !== ""
+                height: visible ? implicitHeight : 0
+            }
         }
         MenuItem {
             text: window.media.playing ? "Пауза" : "Воспроизвести"
@@ -422,7 +602,16 @@ Window {
                         || !JSON.parse(wings.lyricsView.diagnostics()).trackHeaderVisible
                         || visualizerService.bands.length !== 64) return
                 window.captureSmoke("compact", function() {
-                    demoLyrics.status = "ready"
+                    if (window.smokeImports) {
+                        const message = window.importLyrics(window.smokeLrc, window.activeTrackKey)
+                        if (message) {
+                            window.failSmoke(message)
+                            return
+                        }
+                        demoPlayer.seek(6)
+                    } else {
+                        demoLyrics.status = "ready"
+                    }
                     window.lyricsExpanded = true
                     window.smokePhase = 1
                     window.smokeStarted = Date.now()
@@ -432,13 +621,60 @@ Window {
                 if (!wings.suppressMediaKey || wings.lyricsHeightExtra <= 100
                         || Math.abs(pill.width - Math.min(demoHost.settings.lyricsWidth,
                             wings.lyricsView.maxBody)) > 0.5
-                        || !lyrics.wide || !lyrics.visible
-                        || !demoLyrics.lines.some(line => line.text === lyrics.text)) return
+                        || !lyrics.wide || !lyrics.visible) return
+                const expected = window.smokeImports
+                    ? lyrics.text === "Вторая строка" && lyrics.lineOnly && lyrics.wordSpans === 0
+                    : demoLyrics.lines.some(line => line.text === lyrics.text)
+                if (!expected) return
                 window.captureSmoke("expanded lyrics", function() {
+                    if (window.smokeImports) {
+                        demoMedia.togglePlaying()
+                        demoPlayer.seek(1.25)
+                        window.smokePhase = 2
+                        window.smokeStarted = Date.now()
+                        return
+                    }
                     smokeTimer.stop()
                     console.log("PASS standalone soundbar smoke test")
                     Qt.exit(0)
                 })
+            } else if (window.smokePhase === 2 && wait >= 350) {
+                const lyrics = JSON.parse(wings.lyricsView.diagnostics())
+                if (lyrics.playing || lyrics.position !== 1.25 || lyrics.text !== "Первая строка") {
+                    window.failSmoke("paused rewind did not restore the first LRC line")
+                    return
+                }
+                const message = window.importLyrics(window.smokeWordtime, window.activeTrackKey)
+                if (message) {
+                    window.failSmoke(message)
+                    return
+                }
+                demoPlayer.seek(6)
+                window.smokePhase = 3
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 3 && wait >= 250) {
+                const lyrics = JSON.parse(wings.lyricsView.diagnostics())
+                if (lyrics.playing || lyrics.position !== 6 || lyrics.text !== "Свет звучит"
+                        || lyrics.lineOnly || lyrics.wordSpans !== 2 || lyrics.timingWords !== 4) {
+                    window.failSmoke("the Wordtime document did not follow the paused seek")
+                    return
+                }
+                const oldKey = window.activeTrackKey
+                demoPlayer.trackKey = "second"
+                if (!window.importLyrics(window.smokeWordtime, oldKey)) {
+                    window.failSmoke("an import started for the previous track was accepted")
+                    return
+                }
+                window.smokePhase = 4
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 4 && wait >= 250) {
+                if (window.timingDocument || JSON.parse(wings.lyricsView.diagnostics()).available) {
+                    window.failSmoke("lyrics from the previous track remain visible")
+                    return
+                }
+                smokeTimer.stop()
+                console.log("PASS imported LRC and Wordtime, paused seeks and track change")
+                Qt.exit(0)
             }
         }
     }

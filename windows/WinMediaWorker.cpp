@@ -522,6 +522,7 @@ private:
         m_state.trackKey = key;
         m_state.title = title;
         m_state.artist = artist;
+        m_state.album = album;
         m_state.artUrl = std::move(art);
         m_lastRevision = revision;
         m_probeAfter = playbackTimeMs() + (m_listening ? 4000 : 1200);

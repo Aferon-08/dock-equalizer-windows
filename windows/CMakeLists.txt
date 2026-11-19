@@ -1,7 +1,8 @@
 qt_add_executable(SekaiSoundbar WIN32 main.cpp DesktopOverlay.cpp DesktopOverlay.h)
 target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackClock.h
+    LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h)
-target_link_libraries(SekaiSoundbar PRIVATE Qt6::Quick Qt6::QuickControls2)
+target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2)
 if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h)
     target_link_libraries(SekaiSoundbar PRIVATE dwmapi runtimeobject ole32 shcore)
@@ -71,7 +72,7 @@ if(WIN32)
     qt_generate_deploy_qml_app_script(
         TARGET SekaiSoundbar
         OUTPUT_SCRIPT deploy_script
-        DEPLOY_TOOL_OPTIONS --include-plugins qsvg
+        DEPLOY_TOOL_OPTIONS --include-plugins qsvg,qschannelbackend
     )
     install(SCRIPT "${deploy_script}")
 endif()
@@ -81,7 +82,25 @@ if(BUILD_TESTING)
     add_test(NAME soundbar.clock COMMAND soundbar_clock_test)
     add_executable(soundbar_spectrum_test tests/SpectrumAnalyzerTest.cpp SpectrumAnalyzer.cpp)
     add_test(NAME soundbar.spectrum COMMAND soundbar_spectrum_test)
-    add_test(NAME soundbar.overlay COMMAND SekaiSoundbar --smoke-test)
+    add_executable(soundbar_lyrics_test tests/LyricsImportTest.cpp LyricsImport.cpp LyricsImport.h)
+    target_link_libraries(soundbar_lyrics_test PRIVATE Qt6::Core)
+    add_test(NAME soundbar.lyrics-import COMMAND soundbar_lyrics_test)
+    add_executable(soundbar_lyrics_search_test tests/LyricsSearchTest.cpp
+        LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h)
+    target_link_libraries(soundbar_lyrics_search_test PRIVATE Qt6::Network Qt6::Qml)
+    qt_add_resources(soundbar_lyrics_search_test lyrics_math
+        PREFIX "/qt/qml/Sekai/Soundbar" BASE "${PROJECT_SOURCE_DIR}"
+        FILES "${PROJECT_SOURCE_DIR}/LyricsMath.js")
+    add_test(NAME soundbar.lyrics-search COMMAND soundbar_lyrics_search_test)
+    set_tests_properties(soundbar.lyrics-search PROPERTIES TIMEOUT 20)
+    find_program(SOUNDBAR_TEST_CURL curl)
+    if(SOUNDBAR_TEST_CURL AND NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME soundbar.lyrics-search-curl COMMAND soundbar_lyrics_search_test "${SOUNDBAR_TEST_CURL}")
+        set_tests_properties(soundbar.lyrics-search-curl PROPERTIES TIMEOUT 22)
+    endif()
+    add_test(NAME soundbar.overlay COMMAND SekaiSoundbar --smoke-test
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/lyrics.lrc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/wordtime.json")
     set_tests_properties(soundbar.overlay PROPERTIES
         TIMEOUT 25
         FAIL_REGULAR_EXPRESSION

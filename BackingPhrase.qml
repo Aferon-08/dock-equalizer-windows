@@ -34,7 +34,7 @@ Item {
     }
     Item {
         width:root.width*root.progress;height:root.height;clip:true
-        Text {width:root.width;height:root.height;text:base.text;font:base.font
+        Text {width:root.width;height:root.height;text:base.text;textFormat:Text.PlainText;font:base.font
             fontSizeMode:Text.HorizontalFit;minimumPixelSize:8;color:root.accent;opacity:.8}
     }
 }

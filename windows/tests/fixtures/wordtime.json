@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "duration": 120,
+  "words": [
+    {"word": "Тихий", "start": 0.5, "end": 1.5, "line": 0},
+    {"word": "голос", "start": 1.7, "end": 3.0, "line": 0},
+    {"word": "Свет", "start": 5.0, "end": 5.75, "line": 1},
+    {"word": "звучит", "start": 6.05, "end": 7.5, "line": 1}
+  ]
+}
