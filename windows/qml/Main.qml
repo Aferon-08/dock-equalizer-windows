@@ -63,6 +63,8 @@ Window {
     readonly property bool playbackActive: media.player ? media.playing : sustainedAudio
     readonly property bool playbackPaused: !!media.player && media.paused
     onPlaybackActiveChanged: if (playbackActive) trayPreview = false
+    readonly property bool swipeDismissed: wings.lyricsView.dismissedUntilPlay
+    onSwipeDismissedChanged: if (swipeDismissed) trayPreview = false
     property real elapsed: 0
     readonly property bool smokeMode: Qt.application.arguments.indexOf("--smoke-test") >= 0
     readonly property bool demoMode: smokeMode || Qt.application.arguments.indexOf("--demo-preview") >= 0
@@ -100,6 +102,7 @@ Window {
         id: presence
         playing: window.playbackActive
         paused: window.playbackPaused
+        dismissed: window.swipeDismissed
         fullscreen: window.desktop.fullscreenActive
         idleDelay: demoHost.settings.collapseDelay
         pauseDelay: window.smokeMode ? 1700 : 60000
@@ -467,19 +470,6 @@ Window {
             readonly property real capWidth: width
             readonly property real capHeight: height - 4
             property bool bare: wings.ownsHousing
-            Text {
-                id: dockCaption
-                anchors.centerIn: parent
-                anchors.verticalCenterOffset: wings.iconsOffset / 2
-                scale: wings.iconsScale
-                opacity: wings.iconsOpacity * wings.contentOpacity
-                text: window.media.player ? "Sekai Soundbar"
-                    : visualizerService.playing ? "Системный звук" : ""
-                visible: text.length > 0
-                color: "#e8f4ee"
-                font.family: demoHost.theme.fontFamily
-                font.pixelSize: 15
-            }
         }
     }
 
@@ -546,8 +536,10 @@ Window {
     Connections {
         target: window.desktop
         function onShowRequested() {
-            if (window.activeTrackKey !== "" && !window.desktop.fullscreenActive && !window.playbackActive)
+            if (window.activeTrackKey !== "" && !window.desktop.fullscreenActive && !window.playbackActive) {
+                wings.lyricsView.dismissedUntilPlay = false
                 window.trayPreview = true
+            }
         }
         function onAppearanceRequested() {
             if (window.desktop.fullscreenActive)
@@ -1055,7 +1047,7 @@ Window {
                 window.demoPlaying = false
                 window.smokeNoSession = true
                 window.desktop.showRequested()
-                if (dockCaption.text !== "" || window.trayPreview) {
+                if (window.trayPreview) {
                     window.failSmoke("losing the media session opened an idle placeholder")
                     return
                 }
@@ -1077,9 +1069,47 @@ Window {
                     window.failSmoke("resuming playback did not restore the unobscured compact layout")
                     return
                 }
+                window.demoPlaying = false
+                window.desktop.showRequested()
+                const lyricsView = wings.lyricsView
+                if (!window.trayPreview || !lyricsView.beginSwipe(0, 0)) {
+                    window.failSmoke("the paused dock was not available to swipe")
+                    return
+                }
+                lyricsView.moveSwipe(10, 0)
+                lyricsView.finishSwipe(true)
+                window.smokePhase = 15
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 15 && wait >= 700) {
+                const lyricsView = wings.lyricsView
+                if (!presence.interactive || window.swipeDismissed || !lyricsView.beginSwipe(0, 0)) {
+                    window.failSmoke("a short swipe dismissed the dock")
+                    return
+                }
+                lyricsView.moveSwipe(110, 0)
+                if (!lyricsView.finishSwipe(true)) {
+                    window.failSmoke("the dock did not accept a completed swipe")
+                    return
+                }
+                window.smokePhase = 16
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 16 && wait >= 1000) {
+                if (window.visible || window.trayPreview || presence.hideProgress !== 1) {
+                    window.failSmoke("a completed swipe left a visible dock")
+                    return
+                }
+                window.desktop.showRequested()
+                window.smokePhase = 17
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 17 && wait >= 850) {
+                if (!presence.interactive || window.swipeDismissed
+                        || !JSON.parse(wings.lyricsView.diagnostics()).trackHeaderVisible) {
+                    window.failSmoke("the tray did not restore the paused track after a swipe")
+                    return
+                }
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
-                console.log("PASS desktop expansion, pause delay, reversing and hiding the drop")
+                console.log("PASS desktop expansion, pause delay, swipe dismissal and restoring the dock")
                 Qt.exit(0)
             }
         }

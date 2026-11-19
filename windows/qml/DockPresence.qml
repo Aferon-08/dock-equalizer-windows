@@ -4,6 +4,7 @@ QtObject {
     id: root
     required property bool playing
     required property bool paused
+    required property bool dismissed
     required property bool holdOpen
     required property bool fullscreen
     property int idleDelay: 600
@@ -36,7 +37,10 @@ QtObject {
         } else if (wanted) {
             animateTo(0)
         } else if (hideProgress < 1 && !(motion.running && motion.to === 1)) {
-            delay.restart()
+            if (dismissed)
+                animateTo(1)
+            else
+                delay.restart()
         }
     }
 
@@ -50,6 +54,7 @@ QtObject {
     }
     onWantedChanged: update()
     onPausedChanged: update()
+    onDismissedChanged: update()
     onFullscreenChanged: update()
     Component.onCompleted: {
         ready = true
