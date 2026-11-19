@@ -50,7 +50,7 @@ Window {
     property bool demoPlaying: true
     property bool smokeNoSession: false
     property bool lyricsExpanded: !smokeMode
-    readonly property bool expandedDock: lyricsExpanded && expandedSpaceReady && !playbackPaused
+    readonly property bool expandedDock: lyricsExpanded && expandedSpaceReady
     readonly property bool expansionClear: !desktop.fullscreenActive
         && !(smokeMode ? smokeObstructed : desktop.expandedObstructed)
     property bool expandedSpaceReady: false
@@ -699,7 +699,7 @@ Window {
             }
             MenuItem {
                 text: window.expandedDock ? "Свернуть лирику" : "Развернуть лирику"
-                enabled: !!window.media.player && window.expansionClear && !window.playbackPaused
+                enabled: !!window.media.player && window.expansionClear
                 onTriggered: window.toggleLyricsLayout()
             }
             MenuItem {
@@ -1006,8 +1006,8 @@ Window {
                 window.smokePhase = 9
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 9 && wait >= 950) {
-                if (wings.lyricsView.wide || wings.lyricsHeightExtra > 25 || !presence.interactive) {
-                    window.failSmoke("pause should leave the compact dock available until its delay expires")
+                if (!wings.lyricsView.wide || wings.lyricsHeightExtra <= 100 || !presence.interactive) {
+                    window.failSmoke("pause should preserve the expanded dock until its delay expires")
                     return
                 }
                 window.demoPlaying = true
