@@ -13,6 +13,7 @@ Window {
     required property var systemAudio
     required property var lyricsImport
     required property var lyricsSearch
+    required property var lyricsAlignment
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
     title: "Sekai Soundbar"
@@ -121,6 +122,10 @@ Window {
         if (!targetKey || targetKey !== activeTrackKey || !media.player)
             return "Трек сменился. Выберите файл для текущего трека."
         const result = lyricsImport.read(file, media.player.lengthSupported ? media.player.length : 0)
+        return applyLyricsDocument(result, targetKey)
+    }
+
+    function applyLyricsDocument(result, targetKey) {
         if (!result.ok)
             return result.message
         let document = result
@@ -404,6 +409,92 @@ Window {
             wrapMode: Text.WordWrap
         }
     }
+    AlignmentDialog {
+        id: alignmentDialog
+        parent: Overlay.overlay
+        controller: window.lyricsAlignment
+        ownerWindow: window
+    }
+    Connections {
+        target: window.lyricsAlignment
+        function onAligned(trackKey, document) {
+            if (trackKey === "" || trackKey !== window.activeTrackKey)
+                return
+            const message = window.applyLyricsDocument(document, trackKey)
+            if (message)
+                alignmentDialog.saveError = message
+        }
+    }
+    Dialog {
+        id: proxyDialog
+        parent: Overlay.overlay
+        width: Math.min(460, window.width)
+        x: Math.round((window.width - width) / 2)
+        y: Math.max(40, Math.round((window.height - height) / 2))
+        popupType: Popup.Window
+        modal: true
+        focus: true
+        title: "Прокси поиска лирики"
+        onOpened: {
+            proxyInput.text = window.lyricsSearch.proxyAddress
+            proxyError.text = ""
+            proxyInput.forceActiveFocus()
+        }
+        function save() {
+            proxyError.text = window.lyricsSearch.configureProxy(proxyInput.text)
+            if (!proxyError.text)
+                accept()
+        }
+        contentItem: Column {
+            spacing: 8
+            Label {
+                width: parent.width
+                text: "Укажите адрес локального прокси. Пустое поле включает обычное подключение."
+                wrapMode: Text.WordWrap
+            }
+            TextField {
+                id: proxyInput
+                width: parent.width
+                placeholderText: "socks5h://127.0.0.1:10808"
+                placeholderTextColor: "#8bb0a4"
+                maximumLength: 120
+                selectByMouse: true
+                onAccepted: proxyDialog.save()
+            }
+            Row {
+                spacing: 8
+                Button {
+                    text: "INCY SOCKS5"
+                    onClicked: proxyInput.text = "socks5h://127.0.0.1:10808"
+                }
+                Button {
+                    text: "INCY HTTP"
+                    onClicked: proxyInput.text = "http://127.0.0.1:10809"
+                }
+            }
+            Label {
+                id: proxyError
+                width: parent.width
+                visible: text !== ""
+                textFormat: Text.PlainText
+                color: "#f6adad"
+                wrapMode: Text.WordWrap
+            }
+            Row {
+                width: parent.width
+                spacing: 8
+                layoutDirection: Qt.RightToLeft
+                Button {
+                    text: "Сохранить"
+                    onClicked: proxyDialog.save()
+                }
+                Button {
+                    text: "Отмена"
+                    onClicked: proxyDialog.reject()
+                }
+            }
+        }
+    }
     Dialog {
         id: matchPicker
         property string targetKey: ""
@@ -469,6 +560,16 @@ Window {
             }
         }
         MenuItem {
+            text: "Выровнять лирику…"
+            enabled: !window.demoMode
+            onTriggered: Qt.callLater(() => {
+                const player = window.media.player
+                const length = player && player.lengthSupported ? player.length : 0
+                const lines = window.timingDocument ? (window.timingDocument.lines || []) : []
+                alignmentDialog.openForTrack(window.activeTrackKey, length, lines)
+            })
+        }
+        MenuItem {
             text: "Убрать загруженную лирику"
             visible: !!window.localLyrics
             height: visible ? implicitHeight : 0
@@ -488,6 +589,10 @@ Window {
                 text: "Найти лирику"
                 enabled: window.lyricsSearch.canSearch && !window.lyricsSearch.searching
                 onTriggered: window.lyricsSearch.retry()
+            }
+            MenuItem {
+                text: "Прокси поиска…"
+                onTriggered: Qt.callLater(() => proxyDialog.open())
             }
             MenuItem {
                 text: "Выбрать версию лирики…"

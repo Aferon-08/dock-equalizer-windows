@@ -64,7 +64,8 @@ LyricsSearch::LyricsSearch(QObject *parent)
     : LyricsSearch(Endpoints{QUrl(QStringLiteral("https://lrclib.net/api/search")),
         QUrl(QStringLiteral("https://lyricsplus.prjktla.workers.dev/v2/lyrics/get")),
         QUrl(QStringLiteral("https://api-lyrics.simpmusic.org/v1/")),
-        QUrl(QStringLiteral("https://api.betterlyrics.org/getLyrics"))},
+        QUrl(QStringLiteral("https://api.betterlyrics.org/getLyrics")),
+        QUrl(QStringLiteral("https://music.163.com/api/"))},
         QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)).filePath(QStringLiteral("lyrics/lrclib")),
         LyricsHttp::windowsCurl(), parent)
 {
@@ -117,6 +118,36 @@ void LyricsSearch::setAutomatic(bool enabled)
     }
     emit automaticChanged();
     emit changed();
+}
+
+QString LyricsSearch::configureProxy(const QString &address)
+{
+    const auto previous = proxyAddress();
+    const bool wasSearching = searching();
+    if (!m_http.setProxyAddress(address))
+        return QStringLiteral("Укажите локальный адрес HTTP или SOCKS5 с портом.");
+    if (previous == proxyAddress())
+        return {};
+
+    m_delay.stop();
+    if (canSearch() && (wasSearching || (m_automatic && m_document.isEmpty()))) {
+        request();
+    } else {
+        m_sourceState.clear();
+        if (canSearch() && m_document.isEmpty())
+            m_status = QStringLiteral("Автопоиск выключен");
+        emit changed();
+    }
+    emit proxyAddressChanged();
+    return {};
+}
+
+QString LyricsSearch::sourceDetails() const
+{
+    QString details = QStringList(m_sourceState.values()).join(u'\n');
+    if (!details.isEmpty() && !proxyAddress().isEmpty())
+        details.prepend(QStringLiteral("Локальный прокси %1\n\n").arg(proxyAddress()));
+    return details;
 }
 
 void LyricsSearch::reset()
@@ -201,15 +232,22 @@ void LyricsSearch::request()
         addQuery(better, QStringLiteral("d"), QString::number(qRound(m_duration)));
         send(Step::BetterLyrics, withQuery(m_endpoints.betterLyrics, better));
     }
+    if (!m_endpoints.netEase.isEmpty()) {
+        QUrlQuery netEase(QStringLiteral("type=1&offset=0&total=true&limit=8"));
+        addQuery(netEase, QStringLiteral("s"), (m_queryArtist + u' ' + m_queryTitle).trimmed());
+        send(Step::NetEaseSearch, withQuery(m_endpoints.netEase.resolved(QUrl(QStringLiteral("search/get/web"))), netEase));
+    }
     updateSelection();
 }
 
-void LyricsSearch::send(Step step, const QUrl &url, const QString &videoId)
+void LyricsSearch::send(Step step, const QUrl &url, const QJsonObject &track)
 {
     m_sourceState.insert(provider(step), provider(step) + QStringLiteral(" · поиск"));
-    m_http.get(url, [this, step, videoId](LyricsHttp::Result response) {
-        finish(step, videoId, std::move(response));
-    });
+    const auto referer = step == Step::NetEaseSearch || step == Step::NetEaseLyrics
+        ? QStringLiteral("https://music.163.com/") : QString{};
+    m_http.get(url, [this, step, track](LyricsHttp::Result response) {
+        finish(step, track, std::move(response));
+    }, referer);
 }
 
 QString LyricsSearch::provider(Step step)
@@ -220,11 +258,13 @@ QString LyricsSearch::provider(Step step)
     case Step::SimpSearch:
     case Step::SimpLyrics: return QStringLiteral("SimpMusic");
     case Step::BetterLyrics: return QStringLiteral("Better Lyrics");
+    case Step::NetEaseSearch:
+    case Step::NetEaseLyrics: return QStringLiteral("NetEase Cloud Music");
     }
     return {};
 }
 
-void LyricsSearch::finish(Step step, const QString &videoId, LyricsHttp::Result response)
+void LyricsSearch::finish(Step step, const QJsonObject &track, LyricsHttp::Result response)
 {
     const QString name = provider(step);
     const int status = response.status;
@@ -243,7 +283,7 @@ void LyricsSearch::finish(Step step, const QString &videoId, LyricsHttp::Result 
         m_answered = true;
         const auto before = m_matches.size();
         const auto remaining = m_http.pendingCount();
-        receive(step, json, videoId);
+        receive(step, json, track);
         if (m_http.pendingCount() > remaining) {
             updateSelection();
             return;
@@ -256,7 +296,7 @@ void LyricsSearch::finish(Step step, const QString &videoId, LyricsHttp::Result 
     updateSelection();
 }
 
-void LyricsSearch::receive(Step step, const QJsonDocument &json, const QString &videoId)
+void LyricsSearch::receive(Step step, const QJsonDocument &json, const QJsonObject &track)
 {
     if (step == Step::Lrclib) {
         const auto rows = json.array();
@@ -274,7 +314,7 @@ void LyricsSearch::receive(Step step, const QJsonDocument &json, const QString &
         const auto id = transform("pickWordSong", {songs, m_queryArtist, m_queryTitle, m_duration}).toString();
         static const QRegularExpression videoPattern(QStringLiteral(R"(\A[A-Za-z0-9_-]{11}\z)"));
         if (videoPattern.match(id).hasMatch())
-            send(Step::SimpLyrics, m_endpoints.simpMusic.resolved(QUrl(id)), id);
+            send(Step::SimpLyrics, m_endpoints.simpMusic.resolved(QUrl(id)), {{QStringLiteral("id"), id}});
         return;
     }
     if (step == Step::SimpLyrics) {
@@ -286,13 +326,33 @@ void LyricsSearch::receive(Step step, const QJsonDocument &json, const QString &
             if (text.isEmpty())
                 text = entry.value(QStringLiteral("syncedLyrics")).toString();
             const double duration = entry.value(QStringLiteral("durationSeconds")).toVariant().toDouble();
-            appendMatch({{QStringLiteral("id"), videoId}, {QStringLiteral("source"), provider(step)},
+            appendMatch({{QStringLiteral("id"), track.value(QStringLiteral("id"))}, {QStringLiteral("source"), provider(step)},
                 {QStringLiteral("trackName"), entry.value(QStringLiteral("songTitle")).toString(m_queryTitle)},
                 {QStringLiteral("artistName"), entry.value(QStringLiteral("artistName")).toString(m_queryArtist)},
                 {QStringLiteral("albumName"), entry.value(QStringLiteral("albumName")).toString()},
                 {QStringLiteral("duration"), duration > 0 ? duration
                     : entry.value(QStringLiteral("duration")).toVariant().toDouble()},
                 {QStringLiteral("syncedLyrics"), text}});
+        }
+        return;
+    }
+    if (step == Step::NetEaseSearch) {
+        netEaseSearchResult(object);
+        return;
+    }
+    if (step == Step::NetEaseLyrics) {
+        auto record = track;
+        const auto yrc = object.value(QStringLiteral("yrc")).toObject().value(QStringLiteral("lyric")).toString();
+        const auto wordTiming = transform("yrcToLrc", {yrc, 0}).toString();
+        const auto before = m_matches.size();
+        if (!wordTiming.isEmpty()) {
+            record.insert(QStringLiteral("syncedLyrics"), wordTiming);
+            appendMatch(record);
+        }
+        if (m_matches.size() == before) {
+            record.insert(QStringLiteral("syncedLyrics"),
+                object.value(QStringLiteral("lrc")).toObject().value(QStringLiteral("lyric")));
+            appendMatch(record);
         }
         return;
     }
@@ -314,6 +374,41 @@ void LyricsSearch::receive(Step step, const QJsonDocument &json, const QString &
         {QStringLiteral("albumName"), metadata.value(QStringLiteral("album")).toString(m_album)},
         {QStringLiteral("duration"), m_duration},
         {QStringLiteral("syncedLyrics"), converted.value(QStringLiteral("text")).toString()}});
+}
+
+void LyricsSearch::netEaseSearchResult(const QJsonObject &response)
+{
+    const auto songs = response.value(QStringLiteral("result")).toObject().value(QStringLiteral("songs")).toArray();
+    const auto id = transform("pickWordSong", {songs.toVariantList(), m_queryArtist, m_queryTitle, m_duration}).toLongLong();
+    if (id <= 0)
+        return;
+    for (const auto entry : songs) {
+        const auto song = entry.toObject();
+        if (song.value(QStringLiteral("id")).toInteger() != id)
+            continue;
+        auto singers = song.value(QStringLiteral("artists")).toArray();
+        if (singers.isEmpty())
+            singers = song.value(QStringLiteral("ar")).toArray();
+        QStringList artists;
+        for (const auto singer : singers) {
+            const auto name = valueText(singer.toObject(), QStringLiteral("name"));
+            if (!name.isEmpty())
+                artists.append(name);
+        }
+        auto album = song.value(QStringLiteral("album")).toObject();
+        if (album.isEmpty())
+            album = song.value(QStringLiteral("al")).toObject();
+        const auto millis = song.value(QStringLiteral("duration")).toDouble(song.value(QStringLiteral("dt")).toDouble());
+        QUrlQuery query(QStringLiteral("lv=-1&kv=-1&tv=-1&rv=-1&yv=-1&ytv=-1&yrv=-1"));
+        addQuery(query, QStringLiteral("id"), QString::number(id));
+        send(Step::NetEaseLyrics, withQuery(m_endpoints.netEase.resolved(QUrl(QStringLiteral("song/lyric/v1"))), query),
+            {{QStringLiteral("id"), id}, {QStringLiteral("source"), provider(Step::NetEaseLyrics)},
+                {QStringLiteral("trackName"), valueText(song, QStringLiteral("name"))},
+                {QStringLiteral("artistName"), artists.join(QStringLiteral(", "))},
+                {QStringLiteral("albumName"), valueText(album, QStringLiteral("name"))},
+                {QStringLiteral("duration"), millis / 1000.0}});
+        return;
+    }
 }
 
 QVariant LyricsSearch::transform(const char *method, const QVariantList &arguments)
@@ -449,6 +544,9 @@ LyricsSearch::Match LyricsSearch::match(const QJsonObject &record)
     auto document = parseLyrics(lrc, m_duration > 0 ? m_duration : duration);
     if (!document.value(QStringLiteral("ok")).toBool())
         return {};
+    if (source == provider(Step::NetEaseLyrics)
+            && transform("isNoLyricsNotice", {document.value(QStringLiteral("lines"))}).toBool())
+        return {};
     document.insert(QStringLiteral("duration"), duration);
     const QJsonObject cleaned{{QStringLiteral("id"), id}, {QStringLiteral("source"), source}, {QStringLiteral("trackName"), title},
         {QStringLiteral("artistName"), artist}, {QStringLiteral("albumName"), album},
@@ -479,7 +577,7 @@ int LyricsSearch::automaticMatch() const
     int selected = -1;
     bool selectedHasWords = false;
     for (const auto &name : {provider(Step::BetterLyrics), provider(Step::LyricsPlus),
-                            provider(Step::Lrclib), provider(Step::SimpLyrics)}) {
+                            provider(Step::Lrclib), provider(Step::SimpLyrics), provider(Step::NetEaseLyrics)}) {
         int candidate = -1;
         for (const int index : best) {
             const auto &record = m_matches.at(index).record;

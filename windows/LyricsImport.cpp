@@ -288,6 +288,11 @@ QVariantMap LyricsImport::parseLrc(const QString &text, double duration)
     return readLrc(text, duration);
 }
 
+QVariantMap LyricsImport::parseWordtime(const QString &text, double duration)
+{
+    return readWordtime(text, duration);
+}
+
 QVariantMap LyricsImport::read(const QUrl &url, double trackDuration) const
 {
     if (!url.isLocalFile())
@@ -310,5 +315,5 @@ QVariantMap LyricsImport::read(const QUrl &url, double trackDuration) const
     const QString text = decoder(bytes);
     if (decoder.hasError())
         return error(QStringLiteral("Сохраните текстовый файл в UTF-8 или UTF-16 с BOM."));
-    return suffix == QStringLiteral("lrc") ? parseLrc(text, trackDuration) : readWordtime(text, trackDuration);
+    return suffix == QStringLiteral("lrc") ? parseLrc(text, trackDuration) : parseWordtime(text, trackDuration);
 }

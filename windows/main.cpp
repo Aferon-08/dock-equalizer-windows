@@ -1,4 +1,5 @@
 #include "DesktopOverlay.h"
+#include "LyricsAlignment.h"
 #include "LyricsImport.h"
 #include "LyricsSearch.h"
 #include "MediaSessions.h"
@@ -33,11 +34,17 @@ int main(int argc, char *argv[])
     SystemAudio audio(liveInputs);
     LyricsImport lyrics;
     LyricsSearch search;
+    LyricsAlignment alignment;
     QSettings settings(QStringLiteral("SekaiSoundbar"), QStringLiteral("Settings"));
     const auto autoSearchSetting = QStringLiteral("lyrics/automatic");
+    const auto proxySetting = QStringLiteral("lyrics/proxy");
     search.setAutomatic(settings.value(autoSearchSetting, true).toBool());
+    search.configureProxy(settings.value(proxySetting).toString());
     QObject::connect(&search, &LyricsSearch::automaticChanged, &app, [&] {
         settings.setValue(autoSearchSetting, search.automatic());
+    });
+    QObject::connect(&search, &LyricsSearch::proxyAddressChanged, &app, [&] {
+        settings.setValue(proxySetting, search.proxyAddress());
     });
     QObject::connect(&media, &MediaSessions::changed, &search, [&] {
         search.setTrack(media.trackKey(), media.trackTitle(), media.trackArtist(),
@@ -47,7 +54,8 @@ int main(int argc, char *argv[])
                            {QStringLiteral("mediaSessions"), QVariant::fromValue(&media)},
                            {QStringLiteral("systemAudio"), QVariant::fromValue(&audio)},
                            {QStringLiteral("lyricsImport"), QVariant::fromValue(&lyrics)},
-                           {QStringLiteral("lyricsSearch"), QVariant::fromValue(&search)}};
+                           {QStringLiteral("lyricsSearch"), QVariant::fromValue(&search)},
+                           {QStringLiteral("lyricsAlignment"), QVariant::fromValue(&alignment)}};
     const auto smoke = args.indexOf(QStringLiteral("--smoke-test"));
     if (smoke >= 0 && smoke + 2 < args.size()) {
         properties.insert(QStringLiteral("smokeLrc"), QUrl::fromLocalFile(args.at(smoke + 1)));

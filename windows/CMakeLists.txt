@@ -1,5 +1,6 @@
 qt_add_executable(SekaiSoundbar WIN32 main.cpp DesktopOverlay.cpp DesktopOverlay.h)
 target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackClock.h
+    LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h)
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2)
@@ -53,7 +54,7 @@ list(TRANSFORM shared_assets PREPEND "${PROJECT_SOURCE_DIR}/")
 
 qt_add_qml_module(SekaiSoundbar
     URI Sekai.Soundbar
-    QML_FILES qml/Main.qml ${shared_ui}
+    QML_FILES qml/Main.qml qml/AlignmentDialog.qml ${shared_ui}
     RESOURCES ${shared_assets}
 )
 
@@ -69,6 +70,11 @@ qt_add_shaders(SekaiSoundbar soundbar_shaders
 if(WIN32)
     install(TARGETS SekaiSoundbar RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
     install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/THIRD_PARTY.md" DESTINATION .)
+    install(FILES alignment/worker.py alignment/cpu-windows.lock DESTINATION "${CMAKE_INSTALL_BINDIR}/alignment")
+    set(SOUNDBAR_ALIGNMENT_PYTHON "" CACHE PATH "Path to the CPython 3.12 x64 NuGet tools directory")
+    if(SOUNDBAR_ALIGNMENT_PYTHON)
+        install(DIRECTORY "${SOUNDBAR_ALIGNMENT_PYTHON}/" DESTINATION "${CMAKE_INSTALL_BINDIR}/alignment/python")
+    endif()
     qt_generate_deploy_qml_app_script(
         TARGET SekaiSoundbar
         OUTPUT_SCRIPT deploy_script
@@ -96,7 +102,7 @@ if(BUILD_TESTING)
     find_program(SOUNDBAR_TEST_CURL curl)
     if(SOUNDBAR_TEST_CURL AND NOT CMAKE_CROSSCOMPILING)
         add_test(NAME soundbar.lyrics-search-curl COMMAND soundbar_lyrics_search_test "${SOUNDBAR_TEST_CURL}")
-        set_tests_properties(soundbar.lyrics-search-curl PROPERTIES TIMEOUT 22)
+        set_tests_properties(soundbar.lyrics-search-curl PROPERTIES TIMEOUT 45)
     endif()
     add_test(NAME soundbar.overlay COMMAND SekaiSoundbar --smoke-test
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/lyrics.lrc"
