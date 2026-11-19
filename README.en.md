@@ -6,6 +6,8 @@ A standalone music dock at the top of the screen. It hides over fullscreen apps,
 
 Select **Download raw file**, extract the entire ZIP, and start **SekaiSoundbar.exe**. The archive includes the DLLs needed to run the app.
 
+Right-click the dock and choose **Оформление дока…** (Dock appearance) to adjust glass and lighting. The app saves these settings between launches.
+
 Open **Выровнять лирику…** (Align lyrics) to align existing lyrics to a local audio file and export Wordtime JSON. Initial setup of the aligner downloads about 450 MB.
 
 [Русский](README.md) · [Windows port plan and build instructions (RU)](docs/WINDOWS-PORT-PLAN.md)

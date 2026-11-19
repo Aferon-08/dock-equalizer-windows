@@ -10,6 +10,7 @@ Item {
     // Platform behavior is injected. A plain Qt host needs neither component.
     property Component backdropComponent: null
     property Component lyricsBridgeComponent: null
+    property bool previewGlass: false
     readonly property Item lyricsView: lyricLayer
     readonly property var material: Material.read(host.settings)
     FrameAnimation {running:!!root.host.service && !!root.host.service.profileFrames;onTriggered:root.host.service.collectFrame(root.host.dock.screenName,frameTime)}
@@ -25,8 +26,9 @@ Item {
     readonly property real thickness: Math.max(20, Math.min(host.settings.height, bodyAcross - 6))
     readonly property bool fits: length >= 64
     readonly property bool expanded: host.working && !!host.service && host.service.playing
-    readonly property bool ownsHousing: visible && host.dock.look !== "transparent"
+    readonly property bool shaderAvailable: GraphicsInfo.api !== GraphicsInfo.Software
         && skin.status !== ShaderEffect.Error
+    readonly property bool ownsHousing: visible && host.dock.look !== "transparent" && shaderAvailable
 
     property real reveal: 0
     property bool motionReady: false
@@ -155,7 +157,8 @@ Item {
     readonly property real iconsScale: lyricLayer.iconsScale
     readonly property bool suppressMediaKey: lyricLayer.wide
     readonly property real iconsOpacity: 1 - lyricLayer.lyricsOpacity
-    readonly property real glassAmount: material.enabled ? Math.min(1, Math.max(phase, lyricLayer.musicLayout)) : 0
+    readonly property real glassAmount: material.enabled && shaderAvailable
+        ? (previewGlass ? 1 : Math.min(1, Math.max(phase, lyricLayer.musicLayout))) : 0
 
     visible: host.settings.enabled && fits && !host.dock.asleep
 
@@ -174,7 +177,8 @@ Item {
                 id: dockUnderlay
                 anchors.fill: parent
                 sourceComponent: root.backdropComponent
-                readonly property bool capturing: root.visible && root.glassAmount > 0.001 && !root.vertical
+                readonly property bool capturing: !!root.backdropComponent && root.visible
+                    && root.glassAmount > 0.001 && !root.vertical
                 readonly property rect globalViewport: {
                     // Keep dependencies on the shell's slide/lift and local geometry.
                     const dependency = liquid.x + liquid.y + root.dock.x + root.dock.y
@@ -199,7 +203,7 @@ Item {
         ShaderEffect {
             id: skin
             anchors.fill: parent
-            visible: root.host.dock.look !== "transparent" || root.phase > 0.001
+            visible: root.shaderAvailable && (root.host.dock.look !== "transparent" || root.phase > 0.001)
             readonly property vector2d resolution: Qt.vector2d(width, height)
             readonly property vector4d dockRect: Qt.vector4d(
                 (width - root.bodyAlong) / 2, root.pad, root.bodyAlong, root.bodyAcross)
@@ -244,7 +248,7 @@ Item {
                 host: root.host
                 channel: index
                 palette: root.colors
-                housingVisible: false
+                housingVisible: !root.shaderAvailable
                 visible: root.phase > 0.01
                 opacity: root.spectrumOpacity
                 width: root.dropletLength
@@ -258,7 +262,7 @@ Item {
         id: lyricLayer
         host: root.host
         bridgeComponent: root.lyricsBridgeComponent
-        glassSource: skin
+        glassSource: root.shaderAvailable ? skin : null
         glassRect: Qt.rect((liquid.width - root.bodyWidth) / 2 + 16,
             root.pad + 93, Math.max(1, root.bodyWidth - 32), 110)
     }

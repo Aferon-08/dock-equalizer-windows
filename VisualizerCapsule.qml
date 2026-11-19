@@ -13,10 +13,12 @@ Item {
     property real level: 0
     readonly property real sensitivity: Math.max(0.1, Math.min(5, host.settings.sensitivity))
     readonly property string style: host.settings.style
+    readonly property bool useCanvas: style === "bars" || GraphicsInfo.api === GraphicsInfo.Software
+        || ribbon.status === ShaderEffect.Error
     property var ribbonAmplitudes: []
     property real ribbonClock: 0
     FrameAnimation {
-        running: root.visible && root.opacity > 0.001 && root.style !== "bars" && root.level > 0.001
+        running: root.visible && root.opacity > 0.001 && !root.useCanvas && root.level > 0.001
         onTriggered: root.ribbonClock += Math.min(frameTime, 0.05)
     }
 
@@ -74,7 +76,7 @@ Item {
 
         Canvas {
             id: canvas
-            visible: root.style === "bars"
+            visible: root.useCanvas
             anchors.fill: parent
             anchors.margins: root.palette.border + 5
             renderStrategy: Canvas.Threaded
@@ -111,6 +113,7 @@ Item {
 
             onWidthChanged: requestPaint()
             onHeightChanged: requestPaint()
+            onVisibleChanged: if (visible) requestPaint()
             onPaint: {
                 const ctx = getContext("2d")
                 ctx.clearRect(0, 0, width, height)
@@ -159,9 +162,10 @@ Item {
             }
         }
         SpectrumRibbon {
+            id: ribbon
             anchors.fill: parent
             anchors.margins: root.palette.border + 4
-            visible: root.style !== "bars"
+            visible: !root.useCanvas
             amplitudes: root.ribbonAmplitudes
             palette: root.palette
             secondary: root.host.theme.accentMint || root.palette.ink
