@@ -6,13 +6,40 @@
 #include "MediaSessions.h"
 #include "SystemAudio.h"
 
-#include <QGuiApplication>
+#include <QApplication>
+#include <QMenu>
 #include <QNetworkProxyFactory>
+#include <QPainter>
+#include <QPainterPath>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QScopeGuard>
 #include <QSettings>
+#include <QSystemTrayIcon>
+
+namespace {
+
+QIcon soundbarIcon()
+{
+    QPixmap image(64, 64);
+    image.fill(Qt::transparent);
+    QPainter paint(&image);
+    paint.setRenderHint(QPainter::Antialiasing);
+    paint.setPen(Qt::NoPen);
+    paint.setBrush(QColor(26, 47, 41));
+    paint.drawRoundedRect(QRectF(3, 3, 58, 58), 15, 15);
+    QPainterPath drop(QPointF(32, 11));
+    drop.cubicTo(37, 22, 47, 30, 47, 39);
+    drop.cubicTo(47, 56, 17, 56, 17, 39);
+    drop.cubicTo(17, 30, 27, 22, 32, 11);
+    paint.setBrush(QColor(150, 220, 192));
+    paint.drawPath(drop);
+    paint.end();
+    return QIcon(image);
+}
+
+} // namespace
 
 #ifdef Q_OS_WIN
 #include <d3d11.h>
@@ -34,7 +61,7 @@ bool hasHardwareD3d11()
 
 int main(int argc, char *argv[])
 {
-    QGuiApplication app(argc, argv);
+    QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("SekaiSoundbar"));
     app.setApplicationDisplayName(QStringLiteral("Sekai Soundbar"));
     app.setApplicationVersion(QStringLiteral(SOUNDBAR_VERSION));
@@ -61,6 +88,22 @@ int main(int argc, char *argv[])
 #endif
 
     DesktopOverlay desktop;
+    QMenu trayMenu;
+    QSystemTrayIcon tray;
+    if (!smokeMode) {
+        trayMenu.addAction(QStringLiteral("Показать док"), &desktop, &DesktopOverlay::showRequested);
+        trayMenu.addAction(QStringLiteral("Оформление дока…"), &desktop, &DesktopOverlay::appearanceRequested);
+        trayMenu.addSeparator();
+        trayMenu.addAction(QStringLiteral("Выход"), &app, &QCoreApplication::quit);
+        tray.setContextMenu(&trayMenu);
+        tray.setIcon(soundbarIcon());
+        tray.setToolTip(QStringLiteral("Sekai Soundbar"));
+        QObject::connect(&tray, &QSystemTrayIcon::activated, &desktop, [&](QSystemTrayIcon::ActivationReason reason) {
+            if (reason == QSystemTrayIcon::DoubleClick)
+                emit desktop.showRequested();
+        });
+        tray.show();
+    }
     const bool liveInputs = !smokeMode && !args.contains(QStringLiteral("--demo-preview"));
     MediaSessions media(liveInputs);
     SystemAudio audio(liveInputs);

@@ -5,7 +5,7 @@ target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackC
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h
     MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
-target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2)
+target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
 target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}")
 if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
@@ -58,7 +58,7 @@ list(TRANSFORM shared_assets PREPEND "${PROJECT_SOURCE_DIR}/")
 
 qt_add_qml_module(SekaiSoundbar
     URI Sekai.Soundbar
-    QML_FILES qml/Main.qml qml/AlignmentDialog.qml qml/AppearanceDialog.qml ${shared_ui}
+    QML_FILES qml/Main.qml qml/AlignmentDialog.qml qml/AppearanceDialog.qml qml/DockPresence.qml ${shared_ui}
     RESOURCES ${shared_assets}
 )
 

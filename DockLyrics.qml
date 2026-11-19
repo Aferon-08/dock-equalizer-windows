@@ -165,7 +165,7 @@ Item {
     onLinesChanged: report()
     property real wideReveal: 0
     property bool ready: false
-    readonly property real layout: Math.max(0, Math.min(1.08, wideReveal))
+    readonly property real layout: Math.max(0, Math.min(host.settings.limitPlayerOvershoot ? 1 : 1.08, wideReveal))
     readonly property real baseWidth: host.dock.baseWidth || host.dock.item.width
     readonly property real baseHeight: host.dock.baseCapHeight || 69
     readonly property real maxBody: Math.max(280,
@@ -176,11 +176,19 @@ Item {
     readonly property real musicLayout: Math.max(0, Math.min(1, musicReveal))
     property real voiceExpansion: multiVoiceAvailable ? 1 : 0
     Behavior on voiceExpansion { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
-    readonly property real expandedWidth: Math.min((host.settings.lyricsWidth || 560) + (host.settings.voiceWidth ?? 80) * voiceExpansion, maxBody)
+    function expandedWidthFor(voices) {
+        return Math.min((host.settings.lyricsWidth || 560) + (host.settings.voiceWidth ?? 80) * voices, maxBody)
+    }
+    function expandedHeightExtraFor(voices) {
+        return 136 + (host.settings.voiceHeight ?? 28) * voices
+    }
+    readonly property size expandedBodySize: Qt.size(expandedWidthFor(multiVoiceAvailable ? 1 : 0),
+        76 + expandedHeightExtraFor(multiVoiceAvailable ? 1 : 0))
+    readonly property real expandedWidth: expandedWidthFor(voiceExpansion)
     readonly property real targetWidth: Math.min(host.settings.compactWidth ?? 480, maxBody) + (expandedWidth - Math.min(host.settings.compactWidth ?? 480, maxBody)) * layout
     // Signed deltas let a long native dock contract to the reference proportions.
     readonly property real extraWidth: (targetWidth - baseWidth) * musicLayout
-    readonly property real extraHeight: (76 - baseHeight) * musicLayout + (136 + (host.settings.voiceHeight ?? 28) * voiceExpansion) * layout
+    readonly property real extraHeight: (76 - baseHeight) * musicLayout + expandedHeightExtraFor(voiceExpansion) * layout
     readonly property real headerHeight: Math.max(100 * layout, swipeEnabled ? 14 : 0)
     readonly property real iconsOffset: 84 * layout
     readonly property real iconsScale: 1 - (1 - Math.min(1,

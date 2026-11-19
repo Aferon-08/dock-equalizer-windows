@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import "DockMaterial.js" as Material
+import "MarkerMotion.js" as Motion
 
 // One distance field joins the dock and both droplets without interior seams.
 // Only the housing changes shape; dock keys remain sharp and interactive.
@@ -14,6 +15,7 @@ Item {
     readonly property Item backdropItem: dockUnderlay.item
     property Component lyricsBridgeComponent: null
     property bool previewGlass: false
+    property real hideProgress: 0
     readonly property Item lyricsView: lyricLayer
     readonly property var material: Material.read(host.settings)
     FrameAnimation {running:!!root.host.service && !!root.host.service.profileFrames;onTriggered:root.host.service.collectFrame(root.host.dock.screenName,frameTime)}
@@ -146,9 +148,24 @@ Item {
     // Leave room for the opening overshoot, so the spring never hits a clamp.
     // Compact capsules flow into the player; their expanded counterpart is light.
     readonly property real phase: Math.max(0, Math.min(1.1, reveal * (1 - fusion)))
+        * (1 - Motion.smooth(hideProgress / 0.44))
     readonly property real dropletLength: thickness + (length - thickness) * phase
     readonly property real radius: host.dock.radius + (40 - host.dock.radius) * lyricLayer.musicLayout
     readonly property real outward: -radius + (gap + length / 2 + radius) * phase
+    readonly property real wingScale: 1 - Motion.smooth((hideProgress - 0.05) / 0.44)
+    readonly property real contentOpacity: 1 - Motion.smooth(hideProgress / 0.28)
+    readonly property real taper: Motion.smooth((hideProgress - 0.42) / 0.26)
+    readonly property rect housingRect: {
+        const shrink = Motion.smooth((hideProgress - 0.08) / 0.53)
+        const pull = Motion.smooth((hideProgress - 0.49) / 0.51)
+        const width = bodyWidth + (22 - bodyWidth) * shrink
+        const height = bodyHeight + (25 - bodyHeight) * shrink + 8 * taper
+        const centerX = dock.x + bodyWidth / 2 + lyricLayer.swipeX * (1 - shrink)
+        const centerY = (dock.y + bodyHeight / 2 + lyricLayer.swipeY) * (1 - shrink)
+            + 18 * shrink - 55 * pull
+        return Qt.rect(centerX - width / 2, centerY - height / 2, width, height)
+    }
+    readonly property real housingRadius: Math.min(radius, housingRect.width / 2, housingRect.height / 2)
     readonly property real pad: 32
     readonly property real spectrumOpacity: Math.max(0, Math.min(1, (phase - 0.6) / 0.35))
     // Use the native dock palette in every layout, including live theme changes.
@@ -210,18 +227,22 @@ Item {
             anchors.fill: parent
             visible: root.shaderAvailable && (root.host.dock.look !== "transparent" || root.phase > 0.001)
             readonly property vector2d resolution: Qt.vector2d(width, height)
-            readonly property vector4d dockRect: Qt.vector4d(
-                (width - root.bodyAlong) / 2, root.pad, root.bodyAlong, root.bodyAcross)
+            readonly property vector4d dockRect: root.hideProgress === 0 || root.vertical
+                ? Qt.vector4d((width - root.bodyAlong) / 2, root.pad, root.bodyAlong, root.bodyAcross)
+                : Qt.vector4d(root.housingRect.x - liquid.x, root.housingRect.y - liquid.y,
+                    root.housingRect.width, root.housingRect.height)
             readonly property vector4d wingData: Qt.vector4d(
-                dockRect.x - root.outward, root.pad + root.bodyAcross / 2,
-                dockRect.x + root.bodyAlong + root.outward, root.dropletLength)
-            readonly property vector4d params: Qt.vector4d(root.thickness, root.radius,
+                dockRect.x - root.outward, dockRect.y + dockRect.w / 2,
+                dockRect.x + dockRect.z + root.outward, root.dropletLength * root.wingScale)
+            readonly property vector4d params: Qt.vector4d(root.thickness * root.wingScale,
+                root.hideProgress > 0 ? root.housingRadius : root.radius,
                 Math.sin(Math.PI * Math.min(1, root.phase)) * root.thickness * 0.85,
                 root.host.dock.shadow)
+            readonly property real dropTaper: root.taper
             readonly property vector4d skinStyle: Qt.vector4d(root.colors.border,
                 root.colors.ringWidth, root.host.dock.look === "transparent" ? 0 : 1,
                 root.vertical ? 1 : 0)
-            readonly property vector4d lightData: Qt.vector4d(Math.max(0, Math.min(1, root.fusion)), root.outline, lyricLayer.waitingLightAmount, root.edgeLight * root.material.light)
+            readonly property vector4d lightData: Qt.vector4d(Math.max(0, Math.min(1, root.fusion)), root.outline, lyricLayer.waitingLightAmount, root.edgeLight * root.material.light * root.contentOpacity)
             readonly property real lightClock: root.lightClock
             readonly property real glassAmount: root.glassAmount
             readonly property real desktopLens: root.desktopLens ? 1 : 0
@@ -256,7 +277,7 @@ Item {
                 palette: root.colors
                 housingVisible: !root.shaderAvailable
                 visible: root.phase > 0.01
-                opacity: root.spectrumOpacity
+                opacity: root.spectrumOpacity * root.contentOpacity
                 width: root.dropletLength
                 height: root.thickness + 3
                 x: (index === 0 ? skin.wingData.x : skin.wingData.z) - width / 2
@@ -266,6 +287,8 @@ Item {
     }
     DockLyrics {
         id: lyricLayer
+        enabled: root.hideProgress === 0
+        opacity: root.contentOpacity
         host: root.host
         bridgeComponent: root.lyricsBridgeComponent
         glassSource: root.shaderAvailable ? skin : null
