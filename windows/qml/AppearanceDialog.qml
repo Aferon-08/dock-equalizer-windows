@@ -47,15 +47,14 @@ Dialog {
             Switch {
                 text: "Преломлять фон рабочего стола"
                 checked: panel.appearance.values.desktopGlass
-                visible: panel.desktopGlassAvailable
-                enabled: panel.glassEnabled
+                enabled: panel.desktopGlassAvailable && panel.glassEnabled
                 onToggled: panel.appearance.setDesktopGlass(checked)
             }
             Label {
                 Layout.fillWidth: true
-                visible: panel.desktopGlassAvailable && panel.glassEnabled
-                text: panel.appearance.values.desktopGlass && panel.desktopGlassStatus !== ""
-                    ? panel.desktopGlassStatus
+                visible: panel.glassEnabled
+                text: !panel.desktopGlassAvailable ? "Для преломления фона нужен Direct3D 11."
+                    : panel.appearance.values.desktopGlass && panel.desktopGlassStatus !== "" ? panel.desktopGlassStatus
                     : "Windows может показать рамку захвата. Док исключается из снимков экрана, пока эффект активен."
                 wrapMode: Text.WordWrap
                 opacity: 0.8

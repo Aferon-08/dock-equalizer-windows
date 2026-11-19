@@ -318,6 +318,7 @@ void MonitorBackdrop::setActive(bool active)
         return;
     m_active = active;
     if (active) {
+        setStatus(QStringLiteral("Подключаемся к захвату рабочего стола…"));
         m_poll.start();
         poll();
     } else {
@@ -344,6 +345,7 @@ void MonitorBackdrop::clearFrame()
 {
     if (!m_frame.isNull()) {
         m_frame = {};
+        emit hasFrameChanged();
         update();
     }
 }
@@ -437,9 +439,12 @@ void MonitorBackdrop::poll()
             } else if (frame.status == CaptureStatus::Starting) {
                 setStatus(QStringLiteral("Получаем изображение рабочего стола…"));
             } else {
+                const bool hadFrame = hasFrame();
                 if (!frame.image.isNull())
                     m_frame = std::move(frame.image);
                 m_frameSceneRect = position;
+                if (!hadFrame && hasFrame())
+                    emit hasFrameChanged();
                 setStatus(QStringLiteral("Фон рабочего стола используется для преломления."));
                 update();
             }

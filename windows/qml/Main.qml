@@ -375,6 +375,7 @@ Window {
             previewGlass: appearanceDialog.visible
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
+            desktopLens: backdropEnabled && (backdropItem?.hasFrame === true)
         }
         Component {
             id: monitorBackdrop

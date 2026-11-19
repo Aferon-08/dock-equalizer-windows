@@ -27,6 +27,7 @@ layout(std140, binding = 0) uniform buf {
     float lightClock;
     float glassAmount;
     vec2 materialStyle;
+    float desktopLens;
 };
 layout(binding = 1) uniform sampler2D backdrop;
 
@@ -132,21 +133,37 @@ void main() {
     float shade = 1.0 - smoothstep(-aa, aa, body(p - shadowOffset));
     vec4 result = face * cover + shadowColor * shade * (1.0 - cover);
     // The main dock is a translucent lens, rather than an opaque dark pill.
-    // Capture only app windows behind it; gaps reveal the real desktop directly.
     vec2 halfDock = dockRect.zw*0.5;
     float mainD = roundedBox(p,dockRect.xy+halfDock,dockRect.zw,params.y);
     if (glassAmount > 0.001 && cover > 0.0) {
         vec2 n = normalize(vec2(body(p+vec2(1.0,0.0))-body(p-vec2(1.0,0.0)),
             body(p+vec2(0.0,1.0))-body(p-vec2(0.0,1.0)))+vec2(0.00001));
         float bevel = exp(-max(0.0,depth)/9.0);
-        vec2 uv = clamp((p-n*bevel*13.0*materialStyle.y)/resolution,0.0,1.0);
-        vec2 fringe = n*bevel*1.1*materialStyle.y/resolution;
-        vec4 scene = texture(backdrop,uv);
-        scene.r = texture(backdrop,clamp(uv+fringe,0.0,1.0)).r;
-        scene.b = texture(backdrop,clamp(uv-fringe,0.0,1.0)).b;
         float mainMask = 1.0-smoothstep(-1.0,1.0,mainD);
+        vec2 bend = n * bevel * 13.0;
+        if (desktopLens > 0.5) {
+            // A continuous lens curve avoids a jump where the nearest edge changes.
+            vec2 lens = clamp((p - dockRect.xy - halfDock) / max(halfDock, vec2(1.0)), -1.0, 1.0);
+            float shoulder = smoothstep(0.1, 1.0, max(abs(lens.x), abs(lens.y)));
+            bend = mix(bend, lens * (4.0 + 8.0 * shoulder), mainMask);
+        }
+        vec2 uv = clamp((p - bend * materialStyle.y) / resolution, 0.0, 1.0);
+        vec4 scene = texture(backdrop,uv);
+        if (desktopLens > 0.5) {
+            vec2 blur = vec2(2.0) / resolution;
+            scene = scene * 0.4
+                + 0.15 * (texture(backdrop, uv + vec2(blur.x, 0.0))
+                    + texture(backdrop, uv - vec2(blur.x, 0.0))
+                    + texture(backdrop, uv + vec2(0.0, blur.y))
+                    + texture(backdrop, uv - vec2(0.0, blur.y)));
+        } else {
+            vec2 fringe = n * bevel * 1.1 * materialStyle.y / resolution;
+            scene.r = texture(backdrop, clamp(uv + fringe, 0.0, 1.0)).r;
+            scene.b = texture(backdrop, clamp(uv - fringe, 0.0, 1.0)).b;
+        }
         float tintAlpha = mix(min(1.0,materialStyle.x+0.29),materialStyle.x,mainMask);
-        float transmission = 0.78;
+        // A complete captured pixel replaces the live pixel under the dock.
+        float transmission = desktopLens > 0.5 ? 1.0 : 0.78;
         float a = tintAlpha+scene.a*transmission*(1.0-tintAlpha);
         vec3 tint = mix(fillColor.rgb,lightPrimary.rgb,0.065);
         vec3 rgb = tint*tintAlpha+scene.rgb*transmission*(1.0-tintAlpha);
