@@ -6,6 +6,7 @@
 #include "MediaSessions.h"
 #include "SystemAudio.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QMenu>
 #include <QNetworkProxyFactory>
@@ -88,10 +89,17 @@ int main(int argc, char *argv[])
 #endif
 
     DesktopOverlay desktop;
+    const bool demoPreview = args.contains(QStringLiteral("--demo-preview"));
+    const bool liveInputs = !smokeMode && !demoPreview;
+    MediaSessions media(liveInputs);
     QMenu trayMenu;
     QSystemTrayIcon tray;
     if (!smokeMode) {
-        trayMenu.addAction(QStringLiteral("Показать док"), &desktop, &DesktopOverlay::showRequested);
+        auto *showDock = trayMenu.addAction(QStringLiteral("Показать док"), &desktop, &DesktopOverlay::showRequested);
+        showDock->setEnabled(demoPreview || media.player());
+        QObject::connect(&media, &MediaSessions::changed, showDock, [&media, showDock, demoPreview] {
+            showDock->setEnabled(demoPreview || media.player());
+        });
         trayMenu.addAction(QStringLiteral("Оформление дока…"), &desktop, &DesktopOverlay::appearanceRequested);
         trayMenu.addSeparator();
         trayMenu.addAction(QStringLiteral("Выход"), &app, &QCoreApplication::quit);
@@ -104,8 +112,6 @@ int main(int argc, char *argv[])
         });
         tray.show();
     }
-    const bool liveInputs = !smokeMode && !args.contains(QStringLiteral("--demo-preview"));
-    MediaSessions media(liveInputs);
     SystemAudio audio(liveInputs);
     LyricsImport lyrics;
     LyricsSearch search;

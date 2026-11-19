@@ -48,7 +48,7 @@ Window {
     palette.highlightedText: "#101b18"
 
     property bool demoPlaying: true
-    property bool smokeStopped: false
+    property bool smokeNoSession: false
     property bool lyricsExpanded: !smokeMode
     readonly property bool expandedDock: lyricsExpanded && expandedSpaceReady && !playbackPaused
     readonly property bool expansionClear: !desktop.fullscreenActive
@@ -76,6 +76,8 @@ Window {
     readonly property var timingDocument: localLyrics && localLyrics.key === activeTrackKey
         ? localLyrics.document : onlineLyrics
     onActiveTrackKeyChanged: {
+        if (activeTrackKey === "")
+            trayPreview = false
         if (matchPicker && matchPicker.opened)
             matchPicker.close()
         if (localLyrics && localLyrics.key !== activeTrackKey)
@@ -274,9 +276,9 @@ Window {
 
     QtObject {
         id: demoMedia
-        property var player: demoPlayer
+        readonly property var player: window.smokeNoSession ? null : demoPlayer
         readonly property bool playing: window.demoPlaying
-        readonly property bool paused: !window.demoPlaying && !window.smokeStopped
+        readonly property bool paused: !window.demoPlaying && !window.smokeNoSession
         readonly property string title: "A little light"
         readonly property string artist: "Sekai Soundbar"
         property string artUrl: ""
@@ -466,12 +468,14 @@ Window {
             readonly property real capHeight: height - 4
             property bool bare: wings.ownsHousing
             Text {
+                id: dockCaption
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: wings.iconsOffset / 2
                 scale: wings.iconsScale
                 opacity: wings.iconsOpacity * wings.contentOpacity
                 text: window.media.player ? "Sekai Soundbar"
-                    : visualizerService.playing ? "Системный звук" : window.mediaSessions.statusText
+                    : visualizerService.playing ? "Системный звук" : ""
+                visible: text.length > 0
                 color: "#e8f4ee"
                 font.family: demoHost.theme.fontFamily
                 font.pixelSize: 15
@@ -542,7 +546,7 @@ Window {
     Connections {
         target: window.desktop
         function onShowRequested() {
-            if (!window.desktop.fullscreenActive && !window.playbackActive)
+            if (window.activeTrackKey !== "" && !window.desktop.fullscreenActive && !window.playbackActive)
                 window.trayPreview = true
         }
         function onAppearanceRequested() {
@@ -1048,8 +1052,13 @@ Window {
                     window.failSmoke("the reversed animation did not restore the panel")
                     return
                 }
-                window.smokeStopped = true
                 window.demoPlaying = false
+                window.smokeNoSession = true
+                window.desktop.showRequested()
+                if (dockCaption.text !== "" || window.trayPreview) {
+                    window.failSmoke("losing the media session opened an idle placeholder")
+                    return
+                }
                 window.smokePhase = 13
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 13 && wait >= 1250) {
@@ -1059,8 +1068,8 @@ Window {
                     return
                 }
                 window.smokeObstructed = true
+                window.smokeNoSession = false
                 window.demoPlaying = true
-                window.smokeStopped = false
                 window.smokePhase = 14
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 14 && wait >= 850) {
