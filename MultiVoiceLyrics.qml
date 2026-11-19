@@ -17,6 +17,7 @@ Item {
     readonly property real displayTime: rendering ? lyricTime : 0
     property real duration: document && document.duration ? document.duration : 0
     property bool playing: false
+    property bool estimateWordMotion: false
     property bool allowFinale: true
     property point resumeOrigin: Qt.point(width/2,height/2)
     property real pixelSize: 17
@@ -232,6 +233,7 @@ Item {
             LyricsReel {
                 id: voiceReel
                 markerVisible: false
+                estimateWordMotion: root.estimateWordMotion
                 opacity: 1-panel.finale.amount
                 x: 8; y: root.height >= 65 ? 9 : 0
                 width: Math.max(1, panel.width - 16)

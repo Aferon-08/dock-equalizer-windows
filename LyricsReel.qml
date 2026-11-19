@@ -13,6 +13,7 @@ Item {
     property bool playing: false
     property bool rendering: true
     property bool markerVisible: true
+    property bool estimateWordMotion: false
     property real upperContextOpacity: 1
     property real pixelSize: 17
     property color ink: "#acf4da"
@@ -154,6 +155,7 @@ Item {
                     playing: root.playing
                     active: slot.index === root.currentIndex
                     sharedMarker: true
+                    estimateWordMotion: root.estimateWordMotion
                     handoffStart: root.handoffStartFor(slot.index)
                     entryImpact: root.transfer && root.transfer.to === slot.index
                         ? Motion.smooth((root.transfer.phase - 0.8) / 0.2) : 0
