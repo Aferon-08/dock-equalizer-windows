@@ -28,6 +28,7 @@ layout(std140, binding = 0) uniform buf {
     float glassAmount;
     vec2 materialStyle;
     float desktopLens;
+    float dropTaper;
 };
 layout(binding = 1) uniform sampler2D backdrop;
 
@@ -42,9 +43,22 @@ float liquidUnion(float a, float b, float k) {
     return min(a, b) - h * h * k * 0.25;
 }
 
-float body(vec2 p) {
+float housingDistance(vec2 p) {
     vec2 center = dockRect.xy + dockRect.zw * 0.5;
     float mainBody = roundedBox(p, center, dockRect.zw, params.y);
+    if (dropTaper > 0.0) {
+        float y = clamp((p.y - dockRect.y) / max(1.0, dockRect.w), 0.0, 1.0);
+        float neck = mix(0.18, 1.0, smoothstep(0.0, 0.64, y));
+        vec2 tapered = vec2(center.x + (p.x - center.x) / neck, p.y);
+        mainBody = mix(mainBody, roundedBox(tapered, center, dockRect.zw, params.y) * neck, dropTaper);
+    }
+    return mainBody;
+}
+
+float body(vec2 p) {
+    float mainBody = housingDistance(p);
+    if (params.x < 0.1)
+        return mainBody;
     vec2 wingSize = vec2(wingData.w, params.x);
     float left = roundedBox(p, wingData.xy, wingSize, params.x * 0.5);
     float right = roundedBox(p, wingData.zy, wingSize, params.x * 0.5);
@@ -134,7 +148,7 @@ void main() {
     vec4 result = face * cover + shadowColor * shade * (1.0 - cover);
     // The main dock is a translucent lens, rather than an opaque dark pill.
     vec2 halfDock = dockRect.zw*0.5;
-    float mainD = roundedBox(p,dockRect.xy+halfDock,dockRect.zw,params.y);
+    float mainD = housingDistance(p);
     if (glassAmount > 0.001 && cover > 0.0) {
         vec2 n = normalize(vec2(body(p+vec2(1.0,0.0))-body(p-vec2(1.0,0.0)),
             body(p+vec2(0.0,1.0))-body(p-vec2(0.0,1.0)))+vec2(0.00001));
@@ -191,7 +205,7 @@ void main() {
         result.rgb = min(vec3(result.a),hue*a*result.a+result.rgb*(1.0-a));
     }
     if (lightData.x > 0.001) {
-        float mainDistance = roundedBox(p, dockRect.xy + dockRect.zw * 0.5, dockRect.zw, params.y);
+        float mainDistance = mainD;
         float mainCover = 1.0 - smoothstep(-aa, aa, mainDistance);
         vec3 light = (sideLight(p,false)+sideLight(p,true)+bottomLight(p))
             *lightData.w + lyricLight(p);

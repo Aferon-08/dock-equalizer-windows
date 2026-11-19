@@ -15,7 +15,7 @@ Window {
     required property var lyricsSearch
     required property var lyricsAlignment
     required property var appearance
-    flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+    flags: Qt.Tool | Qt.FramelessWindowHint
         | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
     title: "Sekai Soundbar"
     color: "transparent"
@@ -24,9 +24,12 @@ Window {
     height: Math.min(workArea.height, Math.ceil(stage.height * stage.scale))
     x: workArea.x + Math.floor((workArea.width - width) / 2)
     y: workArea.y
-    visible: workArea.width > 0 && !desktop.fullscreenActive
+    visible: workArea.width > 0 && presence.showing
     onVisibleChanged: {
-        if (!visible) {
+        if (visible) {
+            Qt.callLater(updateExpandedRegion)
+            Qt.callLater(openPendingAppearance)
+        } else {
             if (menuLoader && menuLoader.item && menuLoader.item.visible)
                 menuLoader.item.dismiss()
             if (appearanceDialog && appearanceDialog.visible)
@@ -45,7 +48,19 @@ Window {
     palette.highlightedText: "#101b18"
 
     property bool demoPlaying: true
-    property bool lyricsExpanded: false
+    property bool lyricsExpanded: !smokeMode
+    readonly property bool expandedDock: lyricsExpanded && expandedSpaceReady
+    readonly property bool expansionClear: !desktop.fullscreenActive
+        && !(smokeMode ? smokeObstructed : desktop.expandedObstructed)
+    property bool expandedSpaceReady: false
+    onExpansionClearChanged: if (!expansionClear) expandedSpaceReady = false
+    property bool trayPreview: false
+    property bool trayAppearancePending: false
+    readonly property bool audioFallback: !demoMode && !media.player && systemAudio.audible
+    property bool sustainedAudio: false
+    onAudioFallbackChanged: if (!audioFallback) sustainedAudio = false
+    readonly property bool playbackActive: media.player ? media.playing : sustainedAudio
+    onPlaybackActiveChanged: if (playbackActive) trayPreview = false
     property real elapsed: 0
     readonly property bool smokeMode: Qt.application.arguments.indexOf("--smoke-test") >= 0
     readonly property bool demoMode: smokeMode || Qt.application.arguments.indexOf("--demo-preview") >= 0
@@ -63,6 +78,8 @@ Window {
             matchPicker.close()
         if (localLyrics && localLyrics.key !== activeTrackKey)
             clearLyrics()
+        if (!smokeMode)
+            lyricsExpanded = true
     }
     property url smokeLrc
     property url smokeWordtime
@@ -72,8 +89,34 @@ Window {
     property bool smokeCapturePending: false
     property real smokeLandingTime: 0
     property real smokeFirstMarkerX: 0
+    property bool smokeObstructed: false
+    property bool smokeHoldOpen: true
+
+    DockPresence {
+        id: presence
+        playing: window.playbackActive
+        fullscreen: window.desktop.fullscreenActive
+        hideDelay: demoHost.settings.collapseDelay
+        holdOpen: window.trayPreview || window.trayAppearancePending
+            || (window.smokeMode && window.smokeHoldOpen)
+            || (menuLoader.item?.visible ?? false) || appearanceDialog.visible
+            || lyricsPicker.visible || lyricsMessage.visible || alignmentDialog.visible
+            || proxyDialog.visible || matchPicker.visible || wings.lyricsView.swipeDragging
+    }
+    Timer {
+        interval: 350
+        running: window.audioFallback && !window.sustainedAudio
+        onTriggered: window.sustainedAudio = true
+    }
+    Timer {
+        interval: 400
+        running: window.expansionClear && !window.expandedSpaceReady
+        onTriggered: window.expandedSpaceReady = true
+    }
 
     readonly property rect bodyRegion: {
+        if (!presence.interactive)
+            return Qt.rect(0, 0, 0, 0)
         const padding = 26
         return scaledRect(pill.x + wings.lyricsView.swipeX - padding,
             pill.y + wings.lyricsView.swipeY - padding, pill.width + 2 * padding,
@@ -82,11 +125,17 @@ Window {
     readonly property rect leftRegion: capsuleRegion(-1)
     readonly property rect rightRegion: capsuleRegion(1)
     readonly property real regionRadius: (wings.radius + 26) * stage.scale
+    readonly property rect expandedRegion: {
+        const size = wings.lyricsView.expandedBodySize
+        return scaledRect((stage.width - size.width) / 2, pill.y, size.width, size.height)
+    }
     onBodyRegionChanged: Qt.callLater(updatePanelRegion)
     onLeftRegionChanged: Qt.callLater(updatePanelRegion)
     onRightRegionChanged: Qt.callLater(updatePanelRegion)
     onRegionRadiusChanged: Qt.callLater(updatePanelRegion)
     onHeightChanged: Qt.callLater(updatePanelRegion)
+    onExpandedRegionChanged: Qt.callLater(updateExpandedRegion)
+    onWorkAreaChanged: Qt.callLater(updateExpandedRegion)
 
     function scaledRect(x, y, width, height) {
         const scale = stage.scale
@@ -94,7 +143,7 @@ Window {
     }
 
     function capsuleRegion(side) {
-        if (wings.phase < 0.01)
+        if (!presence.interactive || wings.phase < 0.01)
             return Qt.rect(0, 0, 0, 0)
         const padding = 8
         const centerX = stage.width / 2 + wings.lyricsView.swipeX
@@ -107,6 +156,21 @@ Window {
 
     function updatePanelRegion() {
         desktop.setPanelRegion(window, bodyRegion, regionRadius, leftRegion, rightRegion)
+    }
+
+    function updateExpandedRegion() {
+        desktop.setExpandedRegion(window, expandedRegion, 40 * stage.scale)
+    }
+
+    function toggleLyricsLayout() {
+        lyricsExpanded = !expandedDock
+    }
+
+    function openPendingAppearance() {
+        if (visible && trayAppearancePending) {
+            appearanceDialog.open()
+            trayAppearancePending = false
+        }
     }
 
     function spectrumAt(stamp) {
@@ -124,7 +188,7 @@ Window {
 
     function clearLyrics() {
         localLyrics = null
-        lyricsExpanded = false
+        lyricsExpanded = !smokeMode
     }
 
     function importLyrics(file, targetKey) {
@@ -295,6 +359,7 @@ Window {
             property real lyricFontSize: 17
             property int lyricFade: 240
             property int expandDuration: 850
+            readonly property bool limitPlayerOvershoot: true
             property real playerSpring: 1.2
             property int followDelay: 190
             property int trailDelay: 230
@@ -318,7 +383,7 @@ Window {
             readonly property string lyricsStatus: window.demoMode ? "" : window.lyricsSearch.statusText
             property bool hovered: false
             property bool editing: false
-            readonly property bool desktopEmpty: window.lyricsExpanded
+            readonly property bool desktopEmpty: window.expandedDock
             property string screenName: "soundbar"
             property real baseCapHeight: 69
             property real baseWidth: 432
@@ -345,11 +410,11 @@ Window {
 
         Rectangle {
             id: solidHousing
-            x: pill.x + wings.lyricsView.swipeX
-            y: pill.y + wings.lyricsView.swipeY
-            width: pill.capWidth
-            height: pill.capHeight
-            radius: wings.radius
+            x: wings.housingRect.x
+            y: wings.housingRect.y
+            width: wings.housingRect.width
+            height: wings.housingRect.height
+            radius: wings.housingRadius
             visible: !wings.ownsHousing
             color: demoHost.dock.palette.fill
             border.color: demoHost.dock.palette.rim
@@ -362,9 +427,9 @@ Window {
             y: pill.y + wings.lyricsView.swipeY
             width: pill.width
             height: pill.capHeight
-            enabled: !!window.media.player
+            enabled: presence.interactive && !!window.media.player
             cursorShape: Qt.PointingHandCursor
-            onClicked: window.lyricsExpanded = !window.lyricsExpanded
+            onClicked: window.toggleLyricsLayout()
         }
 
         DockWings {
@@ -372,6 +437,7 @@ Window {
             objectName: "standaloneDockWings"
             anchors.fill: parent
             host: demoHost
+            hideProgress: presence.hideProgress
             previewGlass: appearanceDialog.visible
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
@@ -398,7 +464,7 @@ Window {
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: wings.iconsOffset / 2
                 scale: wings.iconsScale
-                opacity: wings.iconsOpacity
+                opacity: wings.iconsOpacity * wings.contentOpacity
                 text: window.media.player ? "Sekai Soundbar"
                     : visualizerService.playing ? "Системный звук" : window.mediaSessions.statusText
                 color: "#e8f4ee"
@@ -410,6 +476,7 @@ Window {
 
     MouseArea {
         anchors.fill: parent
+        enabled: presence.interactive
         acceptedButtons: Qt.RightButton
         onClicked: mouse => {
             menuLoader.active = true
@@ -466,6 +533,19 @@ Window {
         effectsAvailable: wings.shaderAvailable
         desktopGlassAvailable: window.desktopGlassAvailable
         backdrop: wings.backdropItem
+    }
+    Connections {
+        target: window.desktop
+        function onShowRequested() {
+            if (!window.desktop.fullscreenActive && !window.playbackActive)
+                window.trayPreview = true
+        }
+        function onAppearanceRequested() {
+            if (window.desktop.fullscreenActive)
+                return
+            window.trayAppearancePending = true
+            Qt.callLater(window.openPendingAppearance)
+        }
     }
     Connections {
         target: window.lyricsAlignment
@@ -617,9 +697,9 @@ Window {
                 })
             }
             MenuItem {
-                text: window.lyricsExpanded ? "Свернуть лирику" : "Развернуть лирику"
-                enabled: !!window.media.player
-                onTriggered: window.lyricsExpanded = !window.lyricsExpanded
+                text: window.expandedDock ? "Свернуть лирику" : "Развернуть лирику"
+                enabled: !!window.media.player && window.expansionClear
+                onTriggered: window.toggleLyricsLayout()
             }
             MenuItem {
                 text: "Загрузить лирику…"
@@ -735,6 +815,12 @@ Window {
                 }
             }
             MenuItem {
+                text: "Скрыть док"
+                visible: window.trayPreview && !window.playbackActive
+                height: visible ? implicitHeight : 0
+                onTriggered: window.trayPreview = false
+            }
+            MenuItem {
                 text: "Выход"
                 onTriggered: Qt.quit()
             }
@@ -778,7 +864,7 @@ Window {
                         || Math.abs(window.x + window.width / 2
                             - window.workArea.x - window.workArea.width / 2) > 1
                         || !(window.flags & Qt.FramelessWindowHint)
-                        || !(window.flags & Qt.WindowStaysOnTopHint)) {
+                        || (window.flags & Qt.WindowStaysOnTopHint)) {
                     window.failSmoke("panel is not frameless, transparent and centered on the top edge")
                     return
                 }
@@ -891,8 +977,77 @@ Window {
                     window.failSmoke("lyrics from the previous track remain visible")
                     return
                 }
+                window.smokeObstructed = true
+                window.lyricsExpanded = true
+                window.demoPlaying = true
+                window.smokePhase = 7
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 7 && wait >= 750) {
+                if (wings.lyricsView.wide || !window.visible) {
+                    window.failSmoke("an obstructed expanded region should leave a compact dock")
+                    return
+                }
+                window.smokeObstructed = false
+                window.smokePhase = 8
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 8) {
+                if (wait < 350 && wings.lyricsView.wide) {
+                    window.failSmoke("the dock expanded before its clear area settled")
+                    return
+                }
+                if (wait < 1050) return
+                if (!wings.lyricsView.wide || wings.lyricsHeightExtra <= 100) {
+                    window.failSmoke("the dock did not expand after its area was clear")
+                    return
+                }
+                window.smokeHoldOpen = false
+                window.demoPlaying = false
+                window.smokePhase = 9
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 9) {
+                const progress = presence.hideProgress
+                if (wait < 500 && progress > 0) {
+                    window.failSmoke("the dock started to leave before the pause delay")
+                    return
+                }
+                if (progress <= 0.2) return
+                if (progress >= 1 || window.bodyRegion.width > 0 || !window.visible) {
+                    window.failSmoke("the departing drop should be visible and click-through")
+                    return
+                }
+                window.demoPlaying = true
+                if (Math.abs(presence.hideProgress - progress) > 0.05) {
+                    window.failSmoke("resuming playback reset the drop position")
+                    return
+                }
+                window.smokePhase = 10
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 10 && wait >= 500) {
+                if (!presence.interactive || presence.hideProgress !== 0) {
+                    window.failSmoke("the reversed animation did not restore the panel")
+                    return
+                }
+                window.demoPlaying = false
+                window.smokePhase = 11
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 11 && wait >= 1250) {
+                if (window.visible || presence.hideProgress !== 1 || window.bodyRegion.width > 0
+                        || wings.housingRect.y + wings.housingRect.height > 0) {
+                    window.failSmoke("the idle drop did not fully leave through the top edge")
+                    return
+                }
+                window.smokeObstructed = true
+                window.demoPlaying = true
+                window.smokePhase = 12
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 12 && wait >= 850) {
+                if (!presence.interactive || !window.visible || wings.lyricsView.wide) {
+                    window.failSmoke("resuming playback did not restore the unobscured compact layout")
+                    return
+                }
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
+                console.log("PASS desktop expansion, pause delay, reversing and hiding the drop")
                 Qt.exit(0)
             }
         }
@@ -900,6 +1055,7 @@ Window {
 
     Component.onCompleted: {
         Qt.callLater(updatePanelRegion)
+        Qt.callLater(updateExpandedRegion)
         if (smokeMode) {
             restartDemo()
             demoLyrics.status = "none"
