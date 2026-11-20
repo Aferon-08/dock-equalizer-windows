@@ -5,9 +5,12 @@ QtObject {
     id: app
     required property var mediaSessions
     required property var lyricsAlignment
+    required property var batteryStatus
     required property var wifiStatus
+    required property var windowsNotifications
     property var localLyrics: null
     property var dockNotification: null
+    readonly property var pendingNotifications: []
     readonly property string trackKey: mediaSessions.trackKey
 
     signal alignmentFailed(string message)
@@ -48,12 +51,38 @@ QtObject {
 
     function postTestNotification(scenario) {
         const fixture = testScenarios[scenario] ?? testScenarios.regular
-        wifiStatus.active = fixture.kind === "wifi"
-        dockNotification = Object.assign({}, fixture, {sentAt: new Date()})
+        showNotification(Object.assign({}, fixture, {sentAt: new Date()}))
+    }
+
+    function sameSensor(first, second) {
+        return (first.liveBattery && second.liveBattery) || (first.liveWifi && second.liveWifi)
+    }
+
+    function enqueueNotification(event) {
+        const entry = Object.assign({sentAt: new Date()}, event)
+        if (!dockNotification || sameSensor(dockNotification, entry)) {
+            showNotification(entry)
+            return
+        }
+        const previous = pendingNotifications.findIndex(pending => sameSensor(pending, entry))
+        if (previous >= 0)
+            pendingNotifications.splice(previous, 1)
+        if (pendingNotifications.length >= 20)
+            pendingNotifications.shift()
+        pendingNotifications.push(entry)
+    }
+
+    function showNotification(entry) {
+        wifiStatus.active = entry.kind === "wifi"
+        dockNotification = entry
         notificationExpiry.restart()
     }
 
     function dismissNotification() {
+        if (pendingNotifications.length) {
+            showNotification(pendingNotifications.shift())
+            return
+        }
         notificationExpiry.stop()
         wifiStatus.active = false
         dockNotification = null
@@ -62,6 +91,19 @@ QtObject {
     property Timer notificationExpiry: Timer {
         interval: 30000
         onTriggered: app.dismissNotification()
+    }
+
+    property Connections batteryEvents: Connections {
+        target: app.batteryStatus
+        function onNotification(event) { app.enqueueNotification(event) }
+    }
+    property Connections wifiEvents: Connections {
+        target: app.wifiStatus
+        function onNotification(event) { app.enqueueNotification(event) }
+    }
+    property Connections windowsEvents: Connections {
+        target: app.windowsNotifications
+        function onNotification(event) { app.enqueueNotification(event) }
     }
 
     function applyLyrics(track, result) {

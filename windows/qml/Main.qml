@@ -58,10 +58,7 @@ Window {
     property bool notificationSpaceReady: false
     onNotificationClearChanged: if (!notificationClear) notificationSpaceReady = false
     property bool trayPreview: false
-    readonly property bool audioFallback: !demoMode && !media.player && systemAudio.audible
-    property bool sustainedAudio: false
-    onAudioFallbackChanged: if (!audioFallback) sustainedAudio = false
-    readonly property bool playbackActive: media.player ? media.playing : sustainedAudio
+    readonly property bool playbackActive: !!media.player && media.playing
     readonly property bool playbackPaused: !!media.player && media.paused
     onPlaybackActiveChanged: if (playbackActive) trayPreview = false
     readonly property bool swipeDismissed: wings.lyricsView.dismissedUntilPlay
@@ -121,11 +118,6 @@ Window {
             || (menuLoader.item?.visible ?? false)
             || lyricsPicker.visible || lyricsMessage.visible || alignmentDialog.visible
             || matchPicker.visible || wings.lyricsView.swipeDragging
-    }
-    Timer {
-        interval: 350
-        running: window.audioFallback && !window.sustainedAudio
-        onTriggered: window.sustainedAudio = true
     }
     Timer {
         interval: 400
@@ -329,7 +321,7 @@ Window {
 
     QtObject {
         id: visualizerService
-        readonly property bool playing: window.demoMode ? window.demoPlaying : window.systemAudio.audible
+        readonly property bool playing: window.playbackActive && (window.demoMode || window.systemAudio.audible)
         readonly property var bands: window.demoMode ? demoBands : window.systemAudio.bands
         property var demoBands: window.demoMode ? window.spectrumAt(0) : []
         property var beatState: BeatTracker.reset()
@@ -522,6 +514,7 @@ Window {
             anchors.fill: parent
             event: window.appState.dockNotification
             wifi: window.appState.wifiStatus.snapshot
+            battery: window.appState.batteryStatus.snapshot
             renderer: wings
             media: window.media
             allowed: !window.desktop.fullscreenActive
@@ -831,7 +824,7 @@ Window {
     Timer {
         interval: 33
         repeat: true
-        running: !window.demoMode && window.systemAudio.audible
+        running: !window.demoMode && visualizerService.playing
         onTriggered: visualizerService.beatState = BeatTracker.update(
             visualizerService.beatState, visualizerService.bands, Date.now())
         onRunningChanged: if (!running) visualizerService.resetRhythm()
@@ -1090,6 +1083,16 @@ Window {
                 if (Math.abs(window.bodyRegion.height - noticeLayer.detailsHeight * stage.scale) > 0.1
                         || (wings.shaderAvailable && wings.material.enabled && wings.glassAmount <= 0)) {
                     window.failSmoke("the notification did not expand automatically in the glass housing")
+                    return
+                }
+                window.appState.enqueueNotification(window.appState.testScenarios.charging)
+                if (window.appState.dockNotification.kind !== "regular") {
+                    window.failSmoke("the automatic event displaced the visible notification")
+                    return
+                }
+                window.appState.dismissNotification()
+                if (window.appState.dockNotification?.kind !== "battery") {
+                    window.failSmoke("dismissing the notification did not show the queued battery event")
                     return
                 }
                 window.appState.dismissNotification()

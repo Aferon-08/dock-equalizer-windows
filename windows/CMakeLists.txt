@@ -4,15 +4,15 @@ target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.
     LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h
-    WifiStatus.cpp WifiStatus.h
+    BatteryStatus.cpp BatteryStatus.h WifiStatus.cpp WifiStatus.h WindowsNotifications.cpp WindowsNotifications.h
     MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
 target_include_directories(SekaiSoundbar PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
 target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}")
 if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
-        WinCaptureAbi.h BackdropTextureNode.h)
-    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi)
+        WinCaptureAbi.h WinNotificationAbi.h BackdropTextureNode.h)
+    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi powrprof)
 endif()
 
 if(WIN32)
@@ -42,6 +42,13 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(soundbar_battery_test tests/BatteryStatusTest.cpp BatteryStatus.cpp BatteryStatus.h)
+    target_include_directories(soundbar_battery_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(soundbar_battery_test PRIVATE Qt6::Core)
+    if(WIN32)
+        target_link_libraries(soundbar_battery_test PRIVATE powrprof)
+    endif()
+    add_test(NAME soundbar.battery COMMAND soundbar_battery_test)
     add_executable(soundbar_clock_test tests/PlaybackClockTest.cpp)
     add_test(NAME soundbar.clock COMMAND soundbar_clock_test)
     add_executable(soundbar_spectrum_test tests/SpectrumAnalyzerTest.cpp SpectrumAnalyzer.cpp)

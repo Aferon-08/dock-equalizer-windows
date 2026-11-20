@@ -60,9 +60,15 @@ QString networkName(const DOT11_SSID &ssid)
 WifiStatus::WifiStatus(bool preview)
     : m_preview(preview)
 {
-    m_timer.setInterval(1000);
     connect(&m_timer, &QTimer::timeout, this, &WifiStatus::sample);
     m_worker.setMaxThreadCount(1);
+#ifdef Q_OS_WIN
+    if (!m_preview) {
+        m_clock.start();
+        m_timer.start(2200);
+        QTimer::singleShot(0, this, &WifiStatus::sample);
+    }
+#endif
 }
 
 WifiStatus::~WifiStatus()
@@ -75,8 +81,15 @@ void WifiStatus::setActive(bool active)
     if (m_active == active)
         return;
     m_active = active;
-    ++m_generation;
     emit activeChanged();
+    if (!m_preview) {
+        if (m_timer.isActive()) {
+            m_timer.setInterval(active ? 1000 : 2200);
+            if (active)
+                sample();
+        }
+        return;
+    }
     if (!active) {
         m_timer.stop();
         return;
@@ -87,10 +100,10 @@ void WifiStatus::setActive(bool active)
     emit snapshotChanged();
     m_clock.start();
     sample();
-    m_timer.start();
+    m_timer.start(1000);
 }
 
-WifiStatus::Reading WifiStatus::readConnection()
+WifiStatus::Reading WifiStatus::readConnection(bool includeTraffic)
 {
     Reading result;
 #ifdef Q_OS_WIN
@@ -123,8 +136,6 @@ WifiStatus::Reading WifiStatus::readConnection()
         const auto freeConnection = qScopeGuard([&] { if (buffer) WlanFreeMemory(buffer); });
         if (status == ERROR_INVALID_STATE)
             continue;
-        result.details[QStringLiteral("state")] = status == ERROR_ACCESS_DENIED
-            ? QStringLiteral("restricted") : QStringLiteral("connected");
         if (status == ERROR_SUCCESS && buffer && bytes >= sizeof(WLAN_CONNECTION_ATTRIBUTES)) {
             const auto &connection = *static_cast<const WLAN_CONNECTION_ATTRIBUTES *>(buffer);
             if (connection.isState != wlan_interface_state_connected)
@@ -138,18 +149,23 @@ WifiStatus::Reading WifiStatus::readConnection()
             if (link.ulRxRate > 0)
                 result.details.insert(QStringLiteral("linkMbps"), link.ulRxRate / 1000.0);
         }
-        result.details.insert(QStringLiteral("internet"), internetAccess(adapter.InterfaceGuid));
-        result.networkId = QUuid(adapter.InterfaceGuid).toString(QUuid::WithoutBraces) + u':' + ssid;
-        MIB_IF_ROW2 row{};
-        if (ConvertInterfaceGuidToLuid(&adapter.InterfaceGuid, &row.InterfaceLuid) == NO_ERROR
-            && GetIfEntry2(&row) == NO_ERROR) {
-            result.received = row.InOctets;
-            result.sent = row.OutOctets;
-            result.hasCounters = true;
+        result.details[QStringLiteral("state")] = status == ERROR_ACCESS_DENIED
+            ? QStringLiteral("restricted") : QStringLiteral("connected");
+        result.networkId = QUuid(adapter.InterfaceGuid).toString(QUuid::WithoutBraces);
+        if (includeTraffic) {
+            result.details.insert(QStringLiteral("internet"), internetAccess(adapter.InterfaceGuid));
+            MIB_IF_ROW2 row{};
+            if (ConvertInterfaceGuidToLuid(&adapter.InterfaceGuid, &row.InterfaceLuid) == NO_ERROR
+                && GetIfEntry2(&row) == NO_ERROR) {
+                result.received = row.InOctets;
+                result.sent = row.OutOctets;
+                result.hasCounters = true;
+            }
         }
         return result;
     }
 #else
+    Q_UNUSED(includeTraffic);
     result.details.insert(QStringLiteral("state"), QStringLiteral("unavailable"));
 #endif
     return result;
@@ -181,14 +197,13 @@ void WifiStatus::sample()
     if (m_pending)
         return;
     m_pending = true;
-    const auto generation = m_generation;
-    m_worker.start([this, generation, milliseconds] {
-        auto reading = readConnection();
+    const bool includeTraffic = m_active;
+    m_worker.start([this, includeTraffic, milliseconds] {
+        auto reading = readConnection(includeTraffic);
         reading.milliseconds = milliseconds;
-        QMetaObject::invokeMethod(this, [this, generation, reading = std::move(reading)]() mutable {
+        QMetaObject::invokeMethod(this, [this, reading = std::move(reading)]() mutable {
             m_pending = false;
-            if (m_active && generation == m_generation)
-                accept(std::move(reading));
+            accept(std::move(reading));
         }, Qt::QueuedConnection);
     });
 }
@@ -197,6 +212,7 @@ void WifiStatus::accept(Reading reading)
 {
     const auto elapsed = reading.milliseconds - m_previous.milliseconds;
     if (reading.hasCounters && m_previous.hasCounters && reading.networkId == m_previous.networkId
+        && reading.details.value(QStringLiteral("ssid")) == m_previous.details.value(QStringLiteral("ssid"))
         && elapsed > 0 && elapsed <= 5000 && reading.received >= m_previous.received
         && reading.sent >= m_previous.sent) {
         const double toMbps = 0.008 / double(elapsed);
@@ -208,9 +224,45 @@ void WifiStatus::accept(Reading reading)
     } else {
         m_samples.clear();
     }
+    const QString state = reading.details.value(QStringLiteral("state")).toString();
+    const QString ssid = reading.details.value(QStringLiteral("ssid")).toString();
     m_previous = reading;
     m_snapshot = std::move(reading.details);
     m_snapshot.insert(QStringLiteral("hasCounters"), reading.hasCounters);
     m_snapshot.insert(QStringLiteral("samples"), m_samples);
     emit snapshotChanged();
+    if (!m_preview)
+        reportConnection(state, reading.networkId, ssid);
+}
+
+void WifiStatus::reportConnection(const QString &state, const QString &adapter, const QString &ssid)
+{
+    if (state == QStringLiteral("unavailable")) {
+        m_disconnectedSamples = 0;
+        return;
+    }
+    const bool connected = state == QStringLiteral("connected") || state == QStringLiteral("restricted");
+    if (connected)
+        m_disconnectedSamples = 0;
+    else if (m_connected && ++m_disconnectedSamples < 2)
+        return;
+
+    QString title;
+    if (m_hasBaseline && connected != m_connected) {
+        title = connected ? tr("Wi-Fi подключён") : tr("Wi-Fi отключён");
+    } else if (m_connected && connected && (adapter != m_adapter
+                || (!m_ssid.isEmpty() && !ssid.isEmpty() && ssid != m_ssid))) {
+        title = tr("Сеть Wi-Fi изменилась");
+    }
+
+    m_hasBaseline = true;
+    m_connected = connected;
+    if (!connected || m_adapter != adapter || !ssid.isEmpty())
+        m_ssid = ssid;
+    m_adapter = adapter;
+    if (!title.isEmpty()) {
+        emit notification({{QStringLiteral("kind"), QStringLiteral("wifi")},
+            {QStringLiteral("title"), title}, {QStringLiteral("accent"), QStringLiteral("#a0dcff")},
+            {QStringLiteral("source"), tr("Сеть")}, {QStringLiteral("liveWifi"), true}});
+    }
 }

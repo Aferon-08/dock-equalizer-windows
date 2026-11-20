@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap3 rescap">
+  <Identity Name="Aferon08.SekaiSoundbar" ProcessorArchitecture="x64" Version="@VERSION@.0"
+            Publisher="CN=Sekai Soundbar, OID.2.25.311729368913984317654407730594956997722=1" />
+  <Properties>
+    <DisplayName>Sekai Soundbar</DisplayName>
+    <PublisherDisplayName>Sekai Soundbar</PublisherDisplayName>
+    <Logo>PackageAssets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="ru-RU" />
+  </Resources>
+  <Applications>
+    <Application Id="SekaiSoundbar" Executable="SekaiSoundbar.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Sekai Soundbar (MSIX)" Description="Sekai Soundbar for Windows 11"
+                          BackgroundColor="transparent" Square44x44Logo="PackageAssets\Square44x44Logo.png"
+                          Square150x150Logo="PackageAssets\Square150x150Logo.png" />
+    </Application>
+  </Applications>
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <uap3:Capability Name="userNotificationListener" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
