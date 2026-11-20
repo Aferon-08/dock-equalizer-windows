@@ -30,6 +30,7 @@ const QString glassEnabled = QStringLiteral("dockGlass");
 const QString desktopGlass = QStringLiteral("desktopGlass");
 const QString captureBorderless = QStringLiteral("captureBorderless");
 const QString artworkColors = QStringLiteral("artworkColors");
+const QString wavyProgress = QStringLiteral("wavyProgress");
 
 QString key(const QString &name)
 {
@@ -45,6 +46,7 @@ DockAppearance::DockAppearance(QSettings *settingsStore)
     m_values.insert(desktopGlass, m_settings && m_settings->value(key(desktopGlass), false).toBool());
     m_values.insert(captureBorderless, m_settings && m_settings->value(key(captureBorderless), false).toBool());
     m_values.insert(artworkColors, !m_settings || m_settings->value(key(artworkColors), true).toBool());
+    m_values.insert(wavyProgress, !m_settings || m_settings->value(key(wavyProgress), true).toBool());
     for (const auto &setting : settings) {
         const auto name = QString::fromLatin1(setting.key);
         double value = setting.initial;
@@ -80,6 +82,11 @@ void DockAppearance::setArtworkColors(bool enabled)
     setValue(artworkColors, enabled);
 }
 
+void DockAppearance::setWavyProgress(bool enabled)
+{
+    setValue(wavyProgress, enabled);
+}
+
 void DockAppearance::setDesktopGlass(bool enabled)
 {
     setValue(desktopGlass, enabled);
@@ -108,11 +115,13 @@ void DockAppearance::reset()
     m_values.insert(desktopGlass, false);
     m_values.insert(captureBorderless, false);
     m_values.insert(artworkColors, true);
+    m_values.insert(wavyProgress, true);
     if (m_settings) {
         m_settings->remove(key(glassEnabled));
         m_settings->remove(key(desktopGlass));
         m_settings->remove(key(captureBorderless));
         m_settings->remove(key(artworkColors));
+        m_settings->remove(key(wavyProgress));
     }
     for (const auto &setting : settings) {
         const auto name = QString::fromLatin1(setting.key);

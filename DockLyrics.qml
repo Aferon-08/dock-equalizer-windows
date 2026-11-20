@@ -505,6 +505,7 @@ Item {
         }
     }
     WavyProgress {
+        wavy: root.host.settings.wavyProgress ?? true
         amplitude: root.host.settings.progressAmplitude ?? 3.5
         wavelength: root.host.settings.progressWavelength ?? 30
         thickness: root.host.settings.progressThickness ?? 3
