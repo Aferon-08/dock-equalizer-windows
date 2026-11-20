@@ -1,3 +1,4 @@
+#include "BatteryStatus.h"
 #include "DesktopOverlay.h"
 #include "DisplaySettings.h"
 #include "DockAppearance.h"
@@ -8,6 +9,7 @@
 #include "StartupSettings.h"
 #include "SystemAudio.h"
 #include "WifiStatus.h"
+#include "WindowsNotifications.h"
 
 #include <QAction>
 #include <QApplication>
@@ -128,7 +130,9 @@ int main(int argc, char *argv[])
     const bool liveInputs = !smokeMode && !demoPreview;
     MediaSessions media(liveInputs);
     SystemAudio audio(liveInputs);
+    BatteryStatus batteryStatus(liveInputs);
     WifiStatus wifiStatus(!liveInputs);
+    WindowsNotifications windowsNotifications(liveInputs);
     LyricsImport lyrics;
     LyricsSearch search;
     LyricsAlignment alignment;
@@ -157,7 +161,9 @@ int main(int argc, char *argv[])
     std::unique_ptr<QObject> appState(stateComponent.createWithInitialProperties({
         {QStringLiteral("mediaSessions"), QVariant::fromValue(&media)},
         {QStringLiteral("lyricsAlignment"), QVariant::fromValue(&alignment)},
-        {QStringLiteral("wifiStatus"), QVariant::fromValue(&wifiStatus)}
+        {QStringLiteral("batteryStatus"), QVariant::fromValue(&batteryStatus)},
+        {QStringLiteral("wifiStatus"), QVariant::fromValue(&wifiStatus)},
+        {QStringLiteral("windowsNotifications"), QVariant::fromValue(&windowsNotifications)}
     }));
     if (!appState) {
         qWarning().noquote() << stateComponent.errorString();

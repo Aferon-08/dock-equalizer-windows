@@ -588,6 +588,7 @@ Window {
         ColumnLayout {
             id: notifications
             spacing: 14
+            readonly property string listenerStatus: panel.appState.windowsNotifications.status
 
             function sendTest(scenario) {
                 if (panel.displays.enabledCount === 0) {
@@ -599,6 +600,57 @@ Window {
             }
 
             FieldLabel { text: "Уведомления"; font.pixelSize: 23 }
+            Surface {
+                FieldLabel { text: "Автоматические события" }
+                Copy {
+                    text: {
+                        const battery = panel.appState.batteryStatus.snapshot
+                        if (battery.state === "noBattery") return "Батарея · отсутствует"
+                        return "Батарея · " + (battery.summary ?? "нет данных")
+                    }
+                }
+                Copy {
+                    text: {
+                        const wifi = panel.appState.wifiStatus.snapshot
+                        switch (wifi.state) {
+                        case "connected": return "Wi-Fi · " + (wifi.ssid || "подключён")
+                        case "restricted": return "Wi-Fi · подключён, имя сети скрыто Windows"
+                        case "disconnected": return "Wi-Fi · отключён"
+                        default: return "Wi-Fi · нет данных"
+                        }
+                    }
+                }
+                Copy {
+                    text: {
+                        switch (notifications.listenerStatus) {
+                        case "packageRequired": return "Для уведомлений приложений нужна установка из пакета MSIX."
+                        case "permissionRequired": return "Разрешите доку читать уведомления приложений Windows."
+                        case "requesting": return "Ожидаем ответ на запрос Windows."
+                        case "denied": return "Доступ к уведомлениям приложений отключён в настройках Windows."
+                        case "active": return "Уведомления приложений подключены. Для показа только в доке отключите штатные баннеры нужных приложений, сохранив их уведомления в Центре уведомлений."
+                        default: return "Источник уведомлений приложений Windows недоступен."
+                        }
+                    }
+                }
+                Action {
+                    Layout.fillWidth: true
+                    visible: notifications.listenerStatus === "permissionRequired"
+                    text: "Разрешить уведомления приложений"
+                    onClicked: panel.appState.windowsNotifications.requestAccess()
+                }
+                Action {
+                    Layout.fillWidth: true
+                    visible: notifications.listenerStatus === "denied"
+                    text: "Открыть разрешения Windows"
+                    onClicked: Qt.openUrlExternally("ms-settings:privacy-notifications")
+                }
+                Action {
+                    Layout.fillWidth: true
+                    visible: notifications.listenerStatus === "active"
+                    text: "Открыть параметры баннеров Windows"
+                    onClicked: Qt.openUrlExternally("ms-settings:notifications")
+                }
+            }
             Surface {
                 Copy { text: "Тестовые карточки раскрываются, когда в верхней части экрана есть место." }
                 Action {

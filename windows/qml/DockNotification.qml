@@ -6,6 +6,7 @@ Item {
     id: notice
     required property var event
     required property var wifi
+    required property var battery
     required property var renderer
     required property var media
     required property bool allowed
@@ -193,6 +194,7 @@ Item {
         visible: opacity > 0.001
         event: notice.lastEvent
         wifi: notice.wifi
+        battery: notice.battery
         accent: notice.accent
         expansion: notice.detailAmount
         dismissible: notice.active && opacity > 0.75

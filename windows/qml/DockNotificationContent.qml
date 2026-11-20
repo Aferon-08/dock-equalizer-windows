@@ -8,12 +8,14 @@ Item {
     id: card
     required property var event
     required property var wifi
+    required property var battery
     required property color accent
     required property real expansion
     required property bool dismissible
     signal dismissed()
 
     readonly property string kind: event?.kind ?? "regular"
+    readonly property var batteryDetailsData: event?.liveBattery && battery.state === event.state ? battery : event
     readonly property real inset: width >= 330 ? 24 : 16
     readonly property real headerY: Math.max(0, Geometry.mix((height - 38) / 2, 19, expansion))
     readonly property color ink: "#f1f9f5"
@@ -66,6 +68,7 @@ Item {
                 target: card
                 function onAccentChanged() { badgeIcon.requestPaint() }
                 function onEventChanged() { badgeIcon.requestPaint() }
+                function onBatteryDetailsDataChanged() { badgeIcon.requestPaint() }
             }
             onPaint: {
                 const ctx = getContext("2d")
@@ -92,7 +95,9 @@ Item {
                     ctx.moveTo(20, 9)
                     ctx.lineTo(20, 13)
                     ctx.stroke()
-                    ctx.fillRect(5, 8.5, 10.5 * Math.min(1, (card.event?.charge ?? 0) / 100), 5)
+                    const charge = card.batteryDetailsData?.charge ?? -1
+                    if (charge >= 0)
+                        ctx.fillRect(5, 8.5, 10.5 * Math.min(1, charge / 100), 5)
                     return
                 }
                 if (card.kind === "system") {
@@ -100,6 +105,15 @@ Item {
                     ctx.moveTo(17.5, 4)
                     ctx.lineTo(17.5, 8.8)
                     ctx.lineTo(13, 8.8)
+                } else if (card.kind === "app") {
+                    ctx.moveTo(5, 5.5)
+                    ctx.lineTo(17, 5.5)
+                    ctx.lineTo(17, 14)
+                    ctx.lineTo(10, 14)
+                    ctx.lineTo(6, 17)
+                    ctx.lineTo(6, 14)
+                    ctx.lineTo(5, 14)
+                    ctx.closePath()
                 } else {
                     ctx.moveTo(5.2, 11.7)
                     ctx.lineTo(9, 15.4)
@@ -127,7 +141,8 @@ Item {
         }
         Text {
             width: parent.width
-            text: card.kind === "wifi" ? card.wifiTitle : (card.event?.summary ?? "")
+            text: card.kind === "wifi" ? card.wifiTitle
+                : card.kind === "battery" ? (card.batteryDetailsData?.summary ?? "") : (card.event?.summary ?? "")
             textFormat: Text.PlainText
             font.pixelSize: 13
             color: card.accent
@@ -202,6 +217,7 @@ Item {
             width: parent.width
             text: card.event ? (card.kind === "wifi" && card.wifi.preview ? "Сеть · демоданные"
                 : card.event.source) + "  ·  " + Qt.formatTime(card.event.sentAt, "HH:mm") : ""
+            textFormat: Text.PlainText
             color: card.secondary
             font.pixelSize: 12
             elide: Text.ElideRight
@@ -233,16 +249,17 @@ Item {
             spacing: 6
             Description {
                 Layout.fillWidth: true
-                text: card.event?.detail ?? ""
+                text: card.batteryDetailsData?.detail ?? ""
             }
             Rectangle {
                 id: batteryTrack
                 Layout.fillWidth: true
                 Layout.preferredHeight: 7
+                visible: (card.batteryDetailsData?.charge ?? -1) >= 0
                 radius: height / 2
                 color: Qt.alpha(card.accent, 0.15)
                 Rectangle {
-                    width: batteryTrack.width * Math.min(1, (card.event?.charge ?? 0) / 100)
+                    width: batteryTrack.width * Math.max(0, Math.min(1, (card.batteryDetailsData?.charge ?? 0) / 100))
                     height: parent.height
                     radius: height / 2
                     color: Qt.alpha(card.accent, 0.90)
