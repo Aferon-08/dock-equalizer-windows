@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import "DockGeometry.js" as Geometry
 import "DockMaterial.js" as Material
 import "MarkerMotion.js" as Motion
 
@@ -16,7 +17,9 @@ Item {
     property Component lyricsBridgeComponent: null
     property bool previewGlass: false
     property real hideProgress: 0
-    property bool playerContentVisible: true
+    property var notification: null
+    readonly property bool noticeVisible: !vertical && !!notification?.presenting
+    readonly property real noticeMix: noticeVisible ? notification.coverAmount : 0
     readonly property Item lyricsView: lyricLayer
     readonly property var material: Material.read(host.settings)
     FrameAnimation {running:!!root.host.service && !!root.host.service.profileFrames;onTriggered:root.host.service.collectFrame(root.host.dock.screenName,frameTime)}
@@ -153,20 +156,15 @@ Item {
     readonly property real dropletLength: thickness + (length - thickness) * phase
     readonly property real radius: host.dock.radius + (40 - host.dock.radius) * lyricLayer.musicLayout
     readonly property real outward: -radius + (gap + length / 2 + radius) * phase
-    readonly property real wingScale: 1 - Motion.smooth((hideProgress - 0.05) / 0.44)
+    readonly property real wingScale: (1 - Motion.smooth((hideProgress - 0.05) / 0.44))
+        * (noticeVisible ? 1 - notification.splitProgress : 1)
     readonly property real contentOpacity: 1 - Motion.smooth(hideProgress / 0.28)
-    readonly property real taper: Motion.smooth((hideProgress - 0.42) / 0.26)
-    readonly property rect housingRect: {
-        const shrink = Motion.smooth((hideProgress - 0.08) / 0.53)
-        const pull = Motion.smooth((hideProgress - 0.49) / 0.51)
-        const width = bodyWidth + (22 - bodyWidth) * shrink
-        const height = bodyHeight + (25 - bodyHeight) * shrink + 8 * taper
-        const centerX = dock.x + bodyWidth / 2 + lyricLayer.swipeX * (1 - shrink)
-        const centerY = (dock.y + bodyHeight / 2 + lyricLayer.swipeY) * (1 - shrink)
-            + 18 * shrink - 55 * pull
-        return Qt.rect(centerX - width / 2, centerY - height / 2, width, height)
-    }
-    readonly property real housingRadius: Math.min(radius, housingRect.width / 2, housingRect.height / 2)
+    readonly property real playerTaper: Geometry.taper(hideProgress)
+    readonly property rect playerHousing: Geometry.pullToEdge(
+        Qt.rect(dock.x, dock.y, bodyWidth, bodyHeight), hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
+    readonly property rect housingRect: noticeVisible ? notification.bodyBounds : playerHousing
+    readonly property real housingRadius: Math.min(noticeVisible ? notification.bodyRadius : radius,
+        housingRect.width / 2, housingRect.height / 2)
     readonly property real pad: 32
     readonly property real spectrumOpacity: Math.max(0, Math.min(1, (phase - 0.6) / 0.35))
     // Use the native dock palette in every layout, including live theme changes.
@@ -179,16 +177,17 @@ Item {
     readonly property bool suppressMediaKey: lyricLayer.wide
     readonly property real iconsOpacity: 1 - lyricLayer.lyricsOpacity
     readonly property real glassAmount: material.enabled && shaderAvailable
-        ? (previewGlass ? 1 : Math.min(1, Math.max(phase, lyricLayer.musicLayout))) : 0
+        ? (previewGlass || noticeVisible ? 1 : Math.min(1, Math.max(phase, lyricLayer.musicLayout))) : 0
 
-    visible: host.settings.enabled && fits && !host.dock.asleep
+    visible: host.settings.enabled && (noticeVisible || (fits && !host.dock.asleep))
 
     Item {
         id: liquid
         width: root.bodyAlong + 2 * (root.length + root.gap + root.pad)
-        height: root.bodyAcross + 2 * root.pad
+        height: (root.noticeVisible ? Math.max(root.bodyAcross, root.notification.detailsHeight)
+            : root.bodyAcross) + 2 * root.pad
         x: root.dock.x + root.bodyWidth / 2 - width / 2 + lyricLayer.swipeX
-        y: root.dock.y + root.bodyHeight / 2 - height / 2 + lyricLayer.swipeY
+        y: root.dock.y + root.bodyHeight / 2 - root.bodyAcross / 2 - root.pad + lyricLayer.swipeY
         rotation: root.vertical ? 90 : 0
 
         Item {
@@ -228,18 +227,29 @@ Item {
             anchors.fill: parent
             visible: root.shaderAvailable && (root.host.dock.look !== "transparent" || root.phase > 0.001)
             readonly property vector2d resolution: Qt.vector2d(width, height)
-            readonly property vector4d dockRect: root.hideProgress === 0 || root.vertical
+            readonly property vector4d playerRect: root.vertical
                 ? Qt.vector4d((width - root.bodyAlong) / 2, root.pad, root.bodyAlong, root.bodyAcross)
-                : Qt.vector4d(root.housingRect.x - liquid.x, root.housingRect.y - liquid.y,
-                    root.housingRect.width, root.housingRect.height)
+                : inShader(root.playerHousing)
+            readonly property vector4d dockRect: root.noticeVisible ? inShader(root.housingRect) : playerRect
+            readonly property vector4d miniPlayer: {
+                if (!root.noticeVisible)
+                    return Qt.vector4d(0, 0, 0, 0)
+                const rect = root.notification.miniBounds
+                return Qt.vector4d(rect.x + rect.width / 2 - liquid.x,
+                    rect.y + rect.height / 2 - liquid.y, rect.width, root.notification.miniBlend)
+            }
+            readonly property real noticeMix: root.noticeMix
+            function inShader(rect) {
+                return Qt.vector4d(rect.x - liquid.x, rect.y - liquid.y, rect.width, rect.height)
+            }
             readonly property vector4d wingData: Qt.vector4d(
-                dockRect.x - root.outward, dockRect.y + dockRect.w / 2,
-                dockRect.x + dockRect.z + root.outward, root.dropletLength * root.wingScale)
+                playerRect.x - root.outward, playerRect.y + playerRect.w / 2,
+                playerRect.x + playerRect.z + root.outward, root.dropletLength * root.wingScale)
             readonly property vector4d params: Qt.vector4d(root.thickness * root.wingScale,
-                root.hideProgress > 0 ? root.housingRadius : root.radius,
+                root.noticeVisible || root.hideProgress > 0 ? root.housingRadius : root.radius,
                 Math.sin(Math.PI * Math.min(1, root.phase)) * root.thickness * 0.85,
                 root.host.dock.shadow)
-            readonly property real dropTaper: root.taper
+            readonly property real dropTaper: root.noticeVisible ? root.notification.bodyTaper : root.playerTaper
             readonly property vector4d skinStyle: Qt.vector4d(root.colors.border,
                 root.colors.ringWidth, root.host.dock.look === "transparent" ? 0 : 1,
                 root.vertical ? 1 : 0)
@@ -279,6 +289,7 @@ Item {
                 housingVisible: !root.shaderAvailable
                 visible: root.phase > 0.01
                 opacity: root.spectrumOpacity * root.contentOpacity
+                    * (root.noticeVisible ? 1 - root.notification.splitProgress : 1)
                 width: root.dropletLength
                 height: root.thickness + 3
                 x: (index === 0 ? skin.wingData.x : skin.wingData.z) - width / 2
@@ -288,8 +299,10 @@ Item {
     }
     DockLyrics {
         id: lyricLayer
-        enabled: root.hideProgress === 0 && root.playerContentVisible
-        opacity: root.playerContentVisible ? root.contentOpacity : 0
+        enabled: root.hideProgress === 0 && !root.noticeVisible
+        opacity: root.contentOpacity * (root.noticeVisible ? root.notification.playerOpacity : 1)
+        presentationScale: root.noticeVisible ? root.notification.playerScale : 1
+        presentationOffset: root.noticeVisible ? root.notification.playerOffset : Qt.point(0, 0)
         host: root.host
         bridgeComponent: root.lyricsBridgeComponent
         glassSource: root.shaderAvailable ? skin : null

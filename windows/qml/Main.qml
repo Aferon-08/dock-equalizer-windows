@@ -24,7 +24,7 @@ Window {
     height: Math.min(workArea.height, Math.ceil(stage.height * stage.scale))
     x: workArea.x + Math.floor((workArea.width - width) / 2)
     y: workArea.y
-    visible: workArea.width > 0 && !desktop.fullscreenActive && (presence.showing || notification.presenting)
+    visible: workArea.width > 0 && !desktop.fullscreenActive && (presence.showing || noticeLayer.presenting)
     onVisibleChanged: {
         if (visible) {
             Qt.callLater(updateExpandedRegion)
@@ -52,6 +52,11 @@ Window {
         && !(smokeMode ? smokeObstructed : desktop.expandedObstructed)
     property bool expandedSpaceReady: false
     onExpansionClearChanged: if (!expansionClear) expandedSpaceReady = false
+    readonly property bool notificationClear: !desktop.fullscreenActive
+        && workArea.height >= (pill.y + noticeLayer.detailsHeight) * stage.scale
+        && !(smokeMode ? smokeObstructed : desktop.notificationObstructed)
+    property bool notificationSpaceReady: false
+    onNotificationClearChanged: if (!notificationClear) notificationSpaceReady = false
     property bool trayPreview: false
     readonly property bool audioFallback: !demoMode && !media.player && systemAudio.audible
     property bool sustainedAudio: false
@@ -120,10 +125,17 @@ Window {
         running: window.expansionClear && !window.expandedSpaceReady
         onTriggered: window.expandedSpaceReady = true
     }
+    Timer {
+        interval: 400
+        running: window.notificationClear && !window.notificationSpaceReady
+        onTriggered: window.notificationSpaceReady = true
+    }
 
     readonly property rect bodyRegion: {
-        if (notification.presenting && !desktop.fullscreenActive)
-            return scaledRect(notification.x, notification.y, notification.width, notification.height)
+        if (noticeLayer.presenting && !desktop.fullscreenActive) {
+            const body = wings.housingRect
+            return scaledRect(body.x, body.y, body.width, body.height)
+        }
         if (!presence.interactive)
             return Qt.rect(0, 0, 0, 0)
         const padding = 26
@@ -133,17 +145,27 @@ Window {
     }
     readonly property rect leftRegion: capsuleRegion(-1)
     readonly property rect rightRegion: capsuleRegion(1)
-    readonly property real regionRadius: (notification.presenting ? notification.radius : wings.radius + 26) * stage.scale
+    readonly property rect miniPlayerRegion: {
+        const body = noticeLayer.miniBounds
+        return scaledRect(body.x, body.y, body.width, body.height)
+    }
+    readonly property real regionRadius: (noticeLayer.presenting ? wings.housingRadius : wings.radius + 26) * stage.scale
     readonly property rect expandedRegion: {
         const size = wings.lyricsView.expandedBodySize
         return scaledRect((stage.width - size.width) / 2, pill.y, size.width, size.height)
     }
+    readonly property rect notificationRegion: {
+        const body = noticeLayer.expandedEnvelope
+        return scaledRect(body.x, body.y, body.width, body.height)
+    }
     onBodyRegionChanged: Qt.callLater(updatePanelRegion)
     onLeftRegionChanged: Qt.callLater(updatePanelRegion)
     onRightRegionChanged: Qt.callLater(updatePanelRegion)
+    onMiniPlayerRegionChanged: Qt.callLater(updatePanelRegion)
     onRegionRadiusChanged: Qt.callLater(updatePanelRegion)
     onHeightChanged: Qt.callLater(updatePanelRegion)
     onExpandedRegionChanged: Qt.callLater(updateExpandedRegion)
+    onNotificationRegionChanged: Qt.callLater(updateExpandedRegion)
     onWorkAreaChanged: Qt.callLater(updateExpandedRegion)
 
     function scaledRect(x, y, width, height) {
@@ -152,35 +174,29 @@ Window {
     }
 
     function capsuleRegion(side) {
-        if (!presence.interactive || wings.phase < 0.01)
+        if (!presence.interactive || wings.phase < 0.01 || wings.wingScale < 0.01)
             return Qt.rect(0, 0, 0, 0)
         const padding = 8
         const centerX = stage.width / 2 + wings.lyricsView.swipeX
             + side * (wings.bodyWidth / 2 + wings.outward)
         const centerY = pill.y + pill.capHeight / 2 + wings.lyricsView.swipeY
-        return scaledRect(centerX - wings.dropletLength / 2 - padding,
-            centerY - wings.thickness / 2 - padding, wings.dropletLength + 2 * padding,
-            wings.thickness + 2 * padding)
+        const length = wings.dropletLength * wings.wingScale
+        const thickness = wings.thickness * wings.wingScale
+        return scaledRect(centerX - length / 2 - padding,
+            centerY - thickness / 2 - padding, length + 2 * padding, thickness + 2 * padding)
     }
 
     function updatePanelRegion() {
-        desktop.setPanelRegion(window, bodyRegion, regionRadius, leftRegion, rightRegion)
+        desktop.setPanelRegion(window, bodyRegion, regionRadius, leftRegion, rightRegion, miniPlayerRegion)
     }
 
     function updateExpandedRegion() {
-        desktop.setExpandedRegion(window, expandedRegion, 40 * stage.scale)
+        desktop.setExpandedRegions(window, expandedRegion, 40 * stage.scale,
+                                   notificationRegion, 36 * stage.scale)
     }
 
     function toggleLyricsLayout() {
         lyricsExpanded = !expandedDock
-    }
-
-    function showTestNotification(): bool {
-        if (desktop.fullscreenActive)
-            return false
-        notification.show("Тестовое уведомление", "Проверка показа в доке",
-                          "Уведомление отправлено из настроек Sekai Soundbar.")
-        return true
     }
 
     function spectrumAt(stamp) {
@@ -411,7 +427,7 @@ Window {
     Item {
         id: stage
         width: Math.max(760, window.width)
-        height: pill.y + Math.max(pill.height, notification.presenting ? notification.detailsHeight : 0)
+        height: pill.y + Math.max(pill.height, noticeLayer.presenting ? noticeLayer.detailsHeight : 0)
             + 32 + Math.max(0, wings.lyricsView.swipeY)
         scale: window.width / width
         transformOrigin: Item.TopLeft
@@ -423,11 +439,24 @@ Window {
             width: wings.housingRect.width
             height: wings.housingRect.height
             radius: wings.housingRadius
-            visible: presence.showing && !wings.ownsHousing
-            color: demoHost.dock.palette.fill
+            visible: (presence.showing || noticeLayer.presenting) && !wings.ownsHousing
+            color: wings.noticeVisible && wings.material.enabled
+                ? Qt.alpha(demoHost.dock.palette.fill, 0.86) : demoHost.dock.palette.fill
             border.color: demoHost.dock.palette.rim
             border.width: 2
             antialiasing: true
+        }
+        Rectangle {
+            x: noticeLayer.miniBounds.x
+            y: noticeLayer.miniBounds.y
+            width: noticeLayer.miniBounds.width
+            height: width
+            radius: width / 2
+            color: solidHousing.color
+            border.color: solidHousing.border.color
+            border.width: solidHousing.border.width
+            antialiasing: true
+            visible: solidHousing.visible && width > 0
         }
 
         MouseArea {
@@ -435,7 +464,7 @@ Window {
             y: pill.y + wings.lyricsView.swipeY
             width: pill.width
             height: pill.capHeight
-            enabled: presence.interactive && !notification.presenting && !!window.media.player
+            enabled: presence.interactive && !noticeLayer.presenting && !!window.media.player
             cursorShape: Qt.PointingHandCursor
             onClicked: window.toggleLyricsLayout()
         }
@@ -446,7 +475,7 @@ Window {
             anchors.fill: parent
             host: demoHost
             hideProgress: presence.hideProgress
-            playerContentVisible: !notification.presenting
+            notification: noticeLayer
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
             desktopLens: backdropEnabled && (backdropItem?.hasFrame === true)
@@ -470,12 +499,17 @@ Window {
             property bool bare: wings.ownsHousing
         }
         DockNotification {
-            id: notification
-            inPlayer: presence.showing
-            playerHeight: inPlayer ? pill.capHeight : 0
-            x: (stage.width - width) / 2 + (inPlayer ? wings.lyricsView.swipeX : 0)
-            y: pill.y + (inPlayer ? wings.lyricsView.swipeY : -(height + 12) * (1 - reveal))
-            width: inPlayer ? pill.width : demoHost.dock.baseWidth
+            id: noticeLayer
+            anchors.fill: parent
+            event: window.appState.dockNotification
+            renderer: wings
+            media: window.media
+            allowed: !window.desktop.fullscreenActive
+            clearForDetails: window.notificationSpaceReady
+            attached: presence.showing && presence.hideProgress < 0.55
+                && (window.playbackActive || (!!window.media.player && !window.swipeDismissed))
+            topInset: pill.y
+            onDismissed: window.appState.dismissNotification()
         }
     }
 
@@ -532,10 +566,6 @@ Window {
     }
     Connections {
         target: window.desktop
-        function onFullscreenActiveChanged() {
-            if (window.desktop.fullscreenActive)
-                notification.dismiss()
-        }
         function onShowRequested() {
             if (window.activeTrackKey !== "" && !window.desktop.fullscreenActive && !window.playbackActive) {
                 wings.lyricsView.dismissedUntilPlay = false
@@ -990,31 +1020,31 @@ Window {
                     window.failSmoke("the idle drop did not fully leave through the top edge")
                     return
                 }
-                if (!window.showTestNotification()) {
-                    window.failSmoke("the hidden dock did not accept the test notification")
-                    return
-                }
+                window.smokeObstructed = true
+                window.appState.postTestNotification()
                 window.smokePhase = 14
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 14 && notification.reveal === 1) {
-                if (!window.visible || wings.visible || notification.inPlayer
+            } else if (window.smokePhase === 14 && noticeLayer.reveal === 1) {
+                if (!window.visible || !wings.visible || noticeLayer.attached || presence.showing
                         || window.bodyRegion.width === 0 || window.leftRegion.width > 0
-                        || window.rightRegion.width > 0) {
-                    window.failSmoke("the idle notification did not appear on its own")
+                        || window.rightRegion.width > 0 || window.miniPlayerRegion.width > 0
+                        || wings.housingRect.height !== noticeLayer.compactHeight) {
+                    window.failSmoke("the obstructed idle notification did not use a compact glass body")
                     return
                 }
-                notification.details = true
+                window.smokeObstructed = false
                 window.smokePhase = 15
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 15 && notification.height === notification.detailsHeight) {
-                if (Math.abs(window.bodyRegion.height - notification.height * stage.scale) > 0.1) {
-                    window.failSmoke("the expanded notification was outside the dock hit region")
+            } else if (window.smokePhase === 15 && noticeLayer.detailProgress === 1) {
+                if (Math.abs(window.bodyRegion.height - noticeLayer.detailsHeight * stage.scale) > 0.1
+                        || (wings.shaderAvailable && wings.material.enabled && wings.glassAmount <= 0)) {
+                    window.failSmoke("the notification did not expand automatically in the glass housing")
                     return
                 }
-                notification.dismiss()
+                window.appState.dismissNotification()
                 window.smokePhase = 16
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 16 && !notification.presenting) {
+            } else if (window.smokePhase === 16 && !noticeLayer.presenting) {
                 if (window.visible || window.bodyRegion.width > 0) {
                     window.failSmoke("closing the test notification did not hide the idle dock")
                     return
@@ -1065,6 +1095,37 @@ Window {
                 if (!presence.interactive || window.swipeDismissed
                         || !JSON.parse(wings.lyricsView.diagnostics()).trackHeaderVisible) {
                     window.failSmoke("the tray did not restore the paused track after a swipe")
+                    return
+                }
+                window.smokeObstructed = false
+                window.lyricsExpanded = true
+                window.demoPlaying = true
+                window.smokePhase = 21
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 21 && wings.lyricsView.layout === 1 && window.notificationSpaceReady) {
+                window.appState.postTestNotification()
+                window.smokePhase = 22
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 22 && noticeLayer.splitProgress === 1) {
+                const body = wings.housingRect
+                const mini = noticeLayer.miniBounds
+                if (mini.x < body.x + body.width + 12 || mini.width !== noticeLayer.miniDiameter
+                        || Math.abs(window.miniPlayerRegion.width - mini.width * stage.scale) > 0.1) {
+                    window.failSmoke("the mini-player did not separate from the expanded notification")
+                    return
+                }
+                window.appState.dismissNotification()
+                window.smokePhase = 23
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 23) {
+                if (wings.housingRect.height + 0.1 < noticeLayer.detailsHeight) {
+                    window.failSmoke("the glass body shrank into compact mode while merging with the mini-player")
+                    return
+                }
+                if (noticeLayer.presenting)
+                    return
+                if (!window.visible || !wings.lyricsView.wide || window.miniPlayerRegion.width !== 0) {
+                    window.failSmoke("dismissal did not restore the expanded player")
                     return
                 }
                 smokeTimer.stop()

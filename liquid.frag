@@ -29,6 +29,8 @@ layout(std140, binding = 0) uniform buf {
     vec2 materialStyle;
     float desktopLens;
     float dropTaper;
+    vec4 miniPlayer;
+    float noticeMix;
 };
 layout(binding = 1) uniform sampler2D backdrop;
 
@@ -55,8 +57,14 @@ float housingDistance(vec2 p) {
     return mainBody;
 }
 
+float miniPlayerDistance(vec2 p) {
+    return length(p - miniPlayer.xy) - miniPlayer.z * 0.5;
+}
+
 float body(vec2 p) {
     float mainBody = housingDistance(p);
+    if (miniPlayer.z > 0.001)
+        mainBody = liquidUnion(mainBody, miniPlayerDistance(p), miniPlayer.w);
     if (params.x < 0.1)
         return mainBody;
     vec2 wingSize = vec2(wingData.w, params.x);
@@ -154,12 +162,21 @@ void main() {
             body(p+vec2(0.0,1.0))-body(p-vec2(0.0,1.0)))+vec2(0.00001));
         float bevel = exp(-max(0.0,depth)/9.0);
         float mainMask = 1.0-smoothstep(-1.0,1.0,mainD);
+        float miniMask = 0.0;
+        if (miniPlayer.z > 0.001) {
+            float miniD = miniPlayerDistance(p);
+            miniMask = (1.0 - smoothstep(-3.0, 3.0, miniD - mainD)) * (1.0 - smoothstep(-1.0, 1.0, miniD));
+        }
         vec2 bend = n * bevel * 13.0;
         if (desktopLens > 0.5) {
             // A continuous lens curve avoids a jump where the nearest edge changes.
             vec2 lens = clamp((p - dockRect.xy - halfDock) / max(halfDock, vec2(1.0)), -1.0, 1.0);
             float shoulder = smoothstep(0.1, 1.0, max(abs(lens.x), abs(lens.y)));
             bend = mix(bend, lens * (4.0 + 8.0 * shoulder), mainMask);
+            if (miniMask > 0.0) {
+                vec2 miniLens = (p - miniPlayer.xy) / max(1.0, miniPlayer.z * 0.5);
+                bend = mix(bend, miniLens * (3.0 + 6.0 * dot(miniLens, miniLens)), miniMask);
+            }
         }
         vec2 uv = clamp((p - bend * materialStyle.y) / resolution, 0.0, 1.0);
         vec4 scene = texture(backdrop,uv);
@@ -175,7 +192,9 @@ void main() {
             scene.r = texture(backdrop, clamp(uv + fringe, 0.0, 1.0)).r;
             scene.b = texture(backdrop, clamp(uv - fringe, 0.0, 1.0)).b;
         }
-        float tintAlpha = mix(min(1.0,materialStyle.x+0.29),materialStyle.x,mainMask);
+        float tintAlpha = mix(min(1.0,materialStyle.x+0.29),materialStyle.x,max(mainMask,miniMask));
+        // Keep the words readable over a bright desktop without replacing the glass.
+        tintAlpha += (1.0 - tintAlpha) * 0.36 * noticeMix * mainMask;
         // A complete captured pixel replaces the live pixel under the dock.
         float transmission = desktopLens > 0.5 ? 1.0 : 0.78;
         float a = tintAlpha+scene.a*transmission*(1.0-tintAlpha);
@@ -204,14 +223,14 @@ void main() {
         vec3 hue = spectralHue(p);
         result.rgb = min(vec3(result.a),hue*a*result.a+result.rgb*(1.0-a));
     }
-    if (lightData.x > 0.001) {
+    if (lightData.x > 0.001 && noticeMix < 0.999) {
         float mainDistance = mainD;
         float mainCover = 1.0 - smoothstep(-aa, aa, mainDistance);
         vec3 light = (sideLight(p,false)+sideLight(p,true)+bottomLight(p))
             *lightData.w + lyricLight(p);
         // Stronger under-glass light; only a tight, faint spill outside.
         float outer = exp(-pow(max(0.0, mainDistance) / 12.5, 1.5));
-        float lightMask = lightData.x * 0.95 * mainCover;
+        float lightMask = lightData.x * 0.95 * mainCover * (1.0 - noticeMix);
         float lightAlpha = clamp(max(light.r, max(light.g, light.b)) * lightMask, 0.0, 0.85);
         result.a = max(result.a, lightAlpha);
         result.rgb = min(vec3(result.a), result.rgb + light * lightMask * 0.72);
@@ -223,7 +242,7 @@ void main() {
         vec3 outsideLight = (sideLight(p,false)+sideLight(p,true)+bottomLight(p))*lightData.w;
         float brightness = max(outsideLight.r, max(outsideLight.g, outsideLight.b));
         float glowAlpha = clamp(brightness * outer * 0.86 * lightData.x
-            * (1.0 - mainCover) * traced, 0.0, 0.72);
+            * (1.0 - mainCover) * traced * (1.0 - noticeMix), 0.0, 0.72);
         vec3 glowHue = outsideLight / max(0.001, brightness);
         result.rgb = glowHue * glowAlpha + result.rgb * (1.0 - glowAlpha);
         result.a = glowAlpha + result.a * (1.0 - glowAlpha);
@@ -233,7 +252,8 @@ void main() {
         float halo = exp(-abs(mainDistance) / 3.0) * traced * 0.11;
         float lowerEdge = smoothstep(0.65,1.0,(p.y-dockRect.y)/max(1.0,dockRect.w));
         float energy = max(max(leftAudio.x,leftAudio.y),max(rightAudio.x,rightAudio.y));
-        float strength = clamp((line * (0.3 + head * 0.2) + halo) * lightData.x * lightData.w * lowerEdge * energy, 0.0, 1.0);
+        float strength = clamp((line * (0.3 + head * 0.2) + halo) * lightData.x * lightData.w
+            * lowerEdge * energy * (1.0 - noticeMix), 0.0, 1.0);
         result.rgb = mix(result.rgb, spectralHue(p), strength);
         result.a = max(result.a, strength);
     }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 0.12.0 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 0.13.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,6 +34,7 @@ set(shared_ui
     AnalysisPolicy.js
     BackingLayout.js
     BeatTracker.js
+    DockGeometry.js
     DockMaterial.js
     FireflyMotion.js
     ImportedLyrics.js
@@ -48,11 +49,11 @@ set(shared_ui
     VoiceAnnotations.js
 )
 set(shared_assets assets/next.svg assets/previous.svg assets/volume.svg)
-foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml)
+foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml DockMiniPlayer.qml DockNotification.qml)
     set_source_files_properties("windows/qml/${file}"
         PROPERTIES QT_RESOURCE_ALIAS "${file}")
 endforeach()
-foreach(file IN ITEMS AlignmentDialog.qml DockNotification.qml DockPresence.qml)
+foreach(file IN ITEMS AlignmentDialog.qml DockPresence.qml)
     set_source_files_properties("windows/qml/${file}"
         PROPERTIES QT_RESOURCE_ALIAS "qml/${file}")
 endforeach()
@@ -69,6 +70,7 @@ qt_add_qml_module(SekaiSoundbar
         windows/qml/Main.qml
         windows/qml/AlignmentDialog.qml
         windows/qml/ApplicationState.qml
+        windows/qml/DockMiniPlayer.qml
         windows/qml/DockNotification.qml
         windows/qml/DockPresence.qml
         windows/qml/SettingsWindow.qml

@@ -98,10 +98,12 @@ struct DesktopWindows
     HWND foreground = GetAncestor(GetForegroundWindow(), GA_ROOT);
     DWORD shellProcess = 0;
     QRegion expanded;
+    QRegion notification;
     HWND lastOrdinary = nullptr;
     bool passedPanel = false;
     bool needsRestack = false;
     bool obstructed = false;
+    bool notificationObstructed = false;
 };
 
 BOOL CALLBACK scanDesktopWindow(HWND window, LPARAM data)
@@ -127,8 +129,12 @@ BOOL CALLBACK scanDesktopWindow(HWND window, LPARAM data)
         state.lastOrdinary = window;
         state.needsRestack |= state.passedPanel;
     }
-    if (!state.obstructed && !state.expanded.isEmpty())
-        state.obstructed = state.expanded.intersects(windowBounds(window));
+    if ((!state.obstructed && !state.expanded.isEmpty())
+        || (!state.notificationObstructed && !state.notification.isEmpty())) {
+        const auto bounds = windowBounds(window);
+        state.obstructed |= state.expanded.intersects(bounds);
+        state.notificationObstructed |= state.notification.intersects(bounds);
+    }
     return TRUE;
 }
 
@@ -222,12 +228,16 @@ void DesktopOverlay::updateDesktopState()
         && MonitorFromWindow(panel, MONITOR_DEFAULTTONULL) == monitor && ClientToScreen(panel, &clientOrigin)
         ? QPointF(clientOrigin.x, clientOrigin.y)
         : QPointF(info.rcWork.left, info.rcWork.top) + offset * scale;
-    const QRectF nativeBounds(origin + m_expandedBounds.topLeft() * scale, m_expandedBounds.size() * scale);
+    const auto nativeRegion = [&](const QRectF &bounds, qreal radius) {
+        return roundedRegion(QRectF(origin + bounds.topLeft() * scale, bounds.size() * scale),
+                             radius * scale) & monitorBounds;
+    };
     DesktopWindows windows;
     windows.panel = panel;
     if (windows.shell)
         GetWindowThreadProcessId(windows.shell, &windows.shellProcess);
-    windows.expanded = roundedRegion(nativeBounds, m_expandedRadius * scale) & monitorBounds;
+    windows.expanded = nativeRegion(m_expandedBounds, m_expandedRadius);
+    windows.notification = nativeRegion(m_notificationBounds, m_notificationRadius);
     EnumWindows(scanDesktopWindow, reinterpret_cast<LPARAM>(&windows));
     if (panel && m_panel->isVisible() && !active && windows.needsRestack) {
         SetWindowPos(panel, windows.lastOrdinary ? windows.lastOrdinary : HWND_TOP,
@@ -237,27 +247,35 @@ void DesktopOverlay::updateDesktopState()
         m_expandedObstructed = windows.obstructed;
         emit expandedObstructedChanged();
     }
+    if (m_notificationObstructed != windows.notificationObstructed) {
+        m_notificationObstructed = windows.notificationObstructed;
+        emit notificationObstructedChanged();
+    }
 #endif
 }
 
-void DesktopOverlay::setExpandedRegion(QWindow *window, const QRectF &bounds, qreal radius)
+void DesktopOverlay::setExpandedRegions(QWindow *window, const QRectF &player, qreal playerRadius,
+                                        const QRectF &notification, qreal notificationRadius)
 {
     if (!window)
         return;
     m_panel = window;
-    m_expandedBounds = bounds;
-    m_expandedRadius = radius;
+    m_expandedBounds = player;
+    m_expandedRadius = playerRadius;
+    m_notificationBounds = notification;
+    m_notificationRadius = notificationRadius;
     updateDesktopState();
 }
 
 void DesktopOverlay::setPanelRegion(QWindow *window, const QRectF &body, qreal radius,
-                                    const QRectF &leftWing, const QRectF &rightWing)
+                                    const QRectF &leftWing, const QRectF &rightWing,
+                                    const QRectF &miniPlayer)
 {
     if (!window)
         return;
 
     QRegion shape = roundedRegion(body, radius);
-    for (const QRectF &wing : {leftWing, rightWing})
+    for (const QRectF &wing : {leftWing, rightWing, miniPlayer})
         shape |= roundedRegion(wing, wing.height() / 2);
     shape &= QRect(QPoint(), window->size());
 #ifdef Q_OS_WIN
