@@ -1065,8 +1065,8 @@ Window {
                 }
                 window.smokePhase = 13
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 13 && wait >= 1250) {
-                if (window.visible || presence.hideProgress !== 1 || window.bodyRegion.width > 0
+            } else if (window.smokePhase === 13 && presence.hideProgress === 1) {
+                if (window.visible || window.bodyRegion.width > 0
                         || wings.housingRect.y + wings.housingRect.height > 0) {
                     window.failSmoke("the idle drop did not fully leave through the top edge")
                     return
