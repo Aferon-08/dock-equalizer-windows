@@ -16,6 +16,7 @@ Item {
     property Component lyricsBridgeComponent: null
     property bool previewGlass: false
     property real hideProgress: 0
+    property bool playerContentVisible: true
     readonly property Item lyricsView: lyricLayer
     readonly property var material: Material.read(host.settings)
     FrameAnimation {running:!!root.host.service && !!root.host.service.profileFrames;onTriggered:root.host.service.collectFrame(root.host.dock.screenName,frameTime)}
@@ -287,8 +288,8 @@ Item {
     }
     DockLyrics {
         id: lyricLayer
-        enabled: root.hideProgress === 0
-        opacity: root.contentOpacity
+        enabled: root.hideProgress === 0 && root.playerContentVisible
+        opacity: root.playerContentVisible ? root.contentOpacity : 0
         host: root.host
         bridgeComponent: root.lyricsBridgeComponent
         glassSource: root.shaderAvailable ? skin : null

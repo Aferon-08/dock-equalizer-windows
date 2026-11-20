@@ -24,7 +24,7 @@ Window {
     height: Math.min(workArea.height, Math.ceil(stage.height * stage.scale))
     x: workArea.x + Math.floor((workArea.width - width) / 2)
     y: workArea.y
-    visible: workArea.width > 0 && presence.showing
+    visible: workArea.width > 0 && !desktop.fullscreenActive && (presence.showing || notification.presenting)
     onVisibleChanged: {
         if (visible) {
             Qt.callLater(updateExpandedRegion)
@@ -122,6 +122,8 @@ Window {
     }
 
     readonly property rect bodyRegion: {
+        if (notification.presenting && !desktop.fullscreenActive)
+            return scaledRect(notification.x, notification.y, notification.width, notification.height)
         if (!presence.interactive)
             return Qt.rect(0, 0, 0, 0)
         const padding = 26
@@ -131,7 +133,7 @@ Window {
     }
     readonly property rect leftRegion: capsuleRegion(-1)
     readonly property rect rightRegion: capsuleRegion(1)
-    readonly property real regionRadius: (wings.radius + 26) * stage.scale
+    readonly property real regionRadius: (notification.presenting ? notification.radius : wings.radius + 26) * stage.scale
     readonly property rect expandedRegion: {
         const size = wings.lyricsView.expandedBodySize
         return scaledRect((stage.width - size.width) / 2, pill.y, size.width, size.height)
@@ -171,6 +173,14 @@ Window {
 
     function toggleLyricsLayout() {
         lyricsExpanded = !expandedDock
+    }
+
+    function showTestNotification(): bool {
+        if (desktop.fullscreenActive)
+            return false
+        notification.show("Тестовое уведомление", "Проверка показа в доке",
+                          "Уведомление отправлено из настроек Sekai Soundbar.")
+        return true
     }
 
     function spectrumAt(stamp) {
@@ -361,7 +371,7 @@ Window {
             property string look: "capsule"
             readonly property real radius: Math.min(pill.width, pill.height - 4) / 2
             property real shadow: 4
-            property bool asleep: false
+            readonly property bool asleep: !presence.showing
             property var mediaSource: window.media
             property var lyrics: window.demoMode && !window.timingDocument ? demoLyrics : null
             readonly property var timingDocument: window.timingDocument
@@ -401,7 +411,8 @@ Window {
     Item {
         id: stage
         width: Math.max(760, window.width)
-        height: pill.y + pill.height + 32 + Math.max(0, wings.lyricsView.swipeY)
+        height: pill.y + Math.max(pill.height, notification.presenting ? notification.detailsHeight : 0)
+            + 32 + Math.max(0, wings.lyricsView.swipeY)
         scale: window.width / width
         transformOrigin: Item.TopLeft
 
@@ -412,7 +423,7 @@ Window {
             width: wings.housingRect.width
             height: wings.housingRect.height
             radius: wings.housingRadius
-            visible: !wings.ownsHousing
+            visible: presence.showing && !wings.ownsHousing
             color: demoHost.dock.palette.fill
             border.color: demoHost.dock.palette.rim
             border.width: 2
@@ -424,7 +435,7 @@ Window {
             y: pill.y + wings.lyricsView.swipeY
             width: pill.width
             height: pill.capHeight
-            enabled: presence.interactive && !!window.media.player
+            enabled: presence.interactive && !notification.presenting && !!window.media.player
             cursorShape: Qt.PointingHandCursor
             onClicked: window.toggleLyricsLayout()
         }
@@ -435,6 +446,7 @@ Window {
             anchors.fill: parent
             host: demoHost
             hideProgress: presence.hideProgress
+            playerContentVisible: !notification.presenting
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
             desktopLens: backdropEnabled && (backdropItem?.hasFrame === true)
@@ -456,6 +468,14 @@ Window {
             readonly property real capWidth: width
             readonly property real capHeight: height - 4
             property bool bare: wings.ownsHousing
+        }
+        DockNotification {
+            id: notification
+            inPlayer: presence.showing
+            playerHeight: inPlayer ? pill.capHeight : 0
+            x: (stage.width - width) / 2 + (inPlayer ? wings.lyricsView.swipeX : 0)
+            y: pill.y + (inPlayer ? wings.lyricsView.swipeY : -(height + 12) * (1 - reveal))
+            width: inPlayer ? pill.width : demoHost.dock.baseWidth
         }
     }
 
@@ -512,6 +532,10 @@ Window {
     }
     Connections {
         target: window.desktop
+        function onFullscreenActiveChanged() {
+            if (window.desktop.fullscreenActive)
+                notification.dismiss()
+        }
         function onShowRequested() {
             if (window.activeTrackKey !== "" && !window.desktop.fullscreenActive && !window.playbackActive) {
                 wings.lyricsView.dismissedUntilPlay = false
@@ -966,12 +990,41 @@ Window {
                     window.failSmoke("the idle drop did not fully leave through the top edge")
                     return
                 }
+                if (!window.showTestNotification()) {
+                    window.failSmoke("the hidden dock did not accept the test notification")
+                    return
+                }
+                window.smokePhase = 14
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 14 && notification.reveal === 1) {
+                if (!window.visible || wings.visible || notification.inPlayer
+                        || window.bodyRegion.width === 0 || window.leftRegion.width > 0
+                        || window.rightRegion.width > 0) {
+                    window.failSmoke("the idle notification did not appear on its own")
+                    return
+                }
+                notification.details = true
+                window.smokePhase = 15
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 15 && notification.height === notification.detailsHeight) {
+                if (Math.abs(window.bodyRegion.height - notification.height * stage.scale) > 0.1) {
+                    window.failSmoke("the expanded notification was outside the dock hit region")
+                    return
+                }
+                notification.dismiss()
+                window.smokePhase = 16
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 16 && !notification.presenting) {
+                if (window.visible || window.bodyRegion.width > 0) {
+                    window.failSmoke("closing the test notification did not hide the idle dock")
+                    return
+                }
                 window.smokeObstructed = true
                 window.smokeNoSession = false
                 window.demoPlaying = true
-                window.smokePhase = 14
+                window.smokePhase = 17
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 14 && wait >= 850) {
+            } else if (window.smokePhase === 17 && wait >= 850) {
                 if (!presence.interactive || !window.visible || wings.lyricsView.wide) {
                     window.failSmoke("resuming playback did not restore the unobscured compact layout")
                     return
@@ -985,9 +1038,9 @@ Window {
                 }
                 lyricsView.moveSwipe(10, 0)
                 lyricsView.finishSwipe(true)
-                window.smokePhase = 15
+                window.smokePhase = 18
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 15 && wait >= 700) {
+            } else if (window.smokePhase === 18 && wait >= 700) {
                 const lyricsView = wings.lyricsView
                 if (!presence.interactive || window.swipeDismissed || !lyricsView.beginSwipe(0, 0)) {
                     window.failSmoke("a short swipe dismissed the dock")
@@ -998,17 +1051,17 @@ Window {
                     window.failSmoke("the dock did not accept a completed swipe")
                     return
                 }
-                window.smokePhase = 16
+                window.smokePhase = 19
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 16 && wait >= 1000) {
+            } else if (window.smokePhase === 19 && wait >= 1000) {
                 if (window.visible || window.trayPreview || presence.hideProgress !== 1) {
                     window.failSmoke("a completed swipe left a visible dock")
                     return
                 }
                 window.desktop.showRequested()
-                window.smokePhase = 17
+                window.smokePhase = 20
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 17 && wait >= 850) {
+            } else if (window.smokePhase === 20 && wait >= 850) {
                 if (!presence.interactive || window.swipeDismissed
                         || !JSON.parse(wings.lyricsView.diagnostics()).trackHeaderVisible) {
                     window.failSmoke("the tray did not restore the paused track after a swipe")
@@ -1016,7 +1069,7 @@ Window {
                 }
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
-                console.log("PASS desktop expansion, pause delay, swipe dismissal and restoring the dock")
+                console.log("PASS desktop expansion, pause delay, test notification, swipe dismissal and restoring the dock")
                 Qt.exit(0)
             }
         }
