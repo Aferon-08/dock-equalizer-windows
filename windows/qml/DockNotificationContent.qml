@@ -137,10 +137,12 @@ Item {
 
     Button {
         id: closeButton
-        x: card.width - card.inset - width
-        y: card.headerY + 4
+        anchors.right: parent.right
+        anchors.rightMargin: card.inset
+        anchors.verticalCenter: badge.verticalCenter
         width: 30
         height: width
+        padding: 0
         enabled: card.dismissible
         Accessible.name: "Закрыть уведомление"
         background: Rectangle {
@@ -148,12 +150,25 @@ Item {
             color: closeButton.down ? Qt.alpha(card.accent, 0.28)
                 : closeButton.hovered ? Qt.alpha(card.accent, 0.16) : "transparent"
         }
-        contentItem: Text {
-            text: "×"
-            color: closeButton.hovered ? card.ink : card.secondary
-            font.pixelSize: 21
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
+        contentItem: Canvas {
+            readonly property color strokeColor: closeButton.hovered ? card.ink : card.secondary
+            onStrokeColorChanged: requestPaint()
+            onPaint: {
+                const ctx = getContext("2d")
+                const x = width / 2
+                const y = height / 2
+                const arm = 4
+                ctx.clearRect(0, 0, width, height)
+                ctx.strokeStyle = strokeColor
+                ctx.lineWidth = 1.8
+                ctx.lineCap = "round"
+                ctx.beginPath()
+                ctx.moveTo(x - arm, y - arm)
+                ctx.lineTo(x + arm, y + arm)
+                ctx.moveTo(x + arm, y - arm)
+                ctx.lineTo(x - arm, y + arm)
+                ctx.stroke()
+            }
         }
         onClicked: card.dismissed()
     }
