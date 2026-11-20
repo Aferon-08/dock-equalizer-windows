@@ -19,9 +19,18 @@ Item {
     readonly property var material: Material.read(host.settings)
     readonly property vector4d materialStyle: Qt.vector4d(material.enabled ? 1 : 0, material.blur, material.darkening, material.refraction)
     property rect glassRect: Qt.rect(0, 0, 1, 1)
-    property point presentationOffset: Qt.point(0, 0)
-    property size presentationScale: Qt.size(1, 1)
+    property bool gatheringParts: false
+    property point miniCenter: Qt.point(0, 0)
+    readonly property real coverAlpha: coverMotion.alpha
+    readonly property real progressAlpha: progressMotion.alpha
+    readonly property var partProgress: [coverMotion.progress, titleMotion.progress, artistMotion.progress,
+        progressMotion.progress, sheetMotion.progress]
     required property var host
+
+    component PlayerPart: DockPartMotion {
+        destination: root.miniCenter
+        tucking: root.gatheringParts
+    }
     // Optional host-specific cache/IPC behavior; the view itself uses only Qt.
     property Component bridgeComponent: null
     Loader {
@@ -358,7 +367,7 @@ Item {
             lyricsEnded: root.lyricsEnded, finale: root.finaleState.phase, playing: root.playing, content: root.available ? "lyrics" : root.emptyLabel, ambient: root.ambientLight, dismissed: root.dismissedUntilPlay, swipe: [root.swipeX, root.swipeY], swipeDirection: root.lastSwipeDirection, position: root.position, duration: root.duration, reportedDuration: root.reportedDuration, youtubeId: root.youtubeId, index: reel.currentIndex,
             text: reel.current.text, lineOnly: reel.current.lineOnly === true,
             wordSpans: (reel.current.wordSpans || []).length,
-            trackHeaderVisible: header.visible && header.opacity > 0.95,
+            trackHeaderVisible: header.visible && header.opacity * titleMotion.alpha > 0.95,
             progressRenderer: progress.rendererName, progressSpectrum: progress.spectrumPeak,
             waiting: reel.waiting, waitProgress: reel.waitProgress, cursor: reel.cursor,
             marker: [reel.markerPose.x, reel.markerPose.y, reel.markerPose.alpha], handoff: reel.transfer,
@@ -421,18 +430,7 @@ Item {
         NumberAnimation { id: swipeBackX; target: root; property: "swipeX"; to: 0; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
         NumberAnimation { id: swipeBackY; target: root; property: "swipeY"; to: 0; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
     }
-    transform: [
-        Scale {
-            origin.x: root.width / 2
-            origin.y: root.height / 2
-            xScale: root.presentationScale.width
-            yScale: root.presentationScale.height
-        },
-        Translate {
-            x: root.swipeX + root.presentationOffset.x
-            y: root.swipeY + root.presentationOffset.y
-        }
-    ]
+    transform: Translate { x: root.swipeX; y: root.swipeY }
     x: dock.x
     y: dock.y
     width: Math.max(1, dock.capWidth)
@@ -475,9 +473,18 @@ Item {
         width: 41 + 17 * Math.min(1, root.layout)
         height: 41 + 16 * Math.min(1, root.layout)
         radius: 10 + 2 * Math.min(1, root.layout)
+            + (Math.min(width, height) / 2 - 12) * Math.max(0, coverMotion.progress)
         color: root.colors.module
-        opacity: root.musicLayout
+        opacity: root.musicLayout * coverMotion.alpha
         visible: opacity > 0.001
+        transform: PlayerPart {
+            id: coverMotion
+            part: cover
+            tuckedScale: Qt.size(0.70, 0.72)
+            tuckDelay: 120; tuckDuration: 710; tuckEasing: Easing.InOutSine
+            returnDelay: 160; returnDuration: 685; spring: 0.86
+            arc: 14; tilt: 14
+        }
         Image {
             id: coverImage
             anchors.fill: parent
@@ -511,8 +518,16 @@ Item {
         y: root.compactTrackHeader ? 53 + 10 * Math.min(1, root.layout) : 45 + 18 * Math.min(1, root.layout)
         width: Math.max(1, root.width - x - (68 + 14 * Math.min(1, root.layout)))
         height: 20
-        opacity: root.musicLayout
+        opacity: root.musicLayout * progressMotion.alpha
         visible: opacity > 0.001 && root.opacity > 0.001 && (!root.nativeClock || root.player.positionSupported)
+        transform: PlayerPart {
+            id: progressMotion
+            part: progress
+            tuckedScale: Qt.size(0.075, 0.70)
+            tuckDelay: 166; tuckDuration: 642; tuckEasing: Easing.InOutSine
+            returnDelay: 205; returnDuration: 750; spring: 1.22
+            arc: 22; tilt: -8
+        }
         settings: root.host.settings
         palette: root.colors
         secondary: root.host.theme.accentMint || root.colors.ink
@@ -529,8 +544,15 @@ Item {
         x: root.width - 54
         y: root.compactTrackHeader ? 51 + 10 * Math.min(1, root.layout) : 26 + 34 * Math.min(1, root.layout)
         width: 24; height: 24
-        opacity: root.musicLayout
+        opacity: root.musicLayout * volumeMotion.alpha
         visible: opacity > 0.001 && (!root.nativeClock || root.player.volumeSupported)
+        transform: PlayerPart {
+            id: volumeMotion
+            part: volume
+            tuckDelay: 82; tuckDuration: 480
+            returnDelay: 278; returnDuration: 530; spring: 1.23
+            arc: 21; tilt: -18
+        }
         property real unmutedVolume: 1
         Image {
             anchors.centerIn: parent; width: 19; height: 19
@@ -561,6 +583,7 @@ Item {
         visible: root.compactTrackHeader || root.layout > 0.01
         opacity: root.compactTrackHeader ? root.musicLayout : Math.min(1, root.layout)
         Text {
+            id: trackTitle
             x: progress.x; y: 12
             width: Math.max(1, playbackControls.x - x - 12)
             height: 20
@@ -568,8 +591,18 @@ Item {
             elide: Text.ElideRight
             color: root.colors.ink
             font.family: root.host.theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold
+            opacity: titleMotion.alpha
+            transform: PlayerPart {
+                id: titleMotion
+                part: trackTitle
+                pivot: Qt.point(Math.min(trackTitle.width, trackTitle.contentWidth) / 2, trackTitle.height / 2)
+                tuckDelay: 78; tuckDuration: 585
+                returnDelay: 245; returnDuration: 621; spring: 0.98
+                arc: -14; tilt: -11
+            }
         }
         Text {
+            id: trackArtist
             x: progress.x; y: 33
             width: Math.max(1, playbackControls.x - x - 12)
             height: 16
@@ -577,6 +610,15 @@ Item {
             elide: Text.ElideRight
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 11
+            opacity: artistMotion.alpha
+            transform: PlayerPart {
+                id: artistMotion
+                part: trackArtist
+                pivot: Qt.point(Math.min(trackArtist.width, trackArtist.contentWidth) / 2, trackArtist.height / 2)
+                tuckDelay: 118; tuckDuration: 560; tuckEasing: Easing.InOutQuint
+                returnDelay: 285; returnDuration: 626; spring: 1.08
+                arc: 9; tilt: 10
+            }
         }
         Row {
             id: playbackControls
@@ -590,9 +632,22 @@ Item {
                     id: button
                     required property int index
                     required property string modelData
+                    readonly property bool commandAvailable: !!root.player && (index === 0 ? root.player.canGoPrevious
+                        : index === 1 ? root.player.canTogglePlaying : root.player.canGoNext)
                     width: root.nativeClock && root.width < 390 ? 30 : 42
                     height: 32
-                    opacity: root.nativeClock && !area.enabled ? 0.35 : 1
+                    opacity: buttonMotion.alpha * (root.nativeClock && !commandAvailable ? 0.35 : 1)
+                    transform: PlayerPart {
+                        id: buttonMotion
+                        part: button
+                        restingCenter: Qt.point(playbackControls.x + button.x + pivot.x,
+                            playbackControls.y + button.y + pivot.y)
+                        tuckDelay: button.index === 1 ? 180 : 34 + 20 * button.index
+                        tuckDuration: 490 + 24 * button.index
+                        returnDelay: 190 + 46 * button.index; returnDuration: 580 - 27 * button.index
+                        spring: 1.2 + 0.13 * button.index
+                        arc: -16 + 13 * button.index; tilt: 16 - 14 * button.index
+                    }
                     Rectangle { anchors.fill: parent; radius: 12; color: root.colors.ink; opacity: area.containsMouse ? 0.08 : 0 }
                     Image {
                         anchors.centerIn: parent
@@ -619,8 +674,7 @@ Item {
                     MouseArea {
                         id: area
                         anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        enabled: !!root.player && (button.index === 0 ? root.player.canGoPrevious
-                            : button.index === 1 ? root.player.canTogglePlaying : root.player.canGoNext)
+                        enabled: button.commandAvailable
                         onClicked: {
                             if (!root.media) return
                             if (button.index === 0) root.media.previous()
@@ -632,198 +686,232 @@ Item {
             }
         }
         Text {
+            id: playedTime
             x: progress.x; y: 51
             visible: !root.nativeClock || root.layout > 0.5
             text: !root.nativeClock || root.player.positionSupported ? root.timeLabel(root.position) : "—:—"
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 10
+            opacity: playedTimeMotion.alpha
+            transform: PlayerPart {
+                id: playedTimeMotion
+                part: playedTime
+                tuckDelay: 82; tuckDuration: 515
+                returnDelay: 287; returnDuration: 581; spring: 0.92
+                arc: -11; tilt: 13
+            }
         }
         Text {
+            id: totalTime
             x: progress.x + progress.width - width; y: 51
             visible: !root.nativeClock || root.layout > 0.5
             text: root.duration > 0 ? root.timeLabel(root.duration) : "—:—"
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 10
+            opacity: totalTimeMotion.alpha
+            transform: PlayerPart {
+                id: totalTimeMotion
+                part: totalTime
+                tuckDelay: 115; tuckDuration: 470
+                returnDelay: 317; returnDuration: 570
+                arc: 12; tilt: -16
+            }
         }
-    }
-    Rectangle {
-        x: 24; y: 90; width: Math.max(1, parent.width - 48); height: 1
-        color: root.colors.divider; opacity: Math.min(1, root.layout)
     }
     Item {
-        id: lyricGlass
-        x: 24; y: 101; width: Math.max(1, parent.width - 48); height: 94 + 28 * root.voiceExpansion
-        opacity: Math.min(1, root.layout)
+        id: lyricSheet
+        anchors.fill: parent
+        opacity: sheetMotion.alpha
         visible: opacity > 0.001
-        ShaderEffectSource {
-            id: glassCapture
-            sourceItem: root.glassSource
-            sourceRect: root.glassRect
-            live: lyricGlass.visible
-            visible: false
-            smooth: true
-        }
-        ShaderEffect {
-            id: glass
-            anchors.fill: parent
-            property var backdrop: glassCapture
-            property vector2d resolution: Qt.vector2d(width, height)
-            property color tintColor: root.colors.module
-            property color highlightColor: root.colors.ink
-            property vector4d materialStyle: root.materialStyle
-            property real desktopLens: root.desktopLens ? 1 : 0
-            fragmentShader: Qt.resolvedUrl("glass.frag.qsb")
-            visible: !root.multiVoiceActive && !!root.glassSource && status !== ShaderEffect.Error
+        transform: PlayerPart {
+            id: sheetMotion
+            part: lyricSheet
+            pivot: Qt.point(lyricSheet.width / 2, lyricGlass.y + lyricGlass.height / 2)
+            tuckedScale: Qt.size(0.087, 0.19)
+            tuckDuration: 568
+            returnDelay: 316; returnDuration: 680; spring: 1.3
+            arc: 22; tilt: -9
         }
         Rectangle {
-            anchors.fill: parent; radius: 26
-            color: Qt.rgba(root.colors.module.r, root.colors.module.g, root.colors.module.b, root.material.enabled ? 0.4 : 1)
-            visible: !root.multiVoiceActive && !glass.visible
+            x: 24; y: 90; width: Math.max(1, parent.width - 48); height: 1
+            color: root.colors.divider; opacity: Math.min(1, root.layout)
         }
-    }
-    LyricsReel {
-        id: reel
-        x: 68 - 44 * Math.min(1, root.layout)
-        y: 15 + 86 * Math.min(1, root.layout)
-        width: Math.max(1, root.width - 2 * x)
-        height: 34 + (60 + 28 * root.voiceExpansion) * Math.min(1, root.layout)
-        theme: root.host.theme
-        lines: root.lines
-        duration: root.duration
-        rendering: root.available && !root.multiVoiceActive && !root.lyricsEnded
-        estimateWordMotion: root.host.settings.estimateWordMotion === true
-        time: rendering ? root.lyricTime : 0
-        playing: rendering && root.playing
-        pixelSize: (root.host.settings.lyricFontSize ?? 17) - 1 + Math.min(1, root.layout)
-        ink: root.colors.ink
-        accent: root.colors.accent
-        upperContextOpacity: singleBacking.active ? .1 : 1
-        opacity: root.available && !root.multiVoiceActive && !root.lyricsEnded ? root.lyricsOpacity : 0
-    }
-    BackingLayer {
-        id: singleBacking
-        x:reel.x;y:reel.y;width:reel.width;height:reel.height
-        lines:root.allLines.filter(l=>l.role==="backing");time:visible?root.lyricTime:0
-        opacity:root.available && !root.multiVoiceActive && !root.lyricsEnded ? root.lyricsOpacity : 0
-        visible:opacity>.001
-        fontFamily:root.host.theme.fontFamily;pixelSize:12
-        accent:root.colors.accent
-    }
-    MultiVoiceLyrics {
-        id: multiReel
-        objectName: "multiVoiceLyrics"
-        x: lyricGlass.x; y: lyricGlass.y
-        width: lyricGlass.width; height: lyricGlass.height
-        beatPulse: root.audioPulse; heartPulse: root.heartPulse
-        resumeOrigin: Qt.point(root.fishPosition.x-x,root.fishPosition.y-y)
-        allowFinale: !root.processingForLyrics && (!root.hasTimingDocument || !root.wordtimeResult.analysis || root.wordtimeResult.analysis.timelineComplete !== false)
-        document: root.multiVoiceAvailable ? root.voiceDocument : null
-        estimateWordMotion: root.host.settings.estimateWordMotion === true
-        lyricTime: root.lyricTime
-        duration: root.duration
-        playing: root.playing
-        theme: root.host.theme
-        ink: root.colors.ink; accent: root.colors.accent; moduleColor: root.colors.module
-        glassSource: root.glassSource
-        desktopLens: root.desktopLens
-        materialStyle: root.materialStyle
-        glassRect: Qt.rect(root.glassRect.x + 8, root.glassRect.y + 8, width, height)
-        opacity: root.multiVoiceActive && root.available ? root.lyricsOpacity : 0
-        visible: opacity > 0.001
-    }
-    LyricsFinale {
-        objectName: "lyricsFinale"
-        x: reel.x; y: reel.y; width: reel.width; height: reel.height
-        fontFamily: root.host.theme.fontFamily
-        pixelSize: (root.host.settings.lyricFontSize ?? 17)-1+Math.min(1,root.layout)
-        ink: root.colors.ink; accent: root.colors.accent
-        phase: root.finaleState.phase
-        opacity: root.lyricsEnded && !root.multiVoiceActive ? root.lyricsOpacity : 0
-        visible: opacity>.001
-        Behavior on opacity {NumberAnimation{duration:350}}
-    }
-    Item {
-        x: reel.x; y: reel.y; width: reel.width; height: reel.height
-        visible: !root.available && (!root.nativeClock || root.layout > 0.01)
-        opacity: root.lyricsOpacity * (root.nativeClock ? Math.min(1, root.layout) : 1)
-        Column {
-            anchors.centerIn: parent
-            spacing: 8
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                visible: root.layout > 0.5
-                text: root.host.theme.iconFont ? "music_note" : "♪"; color: root.colors.accent; opacity: 0.75
-                font.family: root.host.theme.iconFont || root.host.theme.fontFamily; font.pixelSize: 22
+        Item {
+            id: lyricGlass
+            x: 24; y: 101; width: Math.max(1, parent.width - 48); height: 94 + 28 * root.voiceExpansion
+            opacity: Math.min(1, root.layout)
+            visible: opacity > 0.001
+            ShaderEffectSource {
+                id: glassCapture
+                sourceItem: root.glassSource
+                sourceRect: root.glassRect
+                live: lyricGlass.visible
+                visible: false
+                smooth: true
             }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.emptyLabel; color: root.colors.secondary
-                font.family: root.host.theme.fontFamily; font.pixelSize: 16
+            ShaderEffect {
+                id: glass
+                anchors.fill: parent
+                property var backdrop: glassCapture
+                property vector2d resolution: Qt.vector2d(width, height)
+                property color tintColor: root.colors.module
+                property color highlightColor: root.colors.ink
+                property vector4d materialStyle: root.materialStyle
+                property real desktopLens: root.desktopLens ? 1 : 0
+                fragmentShader: Qt.resolvedUrl("glass.frag.qsb")
+                visible: !root.multiVoiceActive && !!root.glassSource && status !== ShaderEffect.Error
+            }
+            Rectangle {
+                anchors.fill: parent; radius: 26
+                color: Qt.rgba(root.colors.module.r, root.colors.module.g, root.colors.module.b, root.material.enabled ? 0.4 : 1)
+                visible: !root.multiVoiceActive && !glass.visible
             }
         }
-    }
-    Text {
-        objectName: "lyricsAnalysisProgress"
-        anchors.right: lyricGlass.right; anchors.bottom: lyricGlass.bottom
-        anchors.rightMargin: 14; anchors.bottomMargin: 7
-        text: root.processingForLyrics ? "Анализ · "+Math.round(root.wordtimeStore.generationProgress*100)+"%" : ""
-        font.family: root.host.theme.fontFamily; font.pixelSize: 9
-        color: root.colors.accent; opacity: .65*root.lyricsOpacity
-        visible: root.wide && root.processingForLyrics
+        LyricsReel {
+            id: reel
+            x: 68 - 44 * Math.min(1, root.layout)
+            y: 15 + 86 * Math.min(1, root.layout)
+            width: Math.max(1, root.width - 2 * x)
+            height: 34 + (60 + 28 * root.voiceExpansion) * Math.min(1, root.layout)
+            theme: root.host.theme
+            lines: root.lines
+            duration: root.duration
+            rendering: root.available && !root.multiVoiceActive && !root.lyricsEnded
+            estimateWordMotion: root.host.settings.estimateWordMotion === true
+            time: rendering ? root.lyricTime : 0
+            playing: rendering && root.playing
+            pixelSize: (root.host.settings.lyricFontSize ?? 17) - 1 + Math.min(1, root.layout)
+            ink: root.colors.ink
+            accent: root.colors.accent
+            upperContextOpacity: singleBacking.active ? .1 : 1
+            opacity: root.available && !root.multiVoiceActive && !root.lyricsEnded ? root.lyricsOpacity : 0
+        }
+        BackingLayer {
+            id: singleBacking
+            x:reel.x;y:reel.y;width:reel.width;height:reel.height
+            lines:root.allLines.filter(l=>l.role==="backing");time:visible?root.lyricTime:0
+            opacity:root.available && !root.multiVoiceActive && !root.lyricsEnded ? root.lyricsOpacity : 0
+            visible:opacity>.001
+            fontFamily:root.host.theme.fontFamily;pixelSize:12
+            accent:root.colors.accent
+        }
+        MultiVoiceLyrics {
+            id: multiReel
+            objectName: "multiVoiceLyrics"
+            x: lyricGlass.x; y: lyricGlass.y
+            width: lyricGlass.width; height: lyricGlass.height
+            beatPulse: root.audioPulse; heartPulse: root.heartPulse
+            resumeOrigin: Qt.point(root.fishPosition.x-x,root.fishPosition.y-y)
+            allowFinale: !root.processingForLyrics && (!root.hasTimingDocument || !root.wordtimeResult.analysis || root.wordtimeResult.analysis.timelineComplete !== false)
+            document: root.multiVoiceAvailable ? root.voiceDocument : null
+            estimateWordMotion: root.host.settings.estimateWordMotion === true
+            lyricTime: root.lyricTime
+            duration: root.duration
+            playing: root.playing
+            theme: root.host.theme
+            ink: root.colors.ink; accent: root.colors.accent; moduleColor: root.colors.module
+            glassSource: root.glassSource
+            desktopLens: root.desktopLens
+            materialStyle: root.materialStyle
+            glassRect: Qt.rect(root.glassRect.x + 8, root.glassRect.y + 8, width, height)
+            opacity: root.multiVoiceActive && root.available ? root.lyricsOpacity : 0
+            visible: opacity > 0.001
+        }
+        LyricsFinale {
+            objectName: "lyricsFinale"
+            x: reel.x; y: reel.y; width: reel.width; height: reel.height
+            fontFamily: root.host.theme.fontFamily
+            pixelSize: (root.host.settings.lyricFontSize ?? 17)-1+Math.min(1,root.layout)
+            ink: root.colors.ink; accent: root.colors.accent
+            phase: root.finaleState.phase
+            opacity: root.lyricsEnded && !root.multiVoiceActive ? root.lyricsOpacity : 0
+            visible: opacity>.001
+            Behavior on opacity {NumberAnimation{duration:350}}
+        }
+        Item {
+            x: reel.x; y: reel.y; width: reel.width; height: reel.height
+            visible: !root.available && (!root.nativeClock || root.layout > 0.01)
+            opacity: root.lyricsOpacity * (root.nativeClock ? Math.min(1, root.layout) : 1)
+            Column {
+                anchors.centerIn: parent
+                spacing: 8
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: root.layout > 0.5
+                    text: root.host.theme.iconFont ? "music_note" : "♪"; color: root.colors.accent; opacity: 0.75
+                    font.family: root.host.theme.iconFont || root.host.theme.fontFamily; font.pixelSize: 22
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: root.emptyLabel; color: root.colors.secondary
+                    font.family: root.host.theme.fontFamily; font.pixelSize: 16
+                }
+            }
+        }
+        Text {
+            objectName: "lyricsAnalysisProgress"
+            anchors.right: lyricGlass.right; anchors.bottom: lyricGlass.bottom
+            anchors.rightMargin: 14; anchors.bottomMargin: 7
+            text: root.processingForLyrics ? "Анализ · "+Math.round(root.wordtimeStore.generationProgress*100)+"%" : ""
+            font.family: root.host.theme.fontFamily; font.pixelSize: 9
+            color: root.colors.accent; opacity: .65*root.lyricsOpacity
+            visible: root.wide && root.processingForLyrics
+        }
+        Item {
+            id: recordingIndicator
+            objectName: "lyricsRecordingIndicator"
+            anchors.right: lyricGlass.right; anchors.bottom: lyricGlass.bottom
+            anchors.rightMargin: 14; anchors.bottomMargin: 12
+            width: 14; height: 14
+            opacity: root.wide && !!root.wordtimeStore && !!root.player && !root.hasTimingDocument && !root.processingForLyrics ? Math.min(1, root.layout) * root.musicLayout : 0
+            visible: opacity > 0.001
+            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.InOutCubic } }
+            Accessible.name: "Обработать лирику"
+            Controls.ToolTip.visible: analysisClick.containsMouse
+            readonly property bool requested: !!root.wordtimeStore
+                && !!root.wordtimeStore.analysisRequests[root.wordtimeStore.token(root.wordtimeTrack)]
+            readonly property bool pulsing: requested && visible && root.playing && root.recordingForLyrics
+            Controls.ToolTip.text: requested ? "Обработка запрошена · ожидаем полную запись"
+                : root.recordingForLyrics ? "Запись идёт · нажмите для обработки после прослушивания" : "Обработать лирику"
+            MouseArea {
+                id: analysisClick
+                objectName: "lyricsGenerationButton"
+                // Only this input target sits above the native dock's hit area.
+                // Keep the housing and icons in their original visual stacking.
+                parent: root.host.dock.item.parent
+                z: 3
+                x: root.x + recordingIndicator.x + root.swipeX - 7
+                y: root.y + recordingIndicator.y + root.swipeY - 7
+                width: 28; height: 28
+                enabled: root.enabled
+                visible: root.visible && recordingIndicator.visible && root.host.working
+                hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                onClicked: root.wordtimeStore.requestAnalysis(root.wordtimeTrack,root.standardLyricsText,root.timingReference)
+            }
+            property real pulse: 1
+            SequentialAnimation on pulse {
+                running: recordingIndicator.pulsing
+                loops: Animation.Infinite
+                NumberAnimation { from: 1; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 0.4; to: 1; duration: 800; easing.type: Easing.InOutSine }
+            }
+            Rectangle {
+                anchors.fill: parent; radius: width / 2
+                color: "transparent"; border.width: 1; border.color: root.colors.accent
+                opacity: recordingIndicator.pulsing ? 0.4 + recordingIndicator.pulse * 0.3 : 0.7
+            }
+            Rectangle {
+                anchors.centerIn: parent; width: 5; height: 5; radius: 2.5
+                color: root.colors.accent
+                opacity: recordingIndicator.pulsing ? recordingIndicator.pulse : 0.8
+            }
+        }
     }
     Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
         y: 4; width: 32; height: 3; radius: 1.5
         color: root.colors.ink; opacity: swipeGrip.containsMouse || root.swipeDragging ? 0.45 : 0.17
         visible: root.swipeEnabled
-    }
-    Item {
-        id: recordingIndicator
-        objectName: "lyricsRecordingIndicator"
-        anchors.right: lyricGlass.right; anchors.bottom: lyricGlass.bottom
-        anchors.rightMargin: 14; anchors.bottomMargin: 12
-        width: 14; height: 14
-        opacity: root.wide && !!root.wordtimeStore && !!root.player && !root.hasTimingDocument && !root.processingForLyrics ? Math.min(1, root.layout) * root.musicLayout : 0
-        visible: opacity > 0.001
-        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.InOutCubic } }
-        Accessible.name: "Обработать лирику"
-        Controls.ToolTip.visible: analysisClick.containsMouse
-        readonly property bool requested: !!root.wordtimeStore
-            && !!root.wordtimeStore.analysisRequests[root.wordtimeStore.token(root.wordtimeTrack)]
-        readonly property bool pulsing: requested && visible && root.playing && root.recordingForLyrics
-        Controls.ToolTip.text: requested ? "Обработка запрошена · ожидаем полную запись"
-            : root.recordingForLyrics ? "Запись идёт · нажмите для обработки после прослушивания" : "Обработать лирику"
-        MouseArea {
-            id: analysisClick
-            objectName: "lyricsGenerationButton"
-            // Only this input target sits above the native dock's hit area.
-            // Keep the housing and icons in their original visual stacking.
-            parent: root.host.dock.item.parent
-            z: 3
-            x: root.x + recordingIndicator.x + root.swipeX - 7
-            y: root.y + recordingIndicator.y + root.swipeY - 7
-            width: 28; height: 28
-            visible: root.visible && recordingIndicator.visible && root.host.working
-            hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-            onClicked: root.wordtimeStore.requestAnalysis(root.wordtimeTrack,root.standardLyricsText,root.timingReference)
-        }
-        property real pulse: 1
-        SequentialAnimation on pulse {
-            running: recordingIndicator.pulsing
-            loops: Animation.Infinite
-            NumberAnimation { from: 1; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
-            NumberAnimation { from: 0.4; to: 1; duration: 800; easing.type: Easing.InOutSine }
-        }
-        Rectangle {
-            anchors.fill: parent; radius: width / 2
-            color: "transparent"; border.width: 1; border.color: root.colors.accent
-            opacity: recordingIndicator.pulsing ? 0.4 + recordingIndicator.pulse * 0.3 : 0.7
-        }
-        Rectangle {
-            anchors.centerIn: parent; width: 5; height: 5; radius: 2.5
-            color: root.colors.accent
-            opacity: recordingIndicator.pulsing ? recordingIndicator.pulse : 0.8
-        }
     }
     MouseArea {
         id: swipeGrip
