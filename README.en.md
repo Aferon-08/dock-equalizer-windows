@@ -8,7 +8,9 @@ The dock shows track information and playback controls from Windows media sessio
 
 Select **Download raw file**. Run the installer or extract the entire ZIP and start **SekaiSoundbar.exe**. The [Windows x64 workflow](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/actions/workflows/windows.yml) also produces an installer, a portable ZIP and a source archive.
 
-Right-click the dock and choose **Оформление дока…** (Dock appearance) to adjust glass and lighting. The **Преломлять фон рабочего стола** switch uses the desktop behind the dock for refraction. Windows may show its capture border. The app saves these settings between launches.
+Choose **Настройки…** (Settings) from the tray icon or the dock's right-click menu. **General** controls startup at Windows sign-in, and **Monitors** lets you select each connected display. The app starts with the primary display selected. The tray provides access to settings even when every display is turned off in the app.
+
+In **Appearance**, adjust glass and lighting. The **Преломлять фон рабочего стола** switch uses the desktop behind the dock for refraction. Windows may show its capture border. The app saves these settings between launches.
 
 Open **Выровнять лирику…** (Align lyrics) to align existing lyrics to a local audio file and export Wordtime JSON. Initial setup of the aligner downloads about 450 MB.
 

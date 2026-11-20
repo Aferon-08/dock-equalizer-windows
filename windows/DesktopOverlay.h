@@ -16,7 +16,7 @@ class DesktopOverlay final : public QObject
     Q_PROPERTY(bool expandedObstructed READ expandedObstructed NOTIFY expandedObstructedChanged FINAL)
 
 public:
-    explicit DesktopOverlay(QObject *parent = nullptr);
+    explicit DesktopOverlay(QScreen *screen);
 
     QRect workArea() const { return m_workArea; }
     bool fullscreenActive() const { return m_fullscreenActive; }
@@ -31,10 +31,9 @@ signals:
     void fullscreenActiveChanged();
     void expandedObstructedChanged();
     void showRequested();
-    void appearanceRequested();
+    void settingsRequested(const QString &section);
 
 private:
-    void trackPrimaryScreen(QScreen *screen);
     void updateWorkArea();
     void updateDesktopState();
     void updatePointerPassthrough();

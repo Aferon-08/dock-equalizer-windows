@@ -1,6 +1,5 @@
 #include "DesktopOverlay.h"
 
-#include <QGuiApplication>
 #include <QPainterPath>
 #include <QRegion>
 #include <QScreen>
@@ -133,7 +132,7 @@ BOOL CALLBACK scanDesktopWindow(HWND window, LPARAM data)
     return TRUE;
 }
 
-bool fullscreenOnPrimaryMonitor()
+bool fullscreenOnMonitor(const QRect &monitorBounds)
 {
     const HWND foreground = GetForegroundWindow();
     if (!foreground)
@@ -156,27 +155,21 @@ bool fullscreenOnPrimaryMonitor()
     if (IsZoomed(window) && ((style & WS_CAPTION) == WS_CAPTION || (style & WS_THICKFRAME)))
         return false;
 
-    // The Windows primary monitor contains the native origin. Use native
-    // monitor bounds here so mixed DPI and taskbar placement do not affect the test.
-    const HMONITOR monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
-    MONITORINFO info{};
-    info.cbSize = sizeof(info);
-    if (!GetMonitorInfoW(monitor, &info))
-        return false;
-
-    const QRect monitorBounds(info.rcMonitor.left, info.rcMonitor.top,
-        info.rcMonitor.right - info.rcMonitor.left, info.rcMonitor.bottom - info.rcMonitor.top);
     return windowBounds(window).adjusted(-1, -1, 1, 1).contains(monitorBounds);
 }
 #endif
 
 } // namespace
 
-DesktopOverlay::DesktopOverlay(QObject *parent)
-    : QObject(parent)
+DesktopOverlay::DesktopOverlay(QScreen *screen)
+    : m_screen(screen)
 {
-    trackPrimaryScreen(QGuiApplication::primaryScreen());
-    connect(qGuiApp, &QGuiApplication::primaryScreenChanged, this, &DesktopOverlay::trackPrimaryScreen);
+    connect(screen, &QScreen::availableGeometryChanged, this, [this] {
+        updateWorkArea();
+        updateDesktopState();
+    });
+    updateWorkArea();
+    updateDesktopState();
 
 #ifdef Q_OS_WIN
     // Sampling coalesces the window moves and z-order changes during a drag.
@@ -192,17 +185,6 @@ DesktopOverlay::DesktopOverlay(QObject *parent)
 #endif
 }
 
-void DesktopOverlay::trackPrimaryScreen(QScreen *screen)
-{
-    if (m_screen)
-        disconnect(m_screen, nullptr, this, nullptr);
-    m_screen = screen;
-    if (screen)
-        connect(screen, &QScreen::availableGeometryChanged, this, &DesktopOverlay::updateWorkArea);
-    updateWorkArea();
-    updateDesktopState();
-}
-
 void DesktopOverlay::updateWorkArea()
 {
     const QRect area = m_screen ? m_screen->availableGeometry() : QRect{};
@@ -215,7 +197,16 @@ void DesktopOverlay::updateWorkArea()
 void DesktopOverlay::updateDesktopState()
 {
 #ifdef Q_OS_WIN
-    const bool active = fullscreenOnPrimaryMonitor();
+    const auto *native = m_screen ? m_screen->nativeInterface<QNativeInterface::QWindowsScreen>() : nullptr;
+    const HMONITOR monitor = native ? native->handle() : nullptr;
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (!monitor || !GetMonitorInfoW(monitor, &info))
+        return;
+    const QRect monitorBounds(info.rcMonitor.left, info.rcMonitor.top,
+        info.rcMonitor.right - info.rcMonitor.left, info.rcMonitor.bottom - info.rcMonitor.top);
+
+    const bool active = fullscreenOnMonitor(monitorBounds);
     if (m_fullscreenActive != active) {
         m_fullscreenActive = active;
         emit fullscreenActiveChanged();
@@ -223,23 +214,15 @@ void DesktopOverlay::updateDesktopState()
     if (!m_panel || m_expandedBounds.isEmpty())
         return;
 
-    const HMONITOR monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
-    MONITORINFO info{};
-    info.cbSize = sizeof(info);
-    if (!GetMonitorInfoW(monitor, &info))
-        return;
-
     const HWND panel = m_panel->handle() ? reinterpret_cast<HWND>(m_panel->winId()) : nullptr;
-    const qreal scale = m_panel->devicePixelRatio();
+    const qreal scale = m_screen->devicePixelRatio();
     const QPoint offset = m_panel->position() - m_workArea.topLeft();
     POINT clientOrigin{};
-    const QPointF origin = panel && !IsIconic(panel) && ClientToScreen(panel, &clientOrigin)
+    const QPointF origin = panel && !IsIconic(panel)
+        && MonitorFromWindow(panel, MONITOR_DEFAULTTONULL) == monitor && ClientToScreen(panel, &clientOrigin)
         ? QPointF(clientOrigin.x, clientOrigin.y)
         : QPointF(info.rcWork.left, info.rcWork.top) + offset * scale;
     const QRectF nativeBounds(origin + m_expandedBounds.topLeft() * scale, m_expandedBounds.size() * scale);
-    const QRect monitorBounds(info.rcMonitor.left, info.rcMonitor.top,
-        info.rcMonitor.right - info.rcMonitor.left, info.rcMonitor.bottom - info.rcMonitor.top);
-
     DesktopWindows windows;
     windows.panel = panel;
     if (windows.shell)

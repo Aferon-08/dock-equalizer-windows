@@ -16,6 +16,7 @@ VIAddVersionKey "LegalCopyright" "Sekai Soundbar contributors. GPL-3.0."
 SetCompressor /SOLID lzma
 
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SekaiSoundbar"
+!define STARTUP_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_LICENSE "${PAYLOAD}/LICENSE"
 !insertmacro MUI_PAGE_INSTFILES
@@ -130,6 +131,10 @@ Section "Uninstall"
     IfErrors uninstallFailed
     Delete "$SMPROGRAMS\Sekai Soundbar\Sekai Soundbar.lnk"
     RMDir "$SMPROGRAMS\Sekai Soundbar"
+    ReadRegStr $0 HKCU "${STARTUP_KEY}" "SekaiSoundbar"
+    ${If} $0 == '$\"$INSTDIR\app\SekaiSoundbar.exe$\"'
+        DeleteRegValue HKCU "${STARTUP_KEY}" "SekaiSoundbar"
+    ${EndIf}
     DeleteRegKey HKCU "${UNINSTALL_KEY}"
     Delete "$INSTDIR\Uninstall.exe"
     RMDir "$INSTDIR"
