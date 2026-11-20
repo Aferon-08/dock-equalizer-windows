@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 0.13.0 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 0.14.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,7 +49,8 @@ set(shared_ui
     VoiceAnnotations.js
 )
 set(shared_assets assets/next.svg assets/previous.svg assets/volume.svg)
-foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml DockMiniPlayer.qml DockNotification.qml)
+foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml DockMiniPlayer.qml
+        DockNotification.qml DockNotificationContent.qml WifiThroughput.qml)
     set_source_files_properties("windows/qml/${file}"
         PROPERTIES QT_RESOURCE_ALIAS "${file}")
 endforeach()
@@ -72,8 +73,10 @@ qt_add_qml_module(SekaiSoundbar
         windows/qml/ApplicationState.qml
         windows/qml/DockMiniPlayer.qml
         windows/qml/DockNotification.qml
+        windows/qml/DockNotificationContent.qml
         windows/qml/DockPresence.qml
         windows/qml/SettingsWindow.qml
+        windows/qml/WifiThroughput.qml
         ${shared_ui}
     RESOURCES ${shared_assets}
 )

@@ -4,6 +4,7 @@ target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.
     LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h
+    WifiStatus.cpp WifiStatus.h
     MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
 target_include_directories(SekaiSoundbar PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
@@ -11,7 +12,7 @@ target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VER
 if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
         WinCaptureAbi.h BackdropTextureNode.h)
-    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore)
+    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi)
 endif()
 
 if(WIN32)

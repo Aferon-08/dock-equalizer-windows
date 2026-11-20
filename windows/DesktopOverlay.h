@@ -26,7 +26,7 @@ public:
 
     Q_INVOKABLE void setPanelRegion(QWindow *window, const QRectF &body, qreal radius,
                                     const QRectF &leftWing, const QRectF &rightWing,
-                                    const QRectF &miniPlayer);
+                                    const QRectF &miniPlayer, const QRectF &neck);
     Q_INVOKABLE void setExpandedRegions(QWindow *window, const QRectF &player, qreal playerRadius,
                                        const QRectF &notification, qreal notificationRadius);
 

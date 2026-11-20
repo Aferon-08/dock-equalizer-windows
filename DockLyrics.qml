@@ -20,7 +20,7 @@ Item {
     readonly property vector4d materialStyle: Qt.vector4d(material.enabled ? 1 : 0, material.blur, material.darkening, material.refraction)
     property rect glassRect: Qt.rect(0, 0, 1, 1)
     property point presentationOffset: Qt.point(0, 0)
-    property real presentationScale: 1
+    property size presentationScale: Qt.size(1, 1)
     required property var host
     // Optional host-specific cache/IPC behavior; the view itself uses only Qt.
     property Component bridgeComponent: null
@@ -422,10 +422,10 @@ Item {
     }
     transform: [
         Scale {
-            origin.x: cover.x + cover.width / 2
-            origin.y: cover.y + cover.height / 2
-            xScale: root.presentationScale
-            yScale: root.presentationScale
+            origin.x: root.width / 2
+            origin.y: root.height / 2
+            xScale: root.presentationScale.width
+            yScale: root.presentationScale.height
         },
         Translate {
             x: root.swipeX + root.presentationOffset.x
@@ -454,8 +454,6 @@ Item {
     }
 
     // The same art and progress move between the two layouts, without crossfading copies.
-    readonly property rect coverBounds: Qt.rect(x + swipeX + cover.x, y + swipeY + cover.y,
-        cover.width, cover.height)
     Rectangle {
         id: cover
         layer.enabled: true
