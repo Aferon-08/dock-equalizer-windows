@@ -303,8 +303,9 @@ Item {
         id: lyricLayer
         enabled: root.hideProgress === 0 && !root.noticeVisible
         opacity: root.contentOpacity * (root.noticeVisible ? root.notification.playerOpacity : 1)
-        presentationScale: root.noticeVisible ? root.notification.playerScale : Qt.size(1, 1)
-        presentationOffset: root.noticeVisible ? root.notification.playerOffset : Qt.point(0, 0)
+        gatheringParts: root.noticeVisible && root.notification.splittingPlayer
+        miniCenter: root.notification ? Qt.point(root.notification.miniCenter.x - x - swipeX,
+            root.notification.miniCenter.y - y - swipeY) : Qt.point(0, 0)
         host: root.host
         bridgeComponent: root.lyricsBridgeComponent
         glassSource: root.shaderAvailable ? skin : null

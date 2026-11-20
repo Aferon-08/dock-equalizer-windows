@@ -101,8 +101,10 @@ Window {
     property bool smokeObstructed: false
     property bool smokeHoldOpen: true
     property bool smokeSawGlassNeck: false
-    property bool smokeSawPlayerSqueeze: false
-    property bool smokeSawSpring: false
+    property bool smokeSawStaggeredTuck: false
+    property bool smokeSawReleaseSpring: false
+    property bool smokeSawStaggeredReturn: false
+    property bool smokeSawReturnSpring: false
 
     DockPresence {
         id: presence
@@ -531,7 +533,7 @@ Window {
             topInset: pill.y
             onDismissed: window.appState.dismissNotification()
             onReleaseRecoilChanged: if (window.smokePhase === 22 && releaseRecoil > 0.25)
-                window.smokeSawSpring = true
+                window.smokeSawReleaseSpring = true
         }
     }
 
@@ -1131,32 +1133,42 @@ Window {
             } else if (window.smokePhase === 22) {
                 const body = wings.housingRect
                 const mini = noticeLayer.miniBounds
+                const parts = wings.lyricsView.partProgress
                 if (mini.x + mini.width > body.x + body.width + 8 && mini.width > mini.height
                         && noticeLayer.neckBounds.width > 0)
                     window.smokeSawGlassNeck = true
-                if (noticeLayer.playerScale.width < 0.5 && noticeLayer.playerOffset.x > 40
-                        && noticeLayer.playerOpacity > 0.15)
-                    window.smokeSawPlayerSqueeze = true
+                if (Math.max(...parts) - Math.min(...parts) > 0.3 && wings.lyricsView.coverAlpha > 0.2)
+                    window.smokeSawStaggeredTuck = true
                 if (noticeLayer.splitProgress !== 1)
                     return
-                if (!window.smokeSawGlassNeck || !window.smokeSawPlayerSqueeze || !window.smokeSawSpring
+                if (!window.smokeSawGlassNeck || !window.smokeSawStaggeredTuck || !window.smokeSawReleaseSpring
+                        || parts.some(part => part !== 1)
                         || mini.x < body.x + body.width + 12 || mini.width !== noticeLayer.miniDiameter
                         || Math.abs(window.miniPlayerRegion.width - mini.width * stage.scale) > 0.1) {
-                    window.failSmoke("the mini-player did not form a connected glass drop and pull in the player")
+                    window.failSmoke("the connected glass drop did not gather the player in separate parts")
                     return
                 }
                 window.appState.dismissNotification()
                 window.smokePhase = 23
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 23) {
+                const parts = wings.lyricsView.partProgress
+                if (Math.max(...parts) - Math.min(...parts) > 0.3)
+                    window.smokeSawStaggeredReturn = true
+                if (parts.filter(part => part < -0.012).length >= 2)
+                    window.smokeSawReturnSpring = true
                 if (wings.housingRect.height + 0.1 < noticeLayer.detailsHeight) {
                     window.failSmoke("the glass body shrank into compact mode while merging with the mini-player")
                     return
                 }
                 if (noticeLayer.presenting)
                     return
-                if (!window.visible || !wings.lyricsView.wide || window.miniPlayerRegion.width !== 0) {
-                    window.failSmoke("dismissal did not restore the expanded player")
+                if (!window.visible || !wings.lyricsView.wide || window.miniPlayerRegion.width !== 0
+                        || !window.smokeSawStaggeredReturn || !window.smokeSawReturnSpring
+                        || parts.some(part => part !== 0)) {
+                    window.failSmoke("the player did not return in staggered pieces and spring into place"
+                        + " (stagger: " + window.smokeSawStaggeredReturn + ", spring: " + window.smokeSawReturnSpring
+                        + ", parts: " + parts + ")")
                     return
                 }
                 window.appState.postTestNotification("wifi")
@@ -1223,7 +1235,7 @@ Window {
                     === "materialProgressRenderer") {
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
-                console.log("PASS desktop expansion, liquid mini-player, notifications, progress styles, pause and restore")
+                console.log("PASS desktop expansion, liquid mini-player, staggered return, notifications, progress styles and pause")
                 Qt.exit(0)
             }
         }

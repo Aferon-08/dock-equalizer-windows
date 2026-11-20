@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 0.15.1 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 0.15.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,7 @@ set(shared_ui
     BackingLayer.qml
     BackingPhrase.qml
     DockLyrics.qml
+    DockPartMotion.qml
     DockProgress.qml
     DockWings.qml
     FireflyScene.qml

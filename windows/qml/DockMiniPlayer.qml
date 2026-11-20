@@ -7,6 +7,8 @@ Item {
     objectName: "dockMiniPlayer"
     required property var player
     required property url artwork
+    required property real artworkOpacity
+    required property real progressOpacity
     required property bool playing
     required property bool roundArtwork
     required property var host
@@ -24,6 +26,7 @@ Item {
     DockProgress {
         id: ringProgress
         anchors.fill: parent
+        opacity: mini.progressOpacity
         circular: true
         settings: mini.host.settings
         palette: mini.host.dock.palette
@@ -40,6 +43,7 @@ Item {
         width: 42
         height: width
         radius: width / 2
+        opacity: mini.artworkOpacity
         color: "#a22c4f43"
         antialiasing: true
         layer.enabled: mini.roundArtwork

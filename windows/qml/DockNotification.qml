@@ -48,7 +48,8 @@ Item {
     property real reveal: active ? 1 : 0
     property real detailProgress: presenting && clearForDetails ? 1 : 0
     property real expandedHeight: detailsHeight
-    property real splitProgress: splittingPlayer ? 1 : 0
+    property real splitProgress: 0
+    property real mergeWeight: splittingPlayer || miniPauseExpired ? 0 : 1
     property real attachment: attached && !miniPauseExpired ? 1 : 0
     property real nudge: 0
     property bool miniPauseExpired: false
@@ -59,10 +60,23 @@ Item {
     Behavior on reveal { NumberAnimation { duration: 560; easing.type: Easing.InOutCubic } }
     Behavior on detailProgress { NumberAnimation { duration: 460; easing.type: Easing.InOutCubic } }
     Behavior on expandedHeight { NumberAnimation { duration: 380; easing.type: Easing.InOutCubic } }
-    Behavior on splitProgress { NumberAnimation { duration: 1060; easing.type: Easing.InOutSine } }
+    Behavior on mergeWeight { NumberAnimation { duration: 180; easing.type: Easing.InOutSine } }
     Behavior on attachment { NumberAnimation { duration: 360; easing.type: Easing.InOutCubic } }
     Behavior on cardRetraction { NumberAnimation { duration: 490; easing.type: Easing.InOutCubic } }
     Behavior on miniRetreat { NumberAnimation { duration: 450; easing.type: Easing.InOutSine } }
+
+    onSplittingPlayerChanged: {
+        const current = splitProgress
+        const target = splittingPlayer ? 1 : 0
+        split.stop()
+        if (current === target)
+            return
+        split.from = current
+        split.to = target
+        split.easing.type = splittingPlayer ? Easing.InOutSine : Easing.OutQuad
+        split.start()
+    }
+    NumberAnimation { id: split; target: notice; property: "splitProgress"; duration: 1060 }
 
     function beginPauseHold() {
         if (canHoldPausedMini && !pauseHold.running)
@@ -110,7 +124,7 @@ Item {
         ? Motion.smooth((splitProgress - 0.04) / 0.65) : Motion.smooth((reveal - 0.06) / 0.52)
     readonly property real detailAmount: Motion.smooth(detailProgress)
     readonly property real releaseRecoil: Geometry.recoil((splitProgress - 0.76) / 0.24)
-    readonly property real mergeRecoil: splittingPlayer ? 0 : Geometry.recoil((0.30 - splitProgress) / 0.30)
+    readonly property real mergeRecoil: mergeWeight * Geometry.recoil((0.39 - splitProgress) / 0.39)
     readonly property real bodyTaper: Math.max(Geometry.taper(cardRetraction),
         Geometry.mix(Geometry.taper(1 - reveal), renderer.playerTaper, attachment))
     readonly property real bodyRadius: {
@@ -123,30 +137,32 @@ Item {
             1 - reveal, 0, 0)
         const body = retiringMini ? retiringDeckBounds : renderer.playerHousing
         const widthTaken = (miniDiameter + miniGap) * Motion.smooth((splitProgress - 0.1) / 0.78)
-        const playerBounds = Qt.rect(body.x + nudge * coverAmount - 3 * mergeRecoil, body.y,
-            Math.max(1, body.width - widthTaken - 4 * releaseRecoil + 8 * mergeRecoil),
-            Geometry.mix(body.height, height, coverAmount) + 4 * Math.abs(mergeRecoil))
+        const playerBounds = Qt.rect(body.x + nudge * coverAmount - 10 * mergeRecoil, body.y,
+            Math.max(1, body.width - widthTaken - 4 * releaseRecoil + 20 * mergeRecoil),
+            Geometry.mix(body.height, height, coverAmount) + 9 * mergeRecoil)
         const housing = Geometry.mixRect(solo, playerBounds, attachment)
         return cardRetraction > 0 ? Geometry.pullToEdge(housing, cardRetraction, 0, 0) : housing
     }
 
+    readonly property real miniStretch: Motion.smooth((splitProgress - 0.34) / 0.24)
+        * (1 - Motion.smooth((splitProgress - 0.72) / 0.26))
+    readonly property point miniCenter: {
+        const body = renderer.playerHousing
+        const extruded = Motion.smooth((splitProgress - 0.10) / 0.68)
+        return Qt.point(body.x + body.width - Geometry.mix(miniDiameter * 0.78, miniDiameter / 2, extruded)
+            + 6 * miniStretch + 11 * releaseRecoil,
+            body.y + 47 + 6 * miniStretch - 4 * releaseRecoil)
+    }
     readonly property rect miniBounds: {
         if (miniPauseExpired)
             return retiringMini ? Geometry.pullToEdge(retiringBounds, miniRetreat, 0, 0) : Qt.rect(0, 0, 0, 0)
         const growth = Motion.smooth((splitProgress - 0.08) / 0.55)
         if (growth < 0.001)
             return Qt.rect(0, 0, 0, 0)
-        const extruded = Motion.smooth((splitProgress - 0.10) / 0.68)
-        const stretch = Motion.smooth((splitProgress - 0.34) / 0.24)
-            * (1 - Motion.smooth((splitProgress - 0.72) / 0.26))
-        const body = renderer.playerHousing
         const span = miniDiameter * growth
-        const horizontal = span * (1 + 0.17 * stretch + 0.095 * releaseRecoil)
-        const vertical = span * (1 - 0.12 * stretch - 0.065 * releaseRecoil)
-        const centerX = body.x + body.width - Geometry.mix(miniDiameter * 0.78, miniDiameter / 2, extruded)
-            + 6 * stretch + 11 * releaseRecoil
-        const centerY = body.y + 47 + 6 * stretch - 4 * releaseRecoil
-        return Qt.rect(centerX - horizontal / 2, centerY - vertical / 2, horizontal, vertical)
+        const horizontal = span * (1 + 0.17 * miniStretch + 0.095 * releaseRecoil)
+        const vertical = span * (1 - 0.12 * miniStretch - 0.065 * releaseRecoil)
+        return Qt.rect(miniCenter.x - horizontal / 2, miniCenter.y - vertical / 2, horizontal, vertical)
     }
     readonly property real miniBlend: miniPauseExpired ? 0 : 48 * Motion.smooth((splitProgress - 0.16) / 0.27)
         * (1 - Motion.smooth((splitProgress - 0.70) / 0.23)) * (1 - cardRetraction)
@@ -160,20 +176,11 @@ Item {
         return Qt.rect(edge - 7, miniBounds.y + (miniBounds.height - height) / 2, span, height)
     }
 
-    readonly property real squeeze: Motion.smooth((splitProgress - 0.04) / 0.55)
     readonly property real playerOpacity: miniPauseExpired ? 0 : (1 - cardRetraction) * (movingPlayer
-        ? 1 - Motion.smooth((splitProgress - 0.42) / 0.28) : 1 - coverAmount)
-    readonly property size playerScale: Qt.size(Geometry.mix(1, 0.078, squeeze), Geometry.mix(1, 0.22, squeeze))
-    readonly property point playerOffset: {
-        if (miniBounds.width <= 0)
-            return Qt.point(0, 0)
-        const body = renderer.playerHousing
-        const towardEdge = Motion.travel((splitProgress - 0.12) / 0.63)
-        return Qt.point((miniBounds.x + miniBounds.width / 2 - body.x - body.width / 2) * towardEdge,
-            (miniBounds.y + miniBounds.height / 2 - body.y - body.height / 2) * towardEdge)
-    }
+        ? 1 : 1 - coverAmount)
     readonly property real textOpacity: (1 - Motion.smooth(cardRetraction / 0.45)) * (movingPlayer
-        ? Motion.smooth((splitProgress - 0.56) / 0.35) : Motion.smooth((reveal - 0.39) / 0.51))
+        ? Motion.smooth((splitProgress - 0.57) / 0.34) * Motion.smooth((reveal - 0.72) / 0.28)
+        : Motion.smooth((reveal - 0.39) / 0.51))
 
     visible: presenting
 
@@ -198,11 +205,13 @@ Item {
         y: notice.miniBounds.y + (notice.miniBounds.height - height) / 2
         scale: Math.min(notice.miniBounds.width, notice.miniBounds.height) / width
         opacity: notice.miniPauseExpired ? 1 - Motion.smooth((notice.miniRetreat - 0.12) / 0.68)
-            : Motion.smooth((notice.splitProgress - 0.58) / 0.26)
+            : Motion.smooth((notice.splitProgress - 0.25) / 0.33)
         visible: opacity > 0.001
         enabled: notice.splitProgress > 0.92 && !notice.miniPauseExpired
         player: notice.media.player
         artwork: notice.media.artUrl
+        artworkOpacity: notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.coverAlpha
+        progressOpacity: notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.progressAlpha
         playing: notice.media.playing
         roundArtwork: notice.renderer.shaderAvailable
         host: notice.renderer.host
