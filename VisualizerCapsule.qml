@@ -114,6 +114,8 @@ Item {
             onWidthChanged: requestPaint()
             onHeightChanged: requestPaint()
             onVisibleChanged: if (visible) requestPaint()
+            readonly property color waveAccent: root.palette?.accent ?? "transparent"
+            onWaveAccentChanged: if (visible) requestPaint()
             onPaint: {
                 const ctx = getContext("2d")
                 ctx.clearRect(0, 0, width, height)
@@ -131,7 +133,7 @@ Item {
                 if (!amplitudes.some(v => v > 0.002))
                     return
                 const gradient = ctx.createLinearGradient(0, 0, width, 0)
-                gradient.addColorStop(0, root.palette.accent)
+                gradient.addColorStop(0, waveAccent)
                 gradient.addColorStop(1, root.palette.ink)
                 ctx.fillStyle = gradient
                 if (root.style === "bars") {

@@ -10,7 +10,7 @@ Select **Download raw file**. Run the installer or extract the entire ZIP and st
 
 Choose **Настройки…** (Settings) from the tray icon or the dock's right-click menu. **General** controls startup at Windows sign-in, and **Monitors** lets you select each connected display. The app starts with the primary display selected. The tray provides access to settings even when every display is turned off in the app.
 
-In **Appearance**, adjust glass and lighting. The **Преломлять фон рабочего стола** switch uses the desktop behind the dock for refraction. Windows may show its capture border. The app saves these settings between launches.
+In **Appearance**, adjust glass and lighting. **Цвет дока по обложке** matches the dock and its accents to the current cover art. The **Преломлять фон рабочего стола** switch uses the desktop behind the dock for refraction. Windows may show its capture border. The app saves these settings between launches.
 
 Open **Выровнять лирику…** (Align lyrics) to align existing lyrics to a local audio file and export Wordtime JSON. Initial setup of the aligner downloads about 450 MB.
 

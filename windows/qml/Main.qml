@@ -259,6 +259,7 @@ Window {
         readonly property string title: "A little light"
         readonly property string artist: "Sekai Soundbar"
         property string artUrl: ""
+        property color artworkAccent: "transparent"
         function togglePlaying() { window.demoPlaying = !window.demoPlaying }
         function next() { window.restartDemo() }
         function previous() { window.restartDemo() }
@@ -307,7 +308,7 @@ Window {
         property QtObject theme: QtObject {
             property string fontFamily: "Segoe UI"
             property string iconFont: ""
-            property color accentMint: "#96dcc0"
+            readonly property color accentMint: dockPalette.accent
         }
         property QtObject settings: QtObject {
             property bool enabled: true
@@ -373,14 +374,26 @@ Window {
             property real baseWidth: 432
             readonly property real stageWidth: stage.width
             property QtObject palette: QtObject {
-                property color fill: "#101b18"
-                property color rim: "#284a3d"
-                property color shadow: "#060d0a"
-                property color ink: "#e8f4ee"
-                property color accent: "#96dcc0"
-                property real border: 3
-                property real ringWidth: 3
-                property color ring: "#101b18"
+                id: dockPalette
+                readonly property color sourceColor: window.media.artworkAccent
+                readonly property bool useArtwork: window.appearance.values.artworkColors && sourceColor.a > 0
+
+                function shade(base, amount) {
+                    return Qt.tint(base, Qt.rgba(sourceColor.r, sourceColor.g, sourceColor.b, amount))
+                }
+
+                property color fill: useArtwork ? shade("#0c1014", 0.17) : "#101b18"
+                property color rim: useArtwork ? shade("#18242a", 0.38) : "#284a3d"
+                property color accent: useArtwork ? sourceColor : "#96dcc0"
+                readonly property color ring: fill
+                readonly property color shadow: "#060d0a"
+                readonly property color ink: "#e8f4ee"
+                readonly property real border: 3
+                readonly property real ringWidth: 3
+
+                Behavior on fill { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                Behavior on rim { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                Behavior on accent { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
             }
         }
     }
@@ -749,6 +762,10 @@ Window {
                         || wings.suppressMediaKey || wings.reveal < 0.95
                         || !JSON.parse(wings.lyricsView.diagnostics()).trackHeaderVisible
                         || visualizerService.bands.length !== 64) return
+                if (!Qt.colorEqual(dockPalette.accent, "#96dcc0") || !Qt.colorEqual(dockPalette.fill, "#101b18")) {
+                    window.failSmoke("missing artwork should keep the default mint palette")
+                    return
+                }
                 window.captureSmoke("compact", function() {
                     if (window.smokeImports) {
                         const message = window.importLyrics(window.smokeLrc, window.activeTrackKey)
@@ -760,6 +777,7 @@ Window {
                     } else {
                         demoLyrics.status = "ready"
                     }
+                    demoMedia.artworkAccent = "#ec9dad"
                     window.lyricsExpanded = true
                     window.smokePhase = 1
                     window.smokeStarted = Date.now()
@@ -774,6 +792,13 @@ Window {
                     ? lyrics.text === "Вторая строка" && lyrics.lineOnly && lyrics.wordSpans === 0
                     : demoLyrics.lines.some(line => line.text === lyrics.text)
                 if (!expected) return
+                if (!Qt.colorEqual(dockPalette.accent, demoMedia.artworkAccent)
+                        || Qt.colorEqual(dockPalette.fill, "#101b18")
+                        || Qt.colorEqual(dockPalette.rim, "#284a3d")
+                        || !Qt.colorEqual(dockPalette.ink, "#e8f4ee")) {
+                    window.failSmoke("cover tint must reach the player and leave its text readable")
+                    return
+                }
                 if (window.smokeImports && (lyrics.wordStart !== 4
                         || !(lyrics.nextWordStart > 4.9 && lyrics.nextWordStart < 9))) {
                     window.failSmoke("the LRC line has no estimated second word landing")
@@ -781,6 +806,7 @@ Window {
                 }
                 window.captureSmoke("expanded lyrics", function() {
                     if (window.smokeImports) {
+                        demoMedia.artworkAccent = "#92bfff"
                         window.smokeLandingTime = lyrics.nextWordStart
                         window.smokeFirstMarkerX = lyrics.marker[0]
                         demoPlayer.seek(window.smokeLandingTime - 0.12)
@@ -809,6 +835,11 @@ Window {
                     window.failSmoke("the marker did not land with a splash on the second LRC word")
                     return
                 }
+                if (!Qt.colorEqual(dockPalette.accent, demoMedia.artworkAccent)) {
+                    window.failSmoke("a new cover did not replace the previous tint")
+                    return
+                }
+                window.appearance.setArtworkColors(false)
                 demoMedia.togglePlaying()
                 demoPlayer.seek(1.25)
                 window.smokePhase = 4
@@ -819,6 +850,12 @@ Window {
                     window.failSmoke("paused rewind did not restore the first LRC line")
                     return
                 }
+                if (!Qt.colorEqual(dockPalette.accent, "#96dcc0")) {
+                    window.failSmoke("disabling the tint did not restore the mint accent")
+                    return
+                }
+                demoMedia.artworkAccent = "transparent"
+                window.appearance.setArtworkColors(true)
                 const message = window.importLyrics(window.smokeWordtime, window.activeTrackKey)
                 if (message) {
                     window.failSmoke(message)
