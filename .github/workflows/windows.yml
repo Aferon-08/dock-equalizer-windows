@@ -53,12 +53,17 @@ jobs:
           choco install nsis --version=3.11 --yes --no-progress
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+          $makeappx = Get-ChildItem $sdkBin -Filter MakeAppx.exe -Recurse |
+            Where-Object { $_.Directory.Name -eq 'x64' } |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$makeappx) { throw 'MakeAppx.exe was not found in the Windows SDK' }
           $notices = New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP 'qt-sources')
           foreach ($module in 'qtbase', 'qtdeclarative', 'qtsvg') {
             $name = "$module-$env:QT_VERSION.tar.gz"
             Invoke-WebRequest "https://codeload.github.com/qt/$module/tar.gz/refs/tags/v$env:QT_VERSION" -OutFile (Join-Path $notices $name)
           }
-          python windows/package.py --stage out/stage/windows-msvc-x64 --out dist --makensis $compiler --qt-archives $notices
+          python windows/package.py --stage out/stage/windows-msvc-x64 --out dist --makensis $compiler --makeappx $makeappx.FullName --qt-archives $notices
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git archive --format=zip --prefix=SekaiSoundbar-source/ --output=dist/SekaiSoundbar-source.zip HEAD
       - name: Test portable and installed copies without Qt on PATH

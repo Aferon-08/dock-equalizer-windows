@@ -6,6 +6,8 @@ The dock shows track information and playback controls from Windows media sessio
 
 [Windows 11 x64 installer](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64-Setup.exe) · [Portable ZIP](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/blob/windows-build/SekaiSoundbar-Windows11-x64.zip)
 
+For Windows app notifications, use **Setup.exe**. Open Sekai Soundbar from Start and grant access when Windows asks.
+
 Select **Download raw file**. Run the installer or extract the entire ZIP and start **SekaiSoundbar.exe**. The [Windows x64 workflow](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/actions/workflows/windows.yml) also produces an installer, a portable ZIP and a source archive.
 
 Choose **Настройки…** (Settings) from the tray icon or the dock's right-click menu. **General** controls startup at Windows sign-in, and **Monitors** lets you select each connected display. The app starts with the primary display selected. The tray provides access to settings even when every display is turned off in the app.

@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 0.16.1 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 0.17.0 LANGUAGES CXX)
+
+if(WIN32)
+    enable_language(RC)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
