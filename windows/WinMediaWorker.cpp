@@ -1,4 +1,5 @@
 #include "WinMediaWorker.h"
+#include "ArtworkColor.h"
 #include "WinMediaAbi.h"
 
 #include <QBuffer>
@@ -133,7 +134,7 @@ private:
     std::atomic_ulong m_refs = 1;
 };
 
-QUrl thumbnail(Properties *properties, const std::atomic_bool &stopping)
+MediaArtwork thumbnail(Properties *properties, const std::atomic_bool &stopping)
 {
     ComPtr<StreamReference> reference;
     ComPtr<AsyncOperation<IInspectable *>> operation;
@@ -171,7 +172,8 @@ QUrl thumbnail(Properties *properties, const std::atomic_bool &stopping)
     destination.open(QIODevice::WriteOnly);
     if (image.isNull() || !image.save(&destination, "PNG"))
         return {};
-    return QUrl::fromEncoded(QByteArrayLiteral("data:image/png;base64,") + encoded.toBase64());
+    return {QUrl::fromEncoded(QByteArrayLiteral("data:image/png;base64,") + encoded.toBase64()),
+        artworkAccent(image)};
 }
 
 bool capability(PlaybackControls *controls, HRESULT (STDMETHODCALLTYPE PlaybackControls::*getter)(boolean *))
@@ -513,9 +515,9 @@ private:
         const QString key = m_state.sessionId + u'\x1f' + title + u'\x1f' + artist
             + u'\x1f' + album + u'\x1f' + QString::number(track);
 
-        QUrl art = m_state.artUrl;
-        if (key != m_state.trackKey || revision != m_lastRevision || art.isEmpty())
-            art = thumbnail(properties.Get(), m_stopping);
+        auto artwork = m_state.artwork;
+        if (key != m_state.trackKey || revision != m_lastRevision || artwork.url.isEmpty())
+            artwork = thumbnail(properties.Get(), m_stopping);
         if (revision != m_revision->load())
             return;
 
@@ -523,7 +525,7 @@ private:
         m_state.title = title;
         m_state.artist = artist;
         m_state.album = album;
-        m_state.artUrl = std::move(art);
+        m_state.artwork = std::move(artwork);
         m_lastRevision = revision;
         m_probeAfter = playbackTimeMs() + (m_listening ? 4000 : 1200);
     }

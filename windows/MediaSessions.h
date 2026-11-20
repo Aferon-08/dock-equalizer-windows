@@ -2,12 +2,19 @@
 
 #include "PlaybackClock.h"
 
+#include <QColor>
 #include <QObject>
 #include <QString>
 #include <QUrl>
 #include <QVariantList>
 
 #include <memory>
+
+struct MediaArtwork
+{
+    QUrl url;
+    QColor accent;
+};
 
 struct MediaState
 {
@@ -17,7 +24,7 @@ struct MediaState
     QString artist;
     QString album;
     QString sourceName;
-    QUrl artUrl;
+    MediaArtwork artwork;
     TimelineSample timeline;
     bool paused = false;
     bool canTogglePlaying = false;
@@ -57,6 +64,7 @@ class MediaSessions final : public QObject
     Q_PROPERTY(QString title READ title NOTIFY changed FINAL)
     Q_PROPERTY(QString artist READ artist NOTIFY changed FINAL)
     Q_PROPERTY(QUrl artUrl READ artUrl NOTIFY changed FINAL)
+    Q_PROPERTY(QColor artworkAccent READ artworkAccent NOTIFY changed FINAL)
     Q_PROPERTY(QString trackKey READ trackKey NOTIFY changed FINAL)
     Q_PROPERTY(bool playing READ playing NOTIFY changed FINAL)
     Q_PROPERTY(bool paused READ paused NOTIFY changed FINAL)
@@ -84,7 +92,11 @@ public:
     QString trackTitle() const { return m_state.title; }
     QString trackArtist() const { return m_state.artist; }
     QString trackAlbum() const { return m_state.album; }
-    QUrl artUrl() const { return m_state.artUrl; }
+    QUrl artUrl() const { return m_state.artwork.url; }
+    QColor artworkAccent() const
+    {
+        return m_state.artwork.accent.isValid() ? m_state.artwork.accent : QColor(Qt::transparent);
+    }
     QString trackKey() const { return m_state.trackKey; }
     bool playing() const { return m_state.timeline.playing; }
     bool paused() const { return m_state.paused; }

@@ -486,6 +486,15 @@ Window {
             Surface {
                 RowLayout {
                     Layout.fillWidth: true
+                    FieldLabel { text: "Цвет дока по обложке" }
+                    Option {
+                        Accessible.name: "Цвет дока по обложке"
+                        checked: panel.appearance.values.artworkColors
+                        onToggled: panel.appearance.setArtworkColors(checked)
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
                     FieldLabel { text: "Стеклянный корпус" }
                     Option {
                         Accessible.name: "Стеклянный корпус"

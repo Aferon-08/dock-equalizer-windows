@@ -1,5 +1,5 @@
 qt_add_executable(SekaiSoundbar WIN32 main.cpp DesktopOverlay.cpp DesktopOverlay.h)
-target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackClock.h
+target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackClock.h ArtworkColor.cpp ArtworkColor.h
     DisplaySettings.cpp DisplaySettings.h DockAppearance.cpp DockAppearance.h StartupSettings.cpp StartupSettings.h
     LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
@@ -105,6 +105,9 @@ if(BUILD_TESTING)
     add_test(NAME soundbar.clock COMMAND soundbar_clock_test)
     add_executable(soundbar_spectrum_test tests/SpectrumAnalyzerTest.cpp SpectrumAnalyzer.cpp)
     add_test(NAME soundbar.spectrum COMMAND soundbar_spectrum_test)
+    add_executable(soundbar_artwork_color_test tests/ArtworkColorTest.cpp ArtworkColor.cpp)
+    target_link_libraries(soundbar_artwork_color_test PRIVATE Qt6::Gui)
+    add_test(NAME soundbar.artwork-color COMMAND soundbar_artwork_color_test)
     add_executable(soundbar_backdrop_test tests/BackdropGeometryTest.cpp)
     target_link_libraries(soundbar_backdrop_test PRIVATE Qt6::Core)
     add_test(NAME soundbar.backdrop-geometry COMMAND soundbar_backdrop_test)
