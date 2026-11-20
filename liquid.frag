@@ -30,6 +30,8 @@ layout(std140, binding = 0) uniform buf {
     float desktopLens;
     float dropTaper;
     vec4 miniPlayer;
+    vec4 noticeTint;
+    float miniBlend;
     float noticeMix;
 };
 layout(binding = 1) uniform sampler2D backdrop;
@@ -58,13 +60,14 @@ float housingDistance(vec2 p) {
 }
 
 float miniPlayerDistance(vec2 p) {
-    return length(p - miniPlayer.xy) - miniPlayer.z * 0.5;
+    vec2 radius = max(vec2(0.01), miniPlayer.zw * 0.5);
+    return (length((p - miniPlayer.xy) / radius) - 1.0) * min(radius.x, radius.y);
 }
 
 float body(vec2 p) {
     float mainBody = housingDistance(p);
     if (miniPlayer.z > 0.001)
-        mainBody = liquidUnion(mainBody, miniPlayerDistance(p), miniPlayer.w);
+        mainBody = liquidUnion(mainBody, miniPlayerDistance(p), miniBlend);
     if (params.x < 0.1)
         return mainBody;
     vec2 wingSize = vec2(wingData.w, params.x);
@@ -174,7 +177,7 @@ void main() {
             float shoulder = smoothstep(0.1, 1.0, max(abs(lens.x), abs(lens.y)));
             bend = mix(bend, lens * (4.0 + 8.0 * shoulder), mainMask);
             if (miniMask > 0.0) {
-                vec2 miniLens = (p - miniPlayer.xy) / max(1.0, miniPlayer.z * 0.5);
+                vec2 miniLens = (p - miniPlayer.xy) / max(vec2(1.0), miniPlayer.zw * 0.5);
                 bend = mix(bend, miniLens * (3.0 + 6.0 * dot(miniLens, miniLens)), miniMask);
             }
         }
@@ -199,12 +202,15 @@ void main() {
         float transmission = desktopLens > 0.5 ? 1.0 : 0.78;
         float a = tintAlpha+scene.a*transmission*(1.0-tintAlpha);
         vec3 tint = mix(fillColor.rgb,lightPrimary.rgb,0.065);
+        float noticeColor = noticeMix * mainMask * (1.0 - miniMask) * noticeTint.a;
+        tint = mix(tint, noticeTint.rgb, noticeColor * 0.10);
         vec3 rgb = tint*tintAlpha+scene.rgb*transmission*(1.0-tintAlpha);
         float rim = exp(-abs(distance+0.8)/1.1);
         float inner = exp(-abs(distance+5.0)/2.0);
         float spec = pow(max(0.0,dot(n,normalize(vec2(-0.5,-1.0)))),3.0);
         float highlight = rim*(0.13+spec*0.44)+inner*0.075;
-        rgb += mix(vec3(1.0),lightPrimary.rgb,0.18)*highlight;
+        vec3 pearl = mix(mix(vec3(1.0),lightPrimary.rgb,0.18), noticeTint.rgb, noticeColor * 0.22);
+        rgb += pearl * highlight;
         a = max(a,highlight);
         result = mix(result,vec4(min(rgb,vec3(a)),a),glassAmount*cover);
     }

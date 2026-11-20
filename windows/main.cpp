@@ -7,6 +7,7 @@
 #include "MediaSessions.h"
 #include "StartupSettings.h"
 #include "SystemAudio.h"
+#include "WifiStatus.h"
 
 #include <QAction>
 #include <QApplication>
@@ -127,6 +128,7 @@ int main(int argc, char *argv[])
     const bool liveInputs = !smokeMode && !demoPreview;
     MediaSessions media(liveInputs);
     SystemAudio audio(liveInputs);
+    WifiStatus wifiStatus(!liveInputs);
     LyricsImport lyrics;
     LyricsSearch search;
     LyricsAlignment alignment;
@@ -154,7 +156,8 @@ int main(int argc, char *argv[])
     QQmlComponent stateComponent(&engine, u"Sekai.Soundbar", u"ApplicationState");
     std::unique_ptr<QObject> appState(stateComponent.createWithInitialProperties({
         {QStringLiteral("mediaSessions"), QVariant::fromValue(&media)},
-        {QStringLiteral("lyricsAlignment"), QVariant::fromValue(&alignment)}
+        {QStringLiteral("lyricsAlignment"), QVariant::fromValue(&alignment)},
+        {QStringLiteral("wifiStatus"), QVariant::fromValue(&wifiStatus)}
     }));
     if (!appState) {
         qWarning().noquote() << stateComponent.errorString();

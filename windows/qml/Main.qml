@@ -100,6 +100,8 @@ Window {
     property real smokeFirstMarkerX: 0
     property bool smokeObstructed: false
     property bool smokeHoldOpen: true
+    property bool smokeSawGlassNeck: false
+    property bool smokeSawPlayerSqueeze: false
 
     DockPresence {
         id: presence
@@ -149,6 +151,10 @@ Window {
         const body = noticeLayer.miniBounds
         return scaledRect(body.x, body.y, body.width, body.height)
     }
+    readonly property rect miniPlayerNeckRegion: {
+        const body = noticeLayer.neckBounds
+        return scaledRect(body.x, body.y, body.width, body.height)
+    }
     readonly property real regionRadius: (noticeLayer.presenting ? wings.housingRadius : wings.radius + 26) * stage.scale
     readonly property rect expandedRegion: {
         const size = wings.lyricsView.expandedBodySize
@@ -162,6 +168,7 @@ Window {
     onLeftRegionChanged: Qt.callLater(updatePanelRegion)
     onRightRegionChanged: Qt.callLater(updatePanelRegion)
     onMiniPlayerRegionChanged: Qt.callLater(updatePanelRegion)
+    onMiniPlayerNeckRegionChanged: Qt.callLater(updatePanelRegion)
     onRegionRadiusChanged: Qt.callLater(updatePanelRegion)
     onHeightChanged: Qt.callLater(updatePanelRegion)
     onExpandedRegionChanged: Qt.callLater(updateExpandedRegion)
@@ -187,7 +194,8 @@ Window {
     }
 
     function updatePanelRegion() {
-        desktop.setPanelRegion(window, bodyRegion, regionRadius, leftRegion, rightRegion, miniPlayerRegion)
+        desktop.setPanelRegion(window, bodyRegion, regionRadius, leftRegion, rightRegion,
+                               miniPlayerRegion, miniPlayerNeckRegion)
     }
 
     function updateExpandedRegion() {
@@ -427,7 +435,7 @@ Window {
     Item {
         id: stage
         width: Math.max(760, window.width)
-        height: pill.y + Math.max(pill.height, noticeLayer.presenting ? noticeLayer.detailsHeight : 0)
+        height: pill.y + Math.max(pill.height, noticeLayer.presenting ? noticeLayer.maximumDetailsHeight : 0)
             + 32 + Math.max(0, wings.lyricsView.swipeY)
         scale: window.width / width
         transformOrigin: Item.TopLeft
@@ -450,8 +458,8 @@ Window {
             x: noticeLayer.miniBounds.x
             y: noticeLayer.miniBounds.y
             width: noticeLayer.miniBounds.width
-            height: width
-            radius: width / 2
+            height: noticeLayer.miniBounds.height
+            radius: Math.min(width, height) / 2
             color: solidHousing.color
             border.color: solidHousing.border.color
             border.width: solidHousing.border.width
@@ -502,6 +510,7 @@ Window {
             id: noticeLayer
             anchors.fill: parent
             event: window.appState.dockNotification
+            wifi: window.appState.wifiStatus.snapshot
             renderer: wings
             media: window.media
             allowed: !window.desktop.fullscreenActive
@@ -1106,12 +1115,21 @@ Window {
                 window.appState.postTestNotification()
                 window.smokePhase = 22
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 22 && noticeLayer.splitProgress === 1) {
+            } else if (window.smokePhase === 22) {
                 const body = wings.housingRect
                 const mini = noticeLayer.miniBounds
-                if (mini.x < body.x + body.width + 12 || mini.width !== noticeLayer.miniDiameter
+                if (mini.x + mini.width > body.x + body.width + 8 && mini.width > mini.height
+                        && noticeLayer.neckBounds.width > 0)
+                    window.smokeSawGlassNeck = true
+                if (noticeLayer.playerScale.width < 0.5 && noticeLayer.playerOffset.x > 40
+                        && noticeLayer.playerOpacity > 0.15)
+                    window.smokeSawPlayerSqueeze = true
+                if (noticeLayer.splitProgress !== 1)
+                    return
+                if (!window.smokeSawGlassNeck || !window.smokeSawPlayerSqueeze
+                        || mini.x < body.x + body.width + 12 || mini.width !== noticeLayer.miniDiameter
                         || Math.abs(window.miniPlayerRegion.width - mini.width * stage.scale) > 0.1) {
-                    window.failSmoke("the mini-player did not separate from the expanded notification")
+                    window.failSmoke("the mini-player did not form a connected glass drop and pull in the player")
                     return
                 }
                 window.appState.dismissNotification()
@@ -1128,6 +1146,26 @@ Window {
                     window.failSmoke("dismissal did not restore the expanded player")
                     return
                 }
+                window.appState.postTestNotification("wifi")
+                window.smokePhase = 24
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 24 && noticeLayer.splitProgress === 1) {
+                const wifi = window.appState.wifiStatus.snapshot
+                if (!wifi.preview || wifi.samples.length < 8 || noticeLayer.bodyBounds.height < 230) {
+                    window.failSmoke("the Wi-Fi debug card did not expand with traffic samples")
+                    return
+                }
+                window.appState.postTestNotification("update")
+                if (window.appState.wifiStatus.active || window.appState.dockNotification.kind !== "system") {
+                    window.failSmoke("switching test events left the Wi-Fi sampler active")
+                    return
+                }
+                window.appState.postTestNotification("charged")
+                if (window.appState.dockNotification.charge !== 100) {
+                    window.failSmoke("the full battery test did not carry its charge level")
+                    return
+                }
+                window.appState.dismissNotification()
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
                 console.log("PASS desktop expansion, pause delay, test notification, swipe dismissal and restoring the dock")

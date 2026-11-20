@@ -184,7 +184,7 @@ Item {
     Item {
         id: liquid
         width: root.bodyAlong + 2 * (root.length + root.gap + root.pad)
-        height: (root.noticeVisible ? Math.max(root.bodyAcross, root.notification.detailsHeight)
+        height: (root.noticeVisible ? Math.max(root.bodyAcross, root.notification.maximumDetailsHeight)
             : root.bodyAcross) + 2 * root.pad
         x: root.dock.x + root.bodyWidth / 2 - width / 2 + lyricLayer.swipeX
         y: root.dock.y + root.bodyHeight / 2 - root.bodyAcross / 2 - root.pad + lyricLayer.swipeY
@@ -236,9 +236,11 @@ Item {
                     return Qt.vector4d(0, 0, 0, 0)
                 const rect = root.notification.miniBounds
                 return Qt.vector4d(rect.x + rect.width / 2 - liquid.x,
-                    rect.y + rect.height / 2 - liquid.y, rect.width, root.notification.miniBlend)
+                    rect.y + rect.height / 2 - liquid.y, rect.width, rect.height)
             }
+            readonly property real miniBlend: root.noticeVisible ? root.notification.miniBlend : 0
             readonly property real noticeMix: root.noticeMix
+            readonly property color noticeTint: root.noticeVisible ? root.notification.accent : "transparent"
             function inShader(rect) {
                 return Qt.vector4d(rect.x - liquid.x, rect.y - liquid.y, rect.width, rect.height)
             }
@@ -301,7 +303,7 @@ Item {
         id: lyricLayer
         enabled: root.hideProgress === 0 && !root.noticeVisible
         opacity: root.contentOpacity * (root.noticeVisible ? root.notification.playerOpacity : 1)
-        presentationScale: root.noticeVisible ? root.notification.playerScale : 1
+        presentationScale: root.noticeVisible ? root.notification.playerScale : Qt.size(1, 1)
         presentationOffset: root.noticeVisible ? root.notification.playerOffset : Qt.point(0, 0)
         host: root.host
         bridgeComponent: root.lyricsBridgeComponent

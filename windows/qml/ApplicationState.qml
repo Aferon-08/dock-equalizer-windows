@@ -5,6 +5,7 @@ QtObject {
     id: app
     required property var mediaSessions
     required property var lyricsAlignment
+    required property var wifiStatus
     property var localLyrics: null
     property var dockNotification: null
     readonly property string trackKey: mediaSessions.trackKey
@@ -13,19 +14,48 @@ QtObject {
 
     onTrackKeyChanged: if (localLyrics && localLyrics.key !== trackKey) localLyrics = null
 
-    function postTestNotification() {
-        dockNotification = {
-            title: "Тестовое уведомление",
-            summary: "Проверка показа в доке",
-            detail: "Уведомление отправлено из настроек. События дока будут появляться в этой области.",
-            source: "Sekai Soundbar",
-            sentAt: new Date()
+    readonly property var testScenarios: ({
+        regular: {
+            kind: "regular", accent: "#a4e7cc", title: "Тестовое уведомление",
+            summary: "Проверка показа в доке", source: "Sekai Soundbar",
+            detail: "Уведомление отправлено из настроек. События дока будут появляться в этой области."
+        },
+        update: {
+            kind: "system", accent: "#ffdb91", title: "Доступно обновление Windows",
+            summary: "Windows 11 · накопительное обновление", source: "Система · тест",
+            detail: "Обновление готово к установке. Для завершения потребуется перезагрузка."
+        },
+        wifi: {
+            kind: "wifi", accent: "#a0dcff", title: "Подключение к Wi-Fi",
+            source: "Сеть · тест события"
+        },
+        charging: {
+            kind: "battery", accent: "#a4e7cc", title: "Зарядка подключена",
+            summary: "62 % · Заряжается", source: "Батарея · тест", charge: 62,
+            detail: "До полного заряда около 46 минут."
+        },
+        unplugged: {
+            kind: "battery", accent: "#a4e7cc", title: "Работа от батареи",
+            summary: "62 % · Питание отключено", source: "Батарея · тест", charge: 62,
+            detail: "Осталось около 3 ч 15 мин работы."
+        },
+        charged: {
+            kind: "battery", accent: "#a4e7cc", title: "Батарея заряжена",
+            summary: "100 % · Подключена к сети", source: "Батарея · тест", charge: 100,
+            detail: "Ноутбук заряжен и подключён к питанию."
         }
+    })
+
+    function postTestNotification(scenario) {
+        const fixture = testScenarios[scenario] ?? testScenarios.regular
+        wifiStatus.active = fixture.kind === "wifi"
+        dockNotification = Object.assign({}, fixture, {sentAt: new Date()})
         notificationExpiry.restart()
     }
 
     function dismissNotification() {
         notificationExpiry.stop()
+        wifiStatus.active = false
         dockNotification = null
     }
 

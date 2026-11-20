@@ -1,11 +1,11 @@
 import QtQuick
-import QtQuick.Controls
 import "DockGeometry.js" as Geometry
 import "MarkerMotion.js" as Motion
 
 Item {
     id: notice
     required property var event
+    required property var wifi
     required property var renderer
     required property var media
     required property bool allowed
@@ -21,13 +21,16 @@ Item {
     readonly property bool splittingPlayer: active && clearForDetails && widePlayer
     readonly property bool movingPlayer: splittingPlayer || (!active && splitProgress > 0)
     readonly property real compactHeight: 76
-    readonly property real detailsHeight: 176
+    readonly property real maximumDetailsHeight: 236
+    readonly property real detailsHeight: lastEvent?.kind === "wifi" && (wifi.hasCounters || wifi.state === "loading")
+        ? maximumDetailsHeight : 176
     readonly property real soloWidth: Math.min(450, width - 48)
     readonly property real miniDiameter: 66
     readonly property real miniGap: 16
+    readonly property color accent: lastEvent?.accent ?? "#a4e7cc"
     readonly property rect expandedEnvelope: {
         const view = renderer.lyricsView
-        const footprintWidth = widePlayer ? view.expandedBodySize.width
+        const footprintWidth = widePlayer ? view.expandedBodySize.width + 24
             : attached ? Math.min(renderer.host.settings.compactWidth, view.maxBody) : soloWidth
         return Qt.rect((width - footprintWidth) / 2, topInset, footprintWidth, detailsHeight)
     }
@@ -35,12 +38,14 @@ Item {
     property var lastEvent: null
     property real reveal: active ? 1 : 0
     property real detailProgress: presenting && clearForDetails ? 1 : 0
+    property real expandedHeight: detailsHeight
     property real splitProgress: splittingPlayer ? 1 : 0
     property real attachment: attached ? 1 : 0
     property real nudge: 0
     Behavior on reveal { NumberAnimation { duration: 560; easing.type: Easing.InOutCubic } }
     Behavior on detailProgress { NumberAnimation { duration: 460; easing.type: Easing.InOutCubic } }
-    Behavior on splitProgress { NumberAnimation { duration: 820; easing.type: Easing.InOutCubic } }
+    Behavior on expandedHeight { NumberAnimation { duration: 380; easing.type: Easing.InOutCubic } }
+    Behavior on splitProgress { NumberAnimation { duration: 1060; easing.type: Easing.InOutSine } }
     Behavior on attachment { NumberAnimation { duration: 360; easing.type: Easing.InOutCubic } }
 
     onEventChanged: {
@@ -58,181 +63,92 @@ Item {
         NumberAnimation { target: notice; property: "nudge"; to: 0; duration: 115; easing.type: Easing.OutCubic }
     }
 
-    readonly property real coverAmount: Math.max(Motion.smooth((reveal - 0.06) / 0.52),
-        Motion.smooth(splitProgress / 0.42))
+    readonly property real coverAmount: movingPlayer
+        ? Motion.smooth((splitProgress - 0.04) / 0.65) : Motion.smooth((reveal - 0.06) / 0.52)
     readonly property real detailAmount: Motion.smooth(detailProgress)
     readonly property real bodyTaper: Geometry.mix(Geometry.taper(1 - reveal), renderer.playerTaper, attachment)
-    readonly property real bodyRadius: Geometry.mix(
-        Geometry.mix(compactHeight / 2, 36, detailAmount),
-        Geometry.mix(renderer.radius, Geometry.mix(compactHeight / 2, 36, detailAmount), coverAmount),
-        attachment)
+    readonly property real bodyRadius: {
+        const radius = Geometry.mix(compactHeight / 2, 36, detailAmount)
+        return Geometry.mix(radius, Geometry.mix(renderer.radius, radius, coverAmount), attachment)
+    }
     readonly property rect bodyBounds: {
-        const height = Geometry.mix(compactHeight, detailsHeight, detailAmount)
+        const height = Geometry.mix(compactHeight, expandedHeight, detailAmount)
         const solo = Geometry.pullToEdge(Qt.rect((width - soloWidth) / 2, topInset, soloWidth, height),
             1 - reveal, 0, 0)
         const body = renderer.playerHousing
-        const widthTaken = (miniDiameter + miniGap) * Motion.smooth((splitProgress - 0.12) / 0.8)
+        const widthTaken = (miniDiameter + miniGap) * Motion.smooth((splitProgress - 0.1) / 0.78)
         const playerBounds = Qt.rect(body.x + nudge * coverAmount, body.y, body.width - widthTaken,
             Geometry.mix(body.height, height, coverAmount))
         return Geometry.mixRect(solo, playerBounds, attachment)
     }
+
     readonly property rect miniBounds: {
-        if (splitProgress <= 0.001)
+        const growth = Motion.smooth((splitProgress - 0.08) / 0.55)
+        if (growth < 0.001)
             return Qt.rect(0, 0, 0, 0)
-        const path = Motion.travel((splitProgress - 0.08) / 0.92)
+        const extruded = Motion.smooth((splitProgress - 0.10) / 0.68)
+        const stretch = Motion.smooth((splitProgress - 0.34) / 0.24)
+            * (1 - Motion.smooth((splitProgress - 0.72) / 0.26))
         const body = renderer.playerHousing
-        const cover = renderer.lyricsView.coverBounds
-        const diameter = Geometry.mix(cover.width + 14, miniDiameter, path)
-            * Motion.smooth(splitProgress / 0.13)
-        const centerX = Geometry.mix(cover.x + cover.width / 2, body.x + body.width - miniDiameter / 2, path)
-        const centerY = Geometry.mix(cover.y + cover.height / 2, body.y + 47, path)
-            + 16 * Math.pow(Math.sin(Math.PI * path), 2)
-        return Qt.rect(centerX - diameter / 2, centerY - diameter / 2, diameter, diameter)
+        const span = miniDiameter * growth
+        const horizontal = span * (1 + 0.17 * stretch)
+        const vertical = span * (1 - 0.12 * stretch)
+        const centerX = body.x + body.width - Geometry.mix(miniDiameter * 0.78, miniDiameter / 2, extruded)
+            + 6 * stretch
+        const centerY = body.y + 47 + 6 * stretch
+        return Qt.rect(centerX - horizontal / 2, centerY - vertical / 2, horizontal, vertical)
     }
-    readonly property real miniBlend: 40 * Motion.smooth(splitProgress / 0.18)
-        * (1 - Motion.smooth((splitProgress - 0.7) / 0.3))
+    readonly property real miniBlend: 48 * Motion.smooth((splitProgress - 0.16) / 0.27)
+        * (1 - Motion.smooth((splitProgress - 0.70) / 0.23))
+    readonly property rect neckBounds: {
+        const edge = bodyBounds.x + bodyBounds.width
+        const gap = miniBounds.x - edge
+        if (miniBounds.width <= 0 || miniBlend <= 0 || gap > miniBlend / 2)
+            return Qt.rect(0, 0, 0, 0)
+        const span = Math.max(0, gap) + 14
+        const height = 2 * Math.max(3, miniBlend * 0.46 - Math.max(0, gap) * 0.7)
+        return Qt.rect(edge - 7, miniBounds.y + (miniBounds.height - height) / 2, span, height)
+    }
+
+    readonly property real squeeze: Motion.smooth((splitProgress - 0.04) / 0.55)
     readonly property real playerOpacity: movingPlayer
-        ? 1 - Motion.smooth((splitProgress - 0.05) / 0.33) : 1 - coverAmount
-    readonly property real playerScale: 1 - 0.42 * Motion.smooth(splitProgress / 0.4)
+        ? 1 - Motion.smooth((splitProgress - 0.42) / 0.28) : 1 - coverAmount
+    readonly property size playerScale: Qt.size(Geometry.mix(1, 0.078, squeeze), Geometry.mix(1, 0.22, squeeze))
     readonly property point playerOffset: {
-        if (splitProgress <= 0.001)
+        if (miniBounds.width <= 0)
             return Qt.point(0, 0)
-        const cover = renderer.lyricsView.coverBounds
-        return Qt.point(miniBounds.x + miniBounds.width / 2 - cover.x - cover.width / 2,
-            miniBounds.y + miniBounds.height / 2 - cover.y - cover.height / 2)
+        const body = renderer.playerHousing
+        const towardEdge = Motion.travel((splitProgress - 0.12) / 0.63)
+        return Qt.point((miniBounds.x + miniBounds.width / 2 - body.x - body.width / 2) * towardEdge,
+            (miniBounds.y + miniBounds.height / 2 - body.y - body.height / 2) * towardEdge)
     }
     readonly property real textOpacity: movingPlayer
-        ? Motion.smooth((splitProgress - 0.38) / 0.52) : Motion.smooth((reveal - 0.39) / 0.51)
+        ? Motion.smooth((splitProgress - 0.56) / 0.35) : Motion.smooth((reveal - 0.39) / 0.51)
 
     visible: presenting
 
-    Item {
-        id: words
+    DockNotificationContent {
         x: notice.bodyBounds.x
         y: notice.bodyBounds.y
         width: notice.bodyBounds.width
         height: notice.bodyBounds.height
         opacity: notice.textOpacity
         visible: opacity > 0.001
-        clip: true
-
-        readonly property real inset: width >= 330 ? 24 : 16
-        readonly property real headerY: Math.max(0, Geometry.mix((height - 38) / 2, 19, notice.detailAmount))
-        readonly property color ink: "#f1f9f5"
-        readonly property color secondary: "#c3d8cf"
-        readonly property color accent: "#a4e7cc"
-
-        Rectangle {
-            id: badge
-            x: words.inset
-            y: words.headerY
-            width: 38
-            height: width
-            radius: 13
-            color: "#442f7c65"
-            border.color: "#727ac5a8"
-            antialiasing: true
-            Text {
-                anchors.centerIn: parent
-                text: "✓"
-                color: words.accent
-                font.pixelSize: 19
-                font.weight: Font.DemiBold
-            }
-        }
-
-        Column {
-            x: badge.x + badge.width + 12
-            y: words.headerY
-            width: Math.max(1, closeButton.x - x - 8)
-            spacing: 3
-
-            Text {
-                width: parent.width
-                text: notice.lastEvent?.title ?? ""
-                textFormat: Text.PlainText
-                font.pixelSize: words.width >= 330 ? 17 : 15
-                font.weight: Font.DemiBold
-                color: words.ink
-                elide: Text.ElideRight
-            }
-            Text {
-                width: parent.width
-                text: notice.lastEvent?.summary ?? ""
-                textFormat: Text.PlainText
-                font.pixelSize: 13
-                color: words.accent
-                elide: Text.ElideRight
-            }
-        }
-
-        Button {
-            id: closeButton
-            x: words.width - words.inset - width
-            y: words.headerY + 4
-            width: 30
-            height: width
-            enabled: notice.active && words.opacity > 0.75
-            Accessible.name: "Закрыть уведомление"
-            background: Rectangle {
-                radius: width / 2
-                color: closeButton.down ? "#5571a692" : closeButton.hovered ? "#3371a692" : "transparent"
-            }
-            contentItem: Text {
-                text: "×"
-                color: closeButton.hovered ? words.ink : words.secondary
-                font.pixelSize: 21
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-            }
-            onClicked: notice.dismissed()
-        }
-
-        Item {
-            id: detail
-            x: words.inset
-            y: words.headerY + badge.height + 18
-            width: Math.max(1, words.width - 2 * x)
-            height: Math.max(0, words.height - y - 19)
-            opacity: Motion.smooth((notice.detailAmount - 0.42) / 0.52)
-            visible: opacity > 0.001 && height >= 24
-
-            Rectangle {
-                height: 1
-                width: parent.width
-                color: "#486db49b"
-            }
-            Text {
-                width: parent.width
-                y: Math.max(11, (footer.y - height) / 2)
-                text: notice.lastEvent?.detail ?? ""
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                maximumLineCount: 3
-                elide: Text.ElideRight
-                color: words.ink
-                font.pixelSize: 14
-            }
-            Text {
-                id: footer
-                y: parent.height - height
-                width: parent.width
-                text: notice.lastEvent ? notice.lastEvent.source + "  ·  "
-                    + Qt.formatTime(notice.lastEvent.sentAt, "HH:mm") : ""
-                color: words.secondary
-                font.pixelSize: 12
-                elide: Text.ElideRight
-            }
-        }
+        event: notice.lastEvent
+        wifi: notice.wifi
+        accent: notice.accent
+        expansion: notice.detailAmount
+        dismissible: notice.active && opacity > 0.75
+        onDismissed: notice.dismissed()
     }
 
     DockMiniPlayer {
-        id: mini
         x: notice.miniBounds.x + (notice.miniBounds.width - width) / 2
         y: notice.miniBounds.y + (notice.miniBounds.height - height) / 2
-        scale: notice.miniBounds.width / width
-        opacity: Motion.smooth((notice.splitProgress - 0.04) / 0.27)
+        scale: Math.min(notice.miniBounds.width, notice.miniBounds.height) / width
+        opacity: Motion.smooth((notice.splitProgress - 0.58) / 0.26)
         visible: opacity > 0.001
+        enabled: notice.splitProgress > 0.92
         player: notice.media.player
         artwork: notice.media.artUrl
         playing: notice.media.playing

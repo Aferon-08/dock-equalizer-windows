@@ -567,28 +567,65 @@ Window {
     Component {
         id: notificationsPage
         ColumnLayout {
+            id: notifications
             spacing: 14
+
+            function sendTest(scenario) {
+                if (panel.displays.enabledCount === 0) {
+                    notificationStatus.text = "Включите док хотя бы на одном мониторе."
+                    return
+                }
+                panel.appState.postTestNotification(scenario)
+                notificationStatus.text = "Уведомление отправлено на включённые мониторы."
+            }
 
             FieldLabel { text: "Уведомления"; font.pixelSize: 23 }
             Surface {
-                Copy { text: "Карточка раскрывается сама, когда в верхней части экрана есть место." }
+                Copy { text: "Тестовые карточки раскрываются, когда в верхней части экрана есть место." }
                 Action {
                     Layout.fillWidth: true
                     text: "Отправить тестовое уведомление"
                     emphasized: true
-                    onClicked: {
-                        if (panel.displays.enabledCount === 0) {
-                            notificationStatus.text = "Включите док хотя бы на одном мониторе."
-                            return
-                        }
-                        panel.appState.postTestNotification()
-                        notificationStatus.text = "Уведомление отправлено на включённые мониторы."
+                    onClicked: notifications.sendTest("regular")
+                }
+                Action {
+                    Layout.fillWidth: true
+                    text: "Обновление Windows"
+                    onClicked: notifications.sendTest("update")
+                }
+                Action {
+                    Layout.fillWidth: true
+                    text: "Подключение к Wi-Fi"
+                    onClicked: notifications.sendTest("wifi")
+                }
+            }
+            Surface {
+                FieldLabel { text: "Батарея" }
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: width >= 465 ? 3 : 1
+                    rowSpacing: 8
+                    columnSpacing: 8
+                    Action {
+                        Layout.fillWidth: true
+                        text: "Зарядка подключена"
+                        onClicked: notifications.sendTest("charging")
+                    }
+                    Action {
+                        Layout.fillWidth: true
+                        text: "Питание отключено"
+                        onClicked: notifications.sendTest("unplugged")
+                    }
+                    Action {
+                        Layout.fillWidth: true
+                        text: "Полный заряд"
+                        onClicked: notifications.sendTest("charged")
                     }
                 }
-                Copy {
-                    id: notificationStatus
-                    visible: text !== ""
-                }
+            }
+            Copy {
+                id: notificationStatus
+                visible: text !== ""
             }
         }
     }
