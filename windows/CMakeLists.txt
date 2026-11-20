@@ -11,7 +11,7 @@ target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickCo
 target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}")
 if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
-        WinCaptureAbi.h WinNotificationAbi.h BackdropTextureNode.h)
+        WinCaptureAbi.h WinNotificationAbi.h NotificationFeed.h BackdropTextureNode.h)
     target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi powrprof)
 endif()
 
@@ -42,6 +42,10 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(soundbar_notification_feed_test tests/NotificationFeedTest.cpp NotificationFeed.h)
+    target_include_directories(soundbar_notification_feed_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(soundbar_notification_feed_test PRIVATE Qt6::Core)
+    add_test(NAME soundbar.notification-feed COMMAND soundbar_notification_feed_test)
     add_executable(soundbar_battery_test tests/BatteryStatusTest.cpp BatteryStatus.cpp BatteryStatus.h)
     target_include_directories(soundbar_battery_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(soundbar_battery_test PRIVATE Qt6::Core)

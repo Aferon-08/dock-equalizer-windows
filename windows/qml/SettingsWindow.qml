@@ -588,7 +588,8 @@ Window {
         ColumnLayout {
             id: notifications
             spacing: 14
-            readonly property string listenerStatus: panel.appState.windowsNotifications.status
+            readonly property var windowsSource: panel.appState.windowsNotifications
+            readonly property string listenerStatus: windowsSource.status
 
             function sendTest(scenario) {
                 if (panel.displays.enabledCount === 0) {
@@ -623,20 +624,36 @@ Window {
                 Copy {
                     text: {
                         switch (notifications.listenerStatus) {
-                        case "packageRequired": return "Для уведомлений приложений нужна установка из пакета MSIX."
+                        case "packageRequired": return "Запущена обычная версия. Для чтения уведомлений закройте её и откройте «Sekai Soundbar (MSIX)» из меню «Пуск»."
                         case "permissionRequired": return "Разрешите доку читать уведомления приложений Windows."
                         case "requesting": return "Ожидаем ответ на запрос Windows."
+                        case "connecting": return "Читаем Центр уведомлений Windows."
                         case "denied": return "Доступ к уведомлениям приложений отключён в настройках Windows."
                         case "active": return "Уведомления приложений подключены. Для показа только в доке отключите штатные баннеры нужных приложений, сохранив их уведомления в Центре уведомлений."
                         default: return "Источник уведомлений приложений Windows недоступен."
                         }
                     }
                 }
+                Copy {
+                    visible: text !== ""
+                    text: notifications.windowsSource.diagnostic
+                }
                 Action {
                     Layout.fillWidth: true
                     visible: notifications.listenerStatus === "permissionRequired"
                     text: "Разрешить уведомления приложений"
-                    onClicked: panel.appState.windowsNotifications.requestAccess()
+                    onClicked: notifications.windowsSource.requestAccess(panel)
+                }
+                Action {
+                    Layout.fillWidth: true
+                    visible: notifications.listenerStatus === "active"
+                    enabled: !notifications.windowsSource.testing
+                    text: "Проверить через Центр уведомлений Windows"
+                    onClicked: notifications.windowsSource.sendTestNotification()
+                }
+                Copy {
+                    visible: text !== ""
+                    text: notifications.windowsSource.testResult
                 }
                 Action {
                     Layout.fillWidth: true
@@ -655,7 +672,7 @@ Window {
                 Copy { text: "Тестовые карточки раскрываются, когда в верхней части экрана есть место." }
                 Action {
                     Layout.fillWidth: true
-                    text: "Отправить тестовое уведомление"
+                    text: "Показать тестовую карточку дока"
                     emphasized: true
                     onClicked: notifications.sendTest("regular")
                 }
