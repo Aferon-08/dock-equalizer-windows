@@ -73,8 +73,11 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/wordtime.json")
     add_test(NAME soundbar.overlay COMMAND SekaiSoundbar --smoke-test ${smoke_fixtures})
     add_test(NAME soundbar.overlay-software COMMAND SekaiSoundbar --software-rendering --smoke-test ${smoke_fixtures})
+    # Both variants render on the same desktop. Let the QML phase watchdog report stalls on busy runners.
     set_tests_properties(soundbar.overlay soundbar.overlay-software PROPERTIES
-        TIMEOUT 35
+        RESOURCE_LOCK soundbar_desktop
+        TIMEOUT 90
+        ENVIRONMENT "QT_FORCE_STDERR_LOGGING=1"
         FAIL_REGULAR_EXPRESSION
             "Error decoding;Error loading;Failed to deserialize QShader;ReferenceError:;TypeError:"
     )
