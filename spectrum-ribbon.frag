@@ -14,6 +14,8 @@ layout(std140, binding = 0) uniform buf {
     vec4 audio3;
     float clock;
     float direction;
+    float glowStrength;
+    vec3 polar;
 };
 float sampleBand(int i) {
     if (i < 4) return audio0[i];
@@ -22,8 +24,23 @@ float sampleBand(int i) {
     return audio3[i-12];
 }
 void main() {
-    float x = direction < 0.0 ? 1.0 - qt_TexCoord0.x : qt_TexCoord0.x;
+    float x = qt_TexCoord0.x;
     float y = (qt_TexCoord0.y - 0.5) * 2.0;
+    float thickness = resolution.y;
+    if (polar.x > 0.0) {
+        vec2 pixel = (qt_TexCoord0 - 0.5) * resolution;
+        float angle = atan(pixel.x, -pixel.y);
+        if (angle < 0.0) angle += 6.2831853;
+        float arc = polar.z * 6.2831853;
+        y = (length(pixel) - polar.x) / polar.y;
+        if (arc <= 0.0 || angle > arc || abs(y) > 1.0) {
+            fragColor = vec4(0.0);
+            return;
+        }
+        x = angle / arc;
+        thickness = polar.y * 2.0;
+    }
+    if (direction < 0.0) x = 1.0 - x;
     float amplitude = 0.0;
     float weight = 0.0;
     for (int i=0; i<16; ++i) {
@@ -35,9 +52,15 @@ void main() {
     float taper = pow(max(0.0, sin(x * 3.14159265)), 0.65);
     float energy = amplitude * taper;
     float edge = smoothstep(0.0, 0.06, x) * smoothstep(0.0, 0.06, 1.0-x);
-    float aa = 2.0 / max(1.0, resolution.y);
+    float aa = 2.0 / max(1.0, thickness);
     vec3 color = vec3(0.0);
     float alpha = 0.0;
+    if (glowStrength > 0.0) {
+        float spread = max(aa, 0.18 + energy * 1.15);
+        alpha = min(glowStrength, 1.4) * 0.42 * sqrt(energy)
+            * exp(-pow(y / spread, 2.0)) * edge;
+        color = mix(primaryColor.rgb, secondaryColor.rgb, 0.35) * alpha;
+    }
     // Each ribbon has a separate drifting spine; no hard individual bars.
     for (int layer=0; layer<3; ++layer) {
         float phase = float(layer)*2.094;

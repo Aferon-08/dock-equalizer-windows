@@ -493,15 +493,15 @@ Window {
                     spacing: 8
                     Action {
                         Layout.fillWidth: true
-                        text: "Волна"
-                        emphasized: panel.appearance.values.wavyProgress
-                        onClicked: panel.appearance.setWavyProgress(true)
+                        text: "Материал"
+                        emphasized: panel.appearance.values.progressStyle === "material"
+                        onClicked: panel.appearance.setProgressStyle("material")
                     }
                     Action {
                         Layout.fillWidth: true
-                        text: "Линия"
-                        emphasized: !panel.appearance.values.wavyProgress
-                        onClicked: panel.appearance.setWavyProgress(false)
+                        text: "Плассгласс"
+                        emphasized: panel.appearance.values.progressStyle === "plassglass"
+                        onClicked: panel.appearance.setProgressStyle("plassglass")
                     }
                 }
             }

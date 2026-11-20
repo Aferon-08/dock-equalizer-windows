@@ -9,10 +9,11 @@ Item {
     required property url artwork
     required property bool playing
     required property bool roundArtwork
-    required property bool wavy
-    required property color accent
+    required property var host
     required property real progress
     required property real progressPhase
+    readonly property string progressRenderer: ringProgress.rendererName
+    readonly property real progressSpectrum: ringProgress.spectrumPeak
 
     signal togglePlayback()
 
@@ -20,18 +21,17 @@ Item {
     height: width
     transformOrigin: Item.Center
 
-    WavyProgress {
+    DockProgress {
+        id: ringProgress
         anchors.fill: parent
         circular: true
-        wavy: mini.wavy
+        settings: mini.host.settings
+        palette: mini.host.dock.palette
+        secondary: mini.host.theme.accentMint || palette.ink
+        bands: mini.host.working ? (mini.host.service?.bands ?? []) : []
         fraction: mini.progress
         playing: mini.playing
         phase: mini.progressPhase
-        amplitude: 2.1
-        wavelength: 24
-        thickness: 2.4
-        ink: "#cee9df"
-        accent: mini.accent
     }
 
     Rectangle {
