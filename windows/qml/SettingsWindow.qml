@@ -487,6 +487,25 @@ Window {
 
             FieldLabel { text: "Оформление"; font.pixelSize: 23 }
             Surface {
+                FieldLabel { text: "Стиль прогресса" }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Action {
+                        Layout.fillWidth: true
+                        text: "Волна"
+                        emphasized: panel.appearance.values.wavyProgress
+                        onClicked: panel.appearance.setWavyProgress(true)
+                    }
+                    Action {
+                        Layout.fillWidth: true
+                        text: "Линия"
+                        emphasized: !panel.appearance.values.wavyProgress
+                        onClicked: panel.appearance.setWavyProgress(false)
+                    }
+                }
+            }
+            Surface {
                 RowLayout {
                     Layout.fillWidth: true
                     FieldLabel { text: "Цвет дока по обложке" }

@@ -14,6 +14,11 @@ function taper(progress) {
     return Motion.smooth((progress - 0.42) / 0.26)
 }
 
+function recoil(progress) {
+    const phase = Motion.clamp(progress, 0, 1)
+    return Math.sin(2.85 * Math.PI * phase) * Math.pow(1 - phase, 1.8)
+}
+
 function pullToEdge(rect, progress, offsetX, offsetY) {
     const shrink = Motion.smooth((progress - 0.08) / 0.53)
     const pull = Motion.smooth((progress - 0.49) / 0.51)

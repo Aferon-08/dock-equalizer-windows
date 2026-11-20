@@ -102,16 +102,18 @@ Window {
     property bool smokeHoldOpen: true
     property bool smokeSawGlassNeck: false
     property bool smokeSawPlayerSqueeze: false
+    property bool smokeSawSpring: false
 
     DockPresence {
         id: presence
         playing: window.playbackActive
         paused: window.playbackPaused
-        dismissed: window.swipeDismissed
+        dismissed: window.swipeDismissed || (noticeLayer.miniPauseExpired && !window.trayPreview)
         fullscreen: window.desktop.fullscreenActive
         idleDelay: demoHost.settings.collapseDelay
         pauseDelay: window.smokeMode ? 1700 : 60000
         holdOpen: window.trayPreview
+            || noticeLayer.keepPausedMini
             || (window.smokeMode && window.smokeHoldOpen)
             || (menuLoader.item?.visible ?? false)
             || lyricsPicker.visible || lyricsMessage.visible || alignmentDialog.visible
@@ -136,7 +138,8 @@ Window {
     readonly property rect bodyRegion: {
         if (noticeLayer.presenting && !desktop.fullscreenActive) {
             const body = wings.housingRect
-            return scaledRect(body.x, body.y, body.width, body.height)
+            const pad = noticeGlowMargin
+            return scaledRect(body.x - pad, body.y - pad, body.width + 2 * pad, body.height + 2 * pad)
         }
         if (!presence.interactive)
             return Qt.rect(0, 0, 0, 0)
@@ -155,7 +158,10 @@ Window {
         const body = noticeLayer.neckBounds
         return scaledRect(body.x, body.y, body.width, body.height)
     }
-    readonly property real regionRadius: (noticeLayer.presenting ? wings.housingRadius : wings.radius + 26) * stage.scale
+    readonly property real noticeGlowMargin: wings.shaderAvailable && wings.fusion > 0.001
+        && wings.edgeLight > 0.025 && wings.material.light > 0 ? 22 : 0
+    readonly property real regionRadius: (noticeLayer.presenting ? wings.housingRadius + noticeGlowMargin
+        : wings.radius + 26) * stage.scale
     readonly property rect expandedRegion: {
         const size = wings.lyricsView.expandedBodySize
         return scaledRect((stage.width - size.width) / 2, pill.y, size.width, size.height)
@@ -259,7 +265,7 @@ Window {
     QtObject {
         id: demoPlayer
         property bool lengthSupported: true
-        property real length: 120
+        property real length: window.smokeMode ? 120 : 22
         property bool positionSupported: true
         property bool canSeek: true
         property bool canGoPrevious: true
@@ -387,6 +393,7 @@ Window {
             property real progressAmplitude: 3.5
             property real progressWavelength: 30
             property real progressThickness: 3
+            readonly property bool wavyProgress: window.appearance.values.wavyProgress
         }
         property QtObject dock: QtObject {
             property var item: pill
@@ -517,8 +524,13 @@ Window {
             clearForDetails: window.notificationSpaceReady
             attached: presence.showing && presence.hideProgress < 0.55
                 && (window.playbackActive || (!!window.media.player && !window.swipeDismissed))
+            paused: window.playbackPaused
+            trackKey: window.activeTrackKey
+            miniPauseDelay: window.smokeMode ? 1450 : 40000
             topInset: pill.y
             onDismissed: window.appState.dismissNotification()
+            onReleaseRecoilChanged: if (window.smokePhase === 22 && releaseRecoil > 0.25)
+                window.smokeSawSpring = true
         }
     }
 
@@ -781,7 +793,7 @@ Window {
         onTriggered: {
             window.elapsed += 0.05
             demoPlayer.position += 0.05
-            if (demoPlayer.position >= 22) demoPlayer.position = 0
+            if (demoPlayer.position >= demoPlayer.length) demoPlayer.position = 0
             visualizerService.demoBands = window.spectrumAt(window.elapsed)
         }
     }
@@ -1126,7 +1138,7 @@ Window {
                     window.smokeSawPlayerSqueeze = true
                 if (noticeLayer.splitProgress !== 1)
                     return
-                if (!window.smokeSawGlassNeck || !window.smokeSawPlayerSqueeze
+                if (!window.smokeSawGlassNeck || !window.smokeSawPlayerSqueeze || !window.smokeSawSpring
                         || mini.x < body.x + body.width + 12 || mini.width !== noticeLayer.miniDiameter
                         || Math.abs(window.miniPlayerRegion.width - mini.width * stage.scale) > 0.1) {
                     window.failSmoke("the mini-player did not form a connected glass drop and pull in the player")
@@ -1165,10 +1177,43 @@ Window {
                     window.failSmoke("the full battery test did not carry its charge level")
                     return
                 }
+                window.appearance.setWavyProgress(false)
+                if (demoHost.settings.wavyProgress) {
+                    window.failSmoke("the straight progress style did not reach the dock")
+                    return
+                }
+                window.appearance.setWavyProgress(true)
+                demoMedia.togglePlaying()
+                window.smokePhase = 25
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 25 && noticeLayer.keepPausedMini) {
                 window.appState.dismissNotification()
+                window.smokePhase = 26
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 26 && noticeLayer.cardRetraction === 1) {
+                if (!window.visible || !noticeLayer.keepPausedMini || noticeLayer.miniBounds.width < 60
+                        || wings.housingRect.y + wings.housingRect.height > 0) {
+                    window.failSmoke("a dismissed notification did not leave only the paused mini-player")
+                    return
+                }
+                window.smokePhase = 27
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 27 && noticeLayer.miniPauseExpired && !noticeLayer.presenting) {
+                if (window.visible || presence.showing || window.miniPlayerRegion.width > 0) {
+                    window.failSmoke("the mini-player timeout brought back the paused dock")
+                    return
+                }
+                demoMedia.togglePlaying()
+                window.smokePhase = 28
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 28 && presence.interactive) {
+                if (!window.visible || noticeLayer.miniPauseExpired || !wings.lyricsView.wide) {
+                    window.failSmoke("resuming did not restore the expanded dock after the mini-player timeout")
+                    return
+                }
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
-                console.log("PASS desktop expansion, pause delay, test notification, swipe dismissal and restoring the dock")
+                console.log("PASS desktop expansion, liquid mini-player, notifications, progress styles, pause and restore")
                 Qt.exit(0)
             }
         }

@@ -18,6 +18,7 @@ public:
     QVariantMap values() const { return m_values; }
     QVariantList sliders() const;
     Q_INVOKABLE void setArtworkColors(bool enabled);
+    Q_INVOKABLE void setWavyProgress(bool enabled);
     Q_INVOKABLE void setGlassEnabled(bool enabled);
     Q_INVOKABLE void setDesktopGlass(bool enabled);
     Q_INVOKABLE void setCaptureBorderless(bool enabled);

@@ -229,14 +229,17 @@ void main() {
         vec3 hue = spectralHue(p);
         result.rgb = min(vec3(result.a),hue*a*result.a+result.rgb*(1.0-a));
     }
-    if (lightData.x > 0.001 && noticeMix < 0.999) {
+    if (lightData.x > 0.001) {
         float mainDistance = mainD;
         float mainCover = 1.0 - smoothstep(-aa, aa, mainDistance);
-        vec3 light = (sideLight(p,false)+sideLight(p,true)+bottomLight(p))
-            *lightData.w + lyricLight(p);
+        vec3 outsideLight = (sideLight(p,false)+sideLight(p,true)+bottomLight(p))*lightData.w;
+        // Keep the audio emitters visible around the glass while softening their
+        // contribution deep inside the notification, where the text sits.
+        float textMask = 1.0 - 0.65 * noticeMix * smoothstep(7.0, 32.0, -mainDistance);
+        vec3 light = outsideLight * textMask + lyricLight(p) * (1.0 - noticeMix);
         // Stronger under-glass light; only a tight, faint spill outside.
         float outer = exp(-pow(max(0.0, mainDistance) / 12.5, 1.5));
-        float lightMask = lightData.x * 0.95 * mainCover * (1.0 - noticeMix);
+        float lightMask = lightData.x * 0.95 * mainCover;
         float lightAlpha = clamp(max(light.r, max(light.g, light.b)) * lightMask, 0.0, 0.85);
         result.a = max(result.a, lightAlpha);
         result.rgb = min(vec3(result.a), result.rgb + light * lightMask * 0.72);
@@ -245,10 +248,9 @@ void main() {
         if (lightData.y > 0.999) traced = 1.0;
         // Composite an actual translucent emitter outside the silhouette.
         // Normalizing the hue avoids multiplying dim light by its alpha twice.
-        vec3 outsideLight = (sideLight(p,false)+sideLight(p,true)+bottomLight(p))*lightData.w;
         float brightness = max(outsideLight.r, max(outsideLight.g, outsideLight.b));
         float glowAlpha = clamp(brightness * outer * 0.86 * lightData.x
-            * (1.0 - mainCover) * traced * (1.0 - noticeMix), 0.0, 0.72);
+            * (1.0 - mainCover) * traced, 0.0, 0.72);
         vec3 glowHue = outsideLight / max(0.001, brightness);
         result.rgb = glowHue * glowAlpha + result.rgb * (1.0 - glowAlpha);
         result.a = glowAlpha + result.a * (1.0 - glowAlpha);
@@ -259,7 +261,7 @@ void main() {
         float lowerEdge = smoothstep(0.65,1.0,(p.y-dockRect.y)/max(1.0,dockRect.w));
         float energy = max(max(leftAudio.x,leftAudio.y),max(rightAudio.x,rightAudio.y));
         float strength = clamp((line * (0.3 + head * 0.2) + halo) * lightData.x * lightData.w
-            * lowerEdge * energy * (1.0 - noticeMix), 0.0, 1.0);
+            * lowerEdge * energy, 0.0, 1.0);
         result.rgb = mix(result.rgb, spectralHue(p), strength);
         result.a = max(result.a, strength);
     }
