@@ -1,8 +1,11 @@
-Target amd64-unicode
+; The standard Windows NSIS distribution ships x86 Unicode stubs.
+; The packaged application still requires a 64-bit version of Windows.
+Target x86-unicode
 RequestExecutionLevel user
 
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
+!include "x64.nsh"
 
 Name "Sekai Soundbar"
 OutFile "${SETUP}"
@@ -31,10 +34,18 @@ LangString Running ${LANG_ENGLISH} "Close Sekai Soundbar from its menu, then run
 LangString Running ${LANG_RUSSIAN} "Закройте Sekai Soundbar через меню дока и запустите установщик снова."
 LangString InstallFailed ${LANG_ENGLISH} "The program files could not be installed."
 LangString InstallFailed ${LANG_RUSSIAN} "Не удалось установить файлы программы."
+LangString RequiresX64 ${LANG_ENGLISH} "Sekai Soundbar requires a 64-bit version of Windows."
+LangString RequiresX64 ${LANG_RUSSIAN} "Для Sekai Soundbar требуется 64-битная версия Windows."
 
 Var InstanceGuard
 
 !macro ACQUIRE_LOCK
+    ${IfNot} ${RunningX64}
+        SetErrorLevel 1
+        IfSilent +2
+        MessageBox MB_ICONSTOP "$(RequiresX64)"
+        Abort
+    ${EndIf}
     SetShellVarContext current
     SetRegView 64
     System::Call 'kernel32::SetLastError(i 0)'
