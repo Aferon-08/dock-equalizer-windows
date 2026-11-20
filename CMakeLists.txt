@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 0.11.0 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 0.12.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,7 +52,7 @@ foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml)
     set_source_files_properties("windows/qml/${file}"
         PROPERTIES QT_RESOURCE_ALIAS "${file}")
 endforeach()
-foreach(file IN ITEMS AlignmentDialog.qml DockPresence.qml)
+foreach(file IN ITEMS AlignmentDialog.qml DockNotification.qml DockPresence.qml)
     set_source_files_properties("windows/qml/${file}"
         PROPERTIES QT_RESOURCE_ALIAS "qml/${file}")
 endforeach()
@@ -69,6 +69,7 @@ qt_add_qml_module(SekaiSoundbar
         windows/qml/Main.qml
         windows/qml/AlignmentDialog.qml
         windows/qml/ApplicationState.qml
+        windows/qml/DockNotification.qml
         windows/qml/DockPresence.qml
         windows/qml/SettingsWindow.qml
         ${shared_ui}

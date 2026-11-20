@@ -334,6 +334,7 @@ Window {
                     NavButton { text: "Мониторы"; destination: "displays" }
                     NavButton { text: "Оформление"; destination: "appearance" }
                     NavButton { text: "Лирика"; destination: "lyrics" }
+                    NavButton { text: "Уведомления"; destination: "notifications" }
                 }
 
                 ScrollView {
@@ -365,6 +366,7 @@ Window {
                             case "displays": return displaysPage
                             case "appearance": return appearancePage
                             case "lyrics": return lyricsPage
+                            case "notifications": return notificationsPage
                             default: return generalPage
                             }
                         }
@@ -557,6 +559,35 @@ Window {
                 Layout.alignment: Qt.AlignRight
                 text: "Сбросить оформление"
                 onClicked: panel.appearance.reset()
+            }
+        }
+    }
+
+    Component {
+        id: notificationsPage
+        ColumnLayout {
+            spacing: 14
+
+            FieldLabel { text: "Уведомления"; font.pixelSize: 23 }
+            Surface {
+                Copy { text: "Нажмите на карточку в доке, чтобы раскрыть подробности." }
+                Action {
+                    Layout.fillWidth: true
+                    text: "Отправить тестовое уведомление"
+                    emphasized: true
+                    onClicked: {
+                        if (!panel.previewDock)
+                            notificationStatus.text = "Включите док хотя бы на одном мониторе."
+                        else if (!panel.previewDock.showTestNotification())
+                            notificationStatus.text = "Дождитесь выхода из полноэкранного режима на мониторе дока."
+                        else
+                            notificationStatus.text = "Уведомление отправлено в док."
+                    }
+                }
+                Copy {
+                    id: notificationStatus
+                    visible: text !== ""
+                }
             }
         }
     }
