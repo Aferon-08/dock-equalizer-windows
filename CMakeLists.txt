@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 0.17.0 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 0.17.1 LANGUAGES CXX)
 
-if(WIN32)
+set(SOUNDBAR_NOTIFICATION_PUBLISHER "" CACHE STRING "Certificate subject for a signed Windows notification package")
+if(WIN32 AND SOUNDBAR_NOTIFICATION_PUBLISHER)
     enable_language(RC)
 endif()
 

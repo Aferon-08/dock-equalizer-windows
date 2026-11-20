@@ -2,7 +2,7 @@
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <assemblyIdentity name="Aferon08.SekaiSoundbar.Desktop" version="1.0.0.0" type="win32" />
   <msix xmlns="urn:schemas-microsoft-com:msix.v1"
-        publisher="CN=Sekai Soundbar, OID.2.25.311729368913984317654407730594956997722=1"
+        publisher="@notification_publisher@"
         packageName="Aferon08.SekaiSoundbar.Desktop"
         applicationId="SekaiSoundbar" />
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
