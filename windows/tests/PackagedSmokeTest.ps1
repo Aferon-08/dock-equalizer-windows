@@ -9,6 +9,7 @@ $installed = Join-Path $env:LOCALAPPDATA 'Programs\SekaiSoundbar'
 $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SekaiSoundbar'
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Sekai Soundbar\Sekai Soundbar.lnk'
 $extract = Join-Path $env:RUNNER_TEMP 'SekaiSoundbarPortable'
+$testNotificationIdentity = [Environment]::OSVersion.Version.Build -ge 22000
 
 function Invoke-Checked([string]$Exe, [string]$Arguments) {
     $process = Start-Process $Exe -ArgumentList $Arguments -WorkingDirectory (Split-Path $Exe) -PassThru -Wait
@@ -31,12 +32,21 @@ $program = Join-Path $installed 'app\SekaiSoundbar.exe'
 if (!(Test-Path $shortcut) -or !(Test-Path $uninstallKey)) {
     throw 'Setup did not register the app or create its shortcut.'
 }
+if ($testNotificationIdentity) {
+    Invoke-Checked $program '--check-notification-identity'
+}
 Invoke-Checked $program "--software-rendering $argsForSmoke"
 Invoke-Checked $setup '/S'
+if ($testNotificationIdentity) {
+    Invoke-Checked $program '--check-notification-identity'
+}
 if ((Get-FileHash $program).Hash -ne (Get-FileHash $portable).Hash) {
     throw 'Installed and portable executables differ after update.'
 }
 Invoke-Checked (Join-Path $installed 'Uninstall.exe') '/S'
 if ((Test-Path $installed) -or (Test-Path $shortcut) -or (Test-Path $uninstallKey)) {
     throw 'Uninstall left the program, Start menu shortcut or uninstall entry behind.'
+}
+if ($testNotificationIdentity -and (Get-AppxPackage -Name 'Aferon08.SekaiSoundbar.Desktop')) {
+    throw 'Uninstall left the notification identity registered.'
 }

@@ -6,6 +6,7 @@ RequestExecutionLevel user
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
+!include "WinVer.nsh"
 
 Name "Sekai Soundbar"
 OutFile "${SETUP}"
@@ -36,8 +37,33 @@ LangString InstallFailed ${LANG_ENGLISH} "The program files could not be install
 LangString InstallFailed ${LANG_RUSSIAN} "Не удалось установить файлы программы."
 LangString RequiresX64 ${LANG_ENGLISH} "Sekai Soundbar requires a 64-bit version of Windows."
 LangString RequiresX64 ${LANG_RUSSIAN} "Для Sekai Soundbar требуется 64-битная версия Windows."
+LangString IdentityInstallFailed ${LANG_ENGLISH} "Windows could not register Sekai Soundbar for access to app notifications."
+LangString IdentityInstallFailed ${LANG_RUSSIAN} "Windows не удалось зарегистрировать Sekai Soundbar для доступа к уведомлениям приложений."
+LangString IdentityRemoveFailed ${LANG_ENGLISH} "Windows could not remove Sekai Soundbar's notification registration."
+LangString IdentityRemoveFailed ${LANG_RUSSIAN} "Windows не удалось удалить регистрацию Sekai Soundbar для уведомлений."
 
 Var InstanceGuard
+Var IdentityResult
+Var IdentityMessage
+
+!macro NOTIFICATION_IDENTITY ACTION
+    InitPluginsDir
+    SetOutPath "$PLUGINSDIR"
+    File /oname=RegisterIdentity.ps1 "${IDENTITY_SCRIPT}"
+    !if "${ACTION}" == "Install"
+        File /oname=notification-identity.msix "${IDENTITY_PACKAGE}"
+    !endif
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_SCRIPT", w "$PLUGINSDIR\RegisterIdentity.ps1")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_PACKAGE", w "$PLUGINSDIR\notification-identity.msix")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_PROGRAM_DIR", w "$INSTDIR\app")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_ACTION", w "${ACTION}")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_NAME", w "${IDENTITY_NAME}")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_PUBLISHER", w "${IDENTITY_PUBLISHER}")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_VERSION", w "${VERSION}.0")'
+    nsExec::ExecToStack /TIMEOUT=120000 '$\"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe$\" -NoLogo -NoProfile -NonInteractive -Command $\"& ([ScriptBlock]::Create([IO.File]::ReadAllText($$env:SEKAI_IDENTITY_SCRIPT)))$\"'
+    Pop $IdentityResult
+    Pop $IdentityMessage
+!macroend
 
 !macro ACQUIRE_LOCK
     ${IfNot} ${RunningX64}
@@ -99,6 +125,13 @@ stage:
 replace:
     Rename "$INSTDIR\staging" "$INSTDIR\app"
     IfErrors rollback
+    ${If} ${AtLeastWin11}
+        !insertmacro NOTIFICATION_IDENTITY Install
+        SetOutPath "$INSTDIR"
+        ${If} $IdentityResult != 0
+            Goto identityFailed
+        ${EndIf}
+    ${EndIf}
     RMDir /r "$INSTDIR\previous"
 
     SetOutPath "$INSTDIR\app"
@@ -114,6 +147,21 @@ replace:
     WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
     System::Call 'kernel32::CloseHandle(p $InstanceGuard)'
     Goto done
+
+identityFailed:
+    RMDir /r "$INSTDIR\app"
+    ${If} ${FileExists} "$INSTDIR\previous\SekaiSoundbar.exe"
+        Rename "$INSTDIR\previous" "$INSTDIR\app"
+    ${Else}
+        Delete "$INSTDIR\Uninstall.exe"
+        SetOutPath "$TEMP"
+        RMDir "$INSTDIR"
+    ${EndIf}
+    DetailPrint "$IdentityResult $IdentityMessage"
+    SetErrorLevel 3
+    IfSilent +2
+    MessageBox MB_ICONSTOP "$(IdentityInstallFailed)$\r$\n$IdentityResult $IdentityMessage"
+    Abort
 
 rollback:
     IfFileExists "$INSTDIR\previous\SekaiSoundbar.exe" 0 failed
@@ -131,6 +179,16 @@ done:
 SectionEnd
 
 Section "Uninstall"
+    ${If} ${AtLeastWin11}
+        !insertmacro NOTIFICATION_IDENTITY Remove
+        ${If} $IdentityResult != 0
+            DetailPrint "$IdentityResult $IdentityMessage"
+            SetErrorLevel 3
+            IfSilent +2
+            MessageBox MB_ICONSTOP "$(IdentityRemoveFailed)$\r$\n$IdentityResult $IdentityMessage"
+            Abort
+        ${EndIf}
+    ${EndIf}
     SetOutPath "$TEMP"
     ClearErrors
     IfFileExists "$INSTDIR\app\*.*" 0 +2

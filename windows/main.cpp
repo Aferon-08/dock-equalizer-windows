@@ -30,6 +30,7 @@
 
 #include <map>
 #include <memory>
+#include <string_view>
 
 namespace {
 
@@ -102,6 +103,10 @@ bool hasHardwareD3d11()
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_WIN
+    if (argc == 2 && std::string_view(argv[1]) == "--check-notification-identity")
+        return WindowsNotifications::hasPackageIdentity() ? 0 : 3;
+#endif
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("SekaiSoundbar"));
     app.setApplicationDisplayName(QStringLiteral("Sekai Soundbar"));
@@ -120,9 +125,9 @@ int main(int argc, char *argv[])
     const auto releaseInstance = qScopeGuard([instance] { if (instance) CloseHandle(instance); });
     if (alreadyRunning) {
         if (WindowsNotifications::hasPackageIdentity()) {
-            QMessageBox::information(nullptr, QStringLiteral("Sekai Soundbar (MSIX)"),
+            QMessageBox::information(nullptr, QStringLiteral("Sekai Soundbar"),
                 QStringLiteral("Док уже запущен. Завершите его через меню в области уведомлений Windows, "
-                               "затем снова откройте Sekai Soundbar (MSIX) из меню «Пуск»."));
+                               "затем снова откройте Sekai Soundbar из меню «Пуск»."));
         }
         return 0;
     }
