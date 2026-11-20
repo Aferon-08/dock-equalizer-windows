@@ -7,6 +7,8 @@ ShaderEffect {
     required property var palette
     required property color secondary
     property real clock: 0
+    property real glowStrength: 0
+    property vector3d polar: Qt.vector3d(0, 0, 0)
     property bool mirrored: false
     readonly property vector2d resolution: Qt.vector2d(width, height)
     readonly property color primaryColor: palette.accent

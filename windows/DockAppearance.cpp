@@ -30,7 +30,10 @@ const QString glassEnabled = QStringLiteral("dockGlass");
 const QString desktopGlass = QStringLiteral("desktopGlass");
 const QString captureBorderless = QStringLiteral("captureBorderless");
 const QString artworkColors = QStringLiteral("artworkColors");
-const QString wavyProgress = QStringLiteral("wavyProgress");
+const QString progressStyle = QStringLiteral("progressStyle");
+const QString materialProgress = QStringLiteral("material");
+const QString plassglassProgress = QStringLiteral("plassglass");
+const QString legacyWavyProgress = QStringLiteral("wavyProgress");
 
 QString key(const QString &name)
 {
@@ -46,7 +49,13 @@ DockAppearance::DockAppearance(QSettings *settingsStore)
     m_values.insert(desktopGlass, m_settings && m_settings->value(key(desktopGlass), false).toBool());
     m_values.insert(captureBorderless, m_settings && m_settings->value(key(captureBorderless), false).toBool());
     m_values.insert(artworkColors, !m_settings || m_settings->value(key(artworkColors), true).toBool());
-    m_values.insert(wavyProgress, !m_settings || m_settings->value(key(wavyProgress), true).toBool());
+    const auto savedStyle = m_settings ? m_settings->value(key(progressStyle)).toString() : QString{};
+    if (savedStyle == materialProgress || savedStyle == plassglassProgress) {
+        m_values.insert(progressStyle, savedStyle);
+    } else {
+        const bool usedSecondStyle = m_settings && !m_settings->value(key(legacyWavyProgress), true).toBool();
+        m_values.insert(progressStyle, usedSecondStyle ? plassglassProgress : materialProgress);
+    }
     for (const auto &setting : settings) {
         const auto name = QString::fromLatin1(setting.key);
         double value = setting.initial;
@@ -82,9 +91,10 @@ void DockAppearance::setArtworkColors(bool enabled)
     setValue(artworkColors, enabled);
 }
 
-void DockAppearance::setWavyProgress(bool enabled)
+void DockAppearance::setProgressStyle(const QString &style)
 {
-    setValue(wavyProgress, enabled);
+    if (style == materialProgress || style == plassglassProgress)
+        setValue(progressStyle, style);
 }
 
 void DockAppearance::setDesktopGlass(bool enabled)
@@ -115,13 +125,14 @@ void DockAppearance::reset()
     m_values.insert(desktopGlass, false);
     m_values.insert(captureBorderless, false);
     m_values.insert(artworkColors, true);
-    m_values.insert(wavyProgress, true);
+    m_values.insert(progressStyle, materialProgress);
     if (m_settings) {
         m_settings->remove(key(glassEnabled));
         m_settings->remove(key(desktopGlass));
         m_settings->remove(key(captureBorderless));
         m_settings->remove(key(artworkColors));
-        m_settings->remove(key(wavyProgress));
+        m_settings->remove(key(progressStyle));
+        m_settings->remove(key(legacyWavyProgress));
     }
     for (const auto &setting : settings) {
         const auto name = QString::fromLatin1(setting.key);

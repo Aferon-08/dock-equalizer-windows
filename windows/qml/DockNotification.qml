@@ -19,6 +19,8 @@ Item {
     signal dismissed()
 
     readonly property bool active: allowed && !!event
+    readonly property string miniProgressRenderer: miniPlayer.progressRenderer
+    readonly property real miniProgressSpectrum: miniPlayer.progressSpectrum
     readonly property bool presenting: active || reveal > 0 || splitProgress > 0 || retiringMini
     readonly property bool widePlayer: attached && renderer.lyricsView.wide
     readonly property bool keepPausedMini: paused && pauseHold.running
@@ -191,6 +193,7 @@ Item {
     }
 
     DockMiniPlayer {
+        id: miniPlayer
         x: notice.miniBounds.x + (notice.miniBounds.width - width) / 2
         y: notice.miniBounds.y + (notice.miniBounds.height - height) / 2
         scale: Math.min(notice.miniBounds.width, notice.miniBounds.height) / width
@@ -202,8 +205,7 @@ Item {
         artwork: notice.media.artUrl
         playing: notice.media.playing
         roundArtwork: notice.renderer.shaderAvailable
-        wavy: notice.renderer.host.settings.wavyProgress
-        accent: notice.renderer.colors.accent
+        host: notice.renderer.host
         progress: notice.renderer.lyricsView.duration > 0
             ? notice.renderer.lyricsView.position / notice.renderer.lyricsView.duration : 0
         progressPhase: notice.renderer.lyricsView.position / 1.8

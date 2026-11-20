@@ -393,7 +393,8 @@ Window {
             property real progressAmplitude: 3.5
             property real progressWavelength: 30
             property real progressThickness: 3
-            readonly property bool wavyProgress: window.appearance.values.wavyProgress
+            readonly property string progressStyle: window.appearance.values.progressStyle
+            readonly property bool leftSpectrumReversed: false
         }
         property QtObject dock: QtObject {
             property var item: pill
@@ -1177,40 +1178,49 @@ Window {
                     window.failSmoke("the full battery test did not carry its charge level")
                     return
                 }
-                window.appearance.setWavyProgress(false)
-                if (demoHost.settings.wavyProgress) {
-                    window.failSmoke("the straight progress style did not reach the dock")
-                    return
-                }
-                window.appearance.setWavyProgress(true)
-                demoMedia.togglePlaying()
+                demoPlayer.seek(58)
+                window.appearance.setProgressStyle("plassglass")
                 window.smokePhase = 25
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 25 && noticeLayer.keepPausedMini) {
-                window.appState.dismissNotification()
+            } else if (window.smokePhase === 25 && noticeLayer.miniProgressRenderer === "plassglassProgressRenderer"
+                    && noticeLayer.miniProgressSpectrum > 0.002) {
+                demoMedia.togglePlaying()
                 window.smokePhase = 26
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 26 && noticeLayer.cardRetraction === 1) {
+            } else if (window.smokePhase === 26 && noticeLayer.keepPausedMini) {
+                window.appState.dismissNotification()
+                window.smokePhase = 27
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 27 && noticeLayer.cardRetraction === 1
+                    && noticeLayer.miniProgressSpectrum <= 0.002) {
                 if (!window.visible || !noticeLayer.keepPausedMini || noticeLayer.miniBounds.width < 60
                         || wings.housingRect.y + wings.housingRect.height > 0) {
                     window.failSmoke("a dismissed notification did not leave only the paused mini-player")
                     return
                 }
-                window.smokePhase = 27
+                window.smokePhase = 28
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 27 && noticeLayer.miniPauseExpired && !noticeLayer.presenting) {
+            } else if (window.smokePhase === 28 && noticeLayer.miniPauseExpired && !noticeLayer.presenting) {
                 if (window.visible || presence.showing || window.miniPlayerRegion.width > 0) {
                     window.failSmoke("the mini-player timeout brought back the paused dock")
                     return
                 }
                 demoMedia.togglePlaying()
-                window.smokePhase = 28
+                window.smokePhase = 29
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 28 && presence.interactive) {
+            } else if (window.smokePhase === 29 && presence.interactive) {
                 if (!window.visible || noticeLayer.miniPauseExpired || !wings.lyricsView.wide) {
                     window.failSmoke("resuming did not restore the expanded dock after the mini-player timeout")
                     return
                 }
+                const instrument = JSON.parse(wings.lyricsView.diagnostics())
+                if (instrument.progressRenderer !== "plassglassProgressRenderer" || instrument.progressSpectrum <= 0.002)
+                    return
+                window.appearance.setProgressStyle("material")
+                window.smokePhase = 30
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 30 && JSON.parse(wings.lyricsView.diagnostics()).progressRenderer
+                    === "materialProgressRenderer") {
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
                 console.log("PASS desktop expansion, liquid mini-player, notifications, progress styles, pause and restore")

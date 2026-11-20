@@ -11,9 +11,8 @@ Item {
     property real fraction: 0
     property bool indeterminate: false
     property bool playing: true
-    property bool wavy: true
     property bool circular: false
-    property real waveAmount: playing && wavy ? 1 : 0
+    property real waveAmount: playing ? 1 : 0
     Behavior on waveAmount { NumberAnimation { duration: 280; easing.type: Easing.InOutCubic } }
     property real phase: 0
     property bool seekable: false

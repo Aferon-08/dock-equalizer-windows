@@ -359,6 +359,7 @@ Item {
             text: reel.current.text, lineOnly: reel.current.lineOnly === true,
             wordSpans: (reel.current.wordSpans || []).length,
             trackHeaderVisible: header.visible && header.opacity > 0.95,
+            progressRenderer: progress.rendererName, progressSpectrum: progress.spectrumPeak,
             waiting: reel.waiting, waitProgress: reel.waitProgress, cursor: reel.cursor,
             marker: [reel.markerPose.x, reel.markerPose.y, reel.markerPose.alpha], handoff: reel.transfer,
             wordStart: reel.markerPose.start, nextWordStart: reel.markerPose.next, markerAir: reel.markerPose.air,
@@ -504,24 +505,23 @@ Item {
             onClicked: root.wordtimeStore.showForTrack(root.wordtimeTrack, root.host.theme, root.standardLyricsText)
         }
     }
-    WavyProgress {
-        wavy: root.host.settings.wavyProgress ?? true
-        amplitude: root.host.settings.progressAmplitude ?? 3.5
-        wavelength: root.host.settings.progressWavelength ?? 30
-        thickness: root.host.settings.progressThickness ?? 3
+    DockProgress {
         id: progress
         x: 68 + 14 * Math.min(1, root.layout)
         y: root.compactTrackHeader ? 53 + 10 * Math.min(1, root.layout) : 45 + 18 * Math.min(1, root.layout)
         width: Math.max(1, root.width - x - (68 + 14 * Math.min(1, root.layout)))
         height: 20
         opacity: root.musicLayout
-        visible: opacity > 0.001 && (!root.nativeClock || root.player.positionSupported)
+        visible: opacity > 0.001 && root.opacity > 0.001 && (!root.nativeClock || root.player.positionSupported)
+        settings: root.host.settings
+        palette: root.colors
+        secondary: root.host.theme.accentMint || root.colors.ink
+        bands: root.host.working ? (root.host.service?.bands ?? []) : []
         fraction: root.duration > 0 ? Math.max(0, Math.min(1, root.position / root.duration)) : 0
         indeterminate: root.duration <= 0
         playing: root.playing
         phase: root.position / 1.8
         seekable: !!root.player && root.player.canSeek && root.player.positionSupported && root.duration > 0
-        ink: root.colors.ink; accent: root.colors.accent
         onSeek: fraction => root.seekTo(fraction)
     }
     Item {
