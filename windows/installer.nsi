@@ -21,7 +21,7 @@ SetCompressor /SOLID lzma
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SekaiSoundbar"
 !define STARTUP_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 !define MUI_ABORTWARNING
-!insertmacro MUI_PAGE_LICENSE "${PAYLOAD}/LICENSE"
+!insertmacro MUI_PAGE_LICENSE "${PAYLOAD_LICENSE}"
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_RUN "$INSTDIR\app\SekaiSoundbar.exe"
 !insertmacro MUI_PAGE_FINISH
@@ -86,7 +86,7 @@ stage:
     RMDir /r "$INSTDIR\staging"
     SetOutPath "$INSTDIR\staging"
     ClearErrors
-    File /r "${PAYLOAD}/*"
+    File /r "${PAYLOAD_FILES}"
     IfErrors failed
 
     SetOutPath "$INSTDIR"

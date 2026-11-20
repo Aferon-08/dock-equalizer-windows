@@ -84,8 +84,11 @@ def package(stage: Path, out: Path, makensis: str) -> None:
         if bad:
             raise ValueError(f"Corrupt ZIP entry: {bad}")
 
-    subprocess.run([makensis, "-V2", "-INPUTCHARSET", "UTF8", f"-DVERSION={version}", f"-DPAYLOAD={stage}",
-                    f"-DSETUP={setup}", str(HERE / "installer.nsi")], check=True)
+    subprocess.run([
+        makensis, "-V2", "-INPUTCHARSET", "UTF8", f"-DVERSION={version}",
+        f"-DPAYLOAD_LICENSE={stage / 'LICENSE'}", f"-DPAYLOAD_FILES={stage / '*'}",
+        f"-DSETUP={setup}", str(HERE / "installer.nsi"),
+    ], check=True)
     for file in (portable, setup):
         print(f"{checksum(file)}  {file.name}")
 
