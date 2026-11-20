@@ -94,6 +94,7 @@ Window {
     property url smokeWordtime
     readonly property bool smokeImports: smokeMode && smokeLrc.toString() !== "" && smokeWordtime.toString() !== ""
     property int smokePhase: 0
+    onSmokePhaseChanged: if (smokeMode) console.info("Standalone soundbar smoke phase", smokePhase)
     property real smokeStarted: 0
     property bool smokeCapturePending: false
     property real smokeLandingTime: 0
@@ -104,7 +105,7 @@ Window {
     property bool smokeSawStaggeredTuck: false
     property bool smokeSawReleaseSpring: false
     property bool smokeSawStaggeredReturn: false
-    property bool smokeSawReturnSpring: false
+    readonly property var smokeReturnSprings: new Set()
 
     DockPresence {
         id: presence
@@ -532,8 +533,34 @@ Window {
             miniPauseDelay: window.smokeMode ? 1450 : 40000
             topInset: pill.y
             onDismissed: window.appState.dismissNotification()
+            onNeckBoundsChanged: {
+                if (window.smokePhase === 22 && neckBounds.width > 0 && miniBounds.width > miniBounds.height
+                        && miniBounds.x + miniBounds.width > bodyBounds.x + bodyBounds.width + 8) {
+                    window.smokeSawGlassNeck = true
+                }
+            }
             onReleaseRecoilChanged: if (window.smokePhase === 22 && releaseRecoil > 0.25)
                 window.smokeSawReleaseSpring = true
+        }
+    }
+
+    Connections {
+        target: wings.lyricsView
+        enabled: window.smokeMode && (window.smokePhase === 22 || window.smokePhase === 23)
+        function onPartProgressChanged() {
+            const parts = wings.lyricsView.partProgress
+            const staggered = Math.max(...parts) - Math.min(...parts) > 0.3
+            if (window.smokePhase === 22) {
+                if (staggered && wings.lyricsView.coverAlpha > 0.2)
+                    window.smokeSawStaggeredTuck = true
+            } else {
+                if (staggered)
+                    window.smokeSawStaggeredReturn = true
+                parts.forEach((part, index) => {
+                    if (part < -0.012)
+                        window.smokeReturnSprings.add(index)
+                })
+            }
         }
     }
 
@@ -1134,41 +1161,31 @@ Window {
                 const body = wings.housingRect
                 const mini = noticeLayer.miniBounds
                 const parts = wings.lyricsView.partProgress
-                if (mini.x + mini.width > body.x + body.width + 8 && mini.width > mini.height
-                        && noticeLayer.neckBounds.width > 0)
-                    window.smokeSawGlassNeck = true
-                if (Math.max(...parts) - Math.min(...parts) > 0.3 && wings.lyricsView.coverAlpha > 0.2)
-                    window.smokeSawStaggeredTuck = true
-                if (noticeLayer.splitProgress !== 1)
+                if (noticeLayer.splitProgress !== 1 || parts.some(part => part !== 1))
                     return
                 if (!window.smokeSawGlassNeck || !window.smokeSawStaggeredTuck || !window.smokeSawReleaseSpring
-                        || parts.some(part => part !== 1)
                         || mini.x < body.x + body.width + 12 || mini.width !== noticeLayer.miniDiameter
                         || Math.abs(window.miniPlayerRegion.width - mini.width * stage.scale) > 0.1) {
-                    window.failSmoke("the connected glass drop did not gather the player in separate parts")
+                    window.failSmoke("the connected glass drop did not gather the player in separate parts"
+                        + " (neck: " + window.smokeSawGlassNeck + ", stagger: " + window.smokeSawStaggeredTuck
+                        + ", spring: " + window.smokeSawReleaseSpring + ")")
                     return
                 }
                 window.appState.dismissNotification()
                 window.smokePhase = 23
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 23) {
-                const parts = wings.lyricsView.partProgress
-                if (Math.max(...parts) - Math.min(...parts) > 0.3)
-                    window.smokeSawStaggeredReturn = true
-                if (parts.filter(part => part < -0.012).length >= 2)
-                    window.smokeSawReturnSpring = true
                 if (wings.housingRect.height + 0.1 < noticeLayer.detailsHeight) {
                     window.failSmoke("the glass body shrank into compact mode while merging with the mini-player")
                     return
                 }
-                if (noticeLayer.presenting)
+                if (noticeLayer.presenting || wings.lyricsView.partProgress.some(part => part !== 0))
                     return
                 if (!window.visible || !wings.lyricsView.wide || window.miniPlayerRegion.width !== 0
-                        || !window.smokeSawStaggeredReturn || !window.smokeSawReturnSpring
-                        || parts.some(part => part !== 0)) {
+                        || !window.smokeSawStaggeredReturn || window.smokeReturnSprings.size < 2) {
                     window.failSmoke("the player did not return in staggered pieces and spring into place"
-                        + " (stagger: " + window.smokeSawStaggeredReturn + ", spring: " + window.smokeSawReturnSpring
-                        + ", parts: " + parts + ")")
+                        + " (stagger: " + window.smokeSawStaggeredReturn + ", springs: "
+                        + window.smokeReturnSprings.size + ")")
                     return
                 }
                 window.appState.postTestNotification("wifi")
@@ -1245,6 +1262,7 @@ Window {
         Qt.callLater(updatePanelRegion)
         Qt.callLater(updateExpandedRegion)
         if (smokeMode) {
+            console.info("Starting standalone soundbar smoke test")
             restartDemo()
             demoLyrics.status = "none"
             smokeStarted = Date.now()
