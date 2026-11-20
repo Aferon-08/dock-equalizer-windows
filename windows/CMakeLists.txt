@@ -1,6 +1,6 @@
 qt_add_executable(SekaiSoundbar WIN32 main.cpp DesktopOverlay.cpp DesktopOverlay.h)
 target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackClock.h
-    DockAppearance.cpp DockAppearance.h
+    DisplaySettings.cpp DisplaySettings.h DockAppearance.cpp DockAppearance.h StartupSettings.cpp StartupSettings.h
     LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h
@@ -49,7 +49,9 @@ set(shared_ui
     VoiceAnnotations.js
 )
 set(shared_assets assets/next.svg assets/previous.svg assets/volume.svg)
-set_source_files_properties(qml/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
+foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml)
+    set_source_files_properties("qml/${file}" PROPERTIES QT_RESOURCE_ALIAS "${file}")
+endforeach()
 foreach(file IN LISTS shared_ui shared_assets)
     set_source_files_properties("${PROJECT_SOURCE_DIR}/${file}" PROPERTIES QT_RESOURCE_ALIAS "${file}")
 endforeach()
@@ -58,7 +60,8 @@ list(TRANSFORM shared_assets PREPEND "${PROJECT_SOURCE_DIR}/")
 
 qt_add_qml_module(SekaiSoundbar
     URI Sekai.Soundbar
-    QML_FILES qml/Main.qml qml/AlignmentDialog.qml qml/AppearanceDialog.qml qml/DockPresence.qml ${shared_ui}
+    QML_FILES qml/Main.qml qml/AlignmentDialog.qml qml/ApplicationState.qml qml/DockPresence.qml qml/SettingsWindow.qml
+              ${shared_ui}
     RESOURCES ${shared_assets}
 )
 

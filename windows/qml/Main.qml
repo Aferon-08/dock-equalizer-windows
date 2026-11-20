@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Dialogs as Dialogs
 import QtQml.Models
 import "BeatTracker.js" as BeatTracker
-import "ImportedLyrics.js" as ImportedLyrics
 
 Window {
     id: window
@@ -15,6 +14,7 @@ Window {
     required property var lyricsSearch
     required property var lyricsAlignment
     required property var appearance
+    required property var appState
     flags: Qt.Tool | Qt.FramelessWindowHint
         | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
     title: "Sekai Soundbar"
@@ -28,12 +28,9 @@ Window {
     onVisibleChanged: {
         if (visible) {
             Qt.callLater(updateExpandedRegion)
-            Qt.callLater(openPendingAppearance)
         } else {
             if (menuLoader && menuLoader.item && menuLoader.item.visible)
                 menuLoader.item.dismiss()
-            if (appearanceDialog && appearanceDialog.visible)
-                appearanceDialog.close()
         }
     }
     onClosing: Qt.quit()
@@ -56,7 +53,6 @@ Window {
     property bool expandedSpaceReady: false
     onExpansionClearChanged: if (!expansionClear) expandedSpaceReady = false
     property bool trayPreview: false
-    property bool trayAppearancePending: false
     readonly property bool audioFallback: !demoMode && !media.player && systemAudio.audible
     property bool sustainedAudio: false
     onAudioFallbackChanged: if (!audioFallback) sustainedAudio = false
@@ -72,18 +68,20 @@ Window {
         && stage.GraphicsInfo.api === GraphicsInfo.Direct3D11
     readonly property var media: demoMode ? demoMedia : mediaSessions
     readonly property string activeTrackKey: media.player ? media.player.trackKey : ""
-    property var localLyrics: null
+    readonly property var localLyrics: appState.localLyrics
     readonly property var onlineLyrics: !demoMode && lyricsSearch.trackKey === activeTrackKey
         && lyricsSearch.document.ok === true ? lyricsSearch.document : null
     readonly property var timingDocument: localLyrics && localLyrics.key === activeTrackKey
         ? localLyrics.document : onlineLyrics
+    readonly property var captureBackdrop: wings.backdropItem
+    onLocalLyricsChanged: if (localLyrics?.key === activeTrackKey) lyricsExpanded = true
     onActiveTrackKeyChanged: {
         if (activeTrackKey === "")
             trayPreview = false
         if (matchPicker && matchPicker.opened)
             matchPicker.close()
-        if (localLyrics && localLyrics.key !== activeTrackKey)
-            clearLyrics()
+        if (demoMode && localLyrics && localLyrics.key !== activeTrackKey)
+            appState.localLyrics = null
         if (!smokeMode)
             lyricsExpanded = true
     }
@@ -106,11 +104,11 @@ Window {
         fullscreen: window.desktop.fullscreenActive
         idleDelay: demoHost.settings.collapseDelay
         pauseDelay: window.smokeMode ? 1700 : 60000
-        holdOpen: window.trayPreview || window.trayAppearancePending
+        holdOpen: window.trayPreview
             || (window.smokeMode && window.smokeHoldOpen)
-            || (menuLoader.item?.visible ?? false) || appearanceDialog.visible
+            || (menuLoader.item?.visible ?? false)
             || lyricsPicker.visible || lyricsMessage.visible || alignmentDialog.visible
-            || proxyDialog.visible || matchPicker.visible || wings.lyricsView.swipeDragging
+            || matchPicker.visible || wings.lyricsView.swipeDragging
     }
     Timer {
         interval: 350
@@ -175,13 +173,6 @@ Window {
         lyricsExpanded = !expandedDock
     }
 
-    function openPendingAppearance() {
-        if (visible && trayAppearancePending) {
-            appearanceDialog.open()
-            trayAppearancePending = false
-        }
-    }
-
     function spectrumAt(stamp) {
         return Array.from({length: 64}, function(_, i) {
             return Math.round(70 + 180 * Math.pow((1 + Math.sin(i * 0.41 + stamp * 5.8)) * 0.5, 3))
@@ -196,7 +187,7 @@ Window {
     }
 
     function clearLyrics() {
-        localLyrics = null
+        appState.localLyrics = null
         lyricsExpanded = !smokeMode
     }
 
@@ -204,24 +195,7 @@ Window {
         if (!targetKey || targetKey !== activeTrackKey || !media.player)
             return "Трек сменился. Выберите файл для текущего трека."
         const result = lyricsImport.read(file, media.player.lengthSupported ? media.player.length : 0)
-        return applyLyricsDocument(result, targetKey)
-    }
-
-    function applyLyricsDocument(result, targetKey) {
-        if (!result.ok)
-            return result.message
-        let document = result
-        if (result.format === "wordtime") {
-            try {
-                const lines = ImportedLyrics.convert(result)
-                document = Object.assign({}, result, {lines: lines, voices: ImportedLyrics.voices(result, lines)})
-            } catch (error) {
-                return String(error.message)
-            }
-        }
-        localLyrics = {key: targetKey, document: document}
-        lyricsExpanded = true
-        return ""
+        return appState.applyLyrics(targetKey, result)
     }
 
     function failSmoke(message) {
@@ -448,7 +422,6 @@ Window {
             anchors.fill: parent
             host: demoHost
             hideProgress: presence.hideProgress
-            previewGlass: appearanceDialog.visible
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
             desktopLens: backdropEnabled && (backdropItem?.hasFrame === true)
@@ -524,15 +497,6 @@ Window {
         controller: window.lyricsAlignment
         ownerWindow: window
     }
-    AppearanceDialog {
-        id: appearanceDialog
-        parent: Overlay.overlay
-        appearance: window.appearance
-        ownerWindow: window
-        effectsAvailable: wings.shaderAvailable
-        desktopGlassAvailable: window.desktopGlassAvailable
-        backdrop: wings.backdropItem
-    }
     Connections {
         target: window.desktop
         function onShowRequested() {
@@ -541,91 +505,12 @@ Window {
                 window.trayPreview = true
             }
         }
-        function onAppearanceRequested() {
-            if (window.desktop.fullscreenActive)
-                return
-            window.trayAppearancePending = true
-            Qt.callLater(window.openPendingAppearance)
-        }
     }
     Connections {
-        target: window.lyricsAlignment
-        function onAligned(trackKey, document) {
-            if (trackKey === "" || trackKey !== window.activeTrackKey)
-                return
-            const message = window.applyLyricsDocument(document, trackKey)
-            if (message)
+        target: window.appState
+        function onAlignmentFailed(message) {
+            if (alignmentDialog.visible)
                 alignmentDialog.saveError = message
-        }
-    }
-    Dialog {
-        id: proxyDialog
-        parent: Overlay.overlay
-        width: Math.min(460, window.width)
-        x: Math.round((window.width - width) / 2)
-        y: Math.max(40, Math.round((window.height - height) / 2))
-        popupType: Popup.Window
-        modal: true
-        focus: true
-        title: "Прокси поиска лирики"
-        onOpened: {
-            proxyInput.text = window.lyricsSearch.proxyAddress
-            proxyError.text = ""
-            proxyInput.forceActiveFocus()
-        }
-        function save() {
-            proxyError.text = window.lyricsSearch.configureProxy(proxyInput.text)
-            if (!proxyError.text)
-                accept()
-        }
-        contentItem: Column {
-            spacing: 8
-            Label {
-                width: parent.width
-                text: "Укажите адрес локального прокси. Пустое поле включает обычное подключение."
-                wrapMode: Text.WordWrap
-            }
-            TextField {
-                id: proxyInput
-                width: parent.width
-                placeholderText: "socks5h://127.0.0.1:10808"
-                placeholderTextColor: "#8bb0a4"
-                maximumLength: 120
-                selectByMouse: true
-                onAccepted: proxyDialog.save()
-            }
-            Row {
-                spacing: 8
-                Button {
-                    text: "INCY SOCKS5"
-                    onClicked: proxyInput.text = "socks5h://127.0.0.1:10808"
-                }
-                Button {
-                    text: "INCY HTTP"
-                    onClicked: proxyInput.text = "http://127.0.0.1:10809"
-                }
-            }
-            Label {
-                id: proxyError
-                width: parent.width
-                visible: text !== ""
-                textFormat: Text.PlainText
-                color: "#f6adad"
-                wrapMode: Text.WordWrap
-            }
-            Row {
-                width: parent.width
-                spacing: 8
-                layoutDirection: Qt.RightToLeft
-                Button {
-                    text: "Сохранить"
-                    onClicked: proxyDialog.save()
-                }
-                Button {
-                    text: "Отмена"
-                    onClicked: proxyDialog.reject()
-                }
-            }
         }
     }
     Dialog {
@@ -668,7 +553,7 @@ Window {
                 }
                 onClicked: {
                     if (window.lyricsSearch.choose(matchPicker.targetKey, index)) {
-                        window.localLyrics = null
+                        window.appState.localLyrics = null
                         window.lyricsExpanded = true
                     }
                     matchPicker.close()
@@ -681,21 +566,13 @@ Window {
         Menu {
             id: panelMenu
             popupType: Popup.Window
-            property bool openAppearanceAfterClose: false
-            function openAppearance() {
-                if (window.visible)
-                    appearanceDialog.open()
-            }
             onClosed: {
-                const showAppearance = openAppearanceAfterClose
-                openAppearanceAfterClose = false
-                Qt.callLater(() => {
-                    // Release the software backing store when its top-level popup closes.
-                    if (stage.GraphicsInfo.api === GraphicsInfo.Software && !panelMenu.visible)
-                        menuLoader.active = false
-                    if (showAppearance && window.visible)
-                        appearanceDialog.open()
-                })
+                if (stage.GraphicsInfo.api === GraphicsInfo.Software) {
+                    Qt.callLater(() => {
+                        if (!panelMenu.visible)
+                            menuLoader.active = false
+                    })
+                }
             }
             MenuItem {
                 text: window.expandedDock ? "Свернуть лирику" : "Развернуть лирику"
@@ -743,7 +620,7 @@ Window {
                 }
                 MenuItem {
                     text: "Прокси поиска…"
-                    onTriggered: Qt.callLater(() => proxyDialog.open())
+                    onTriggered: window.desktop.settingsRequested("lyrics")
                 }
                 MenuItem {
                     text: "Выбрать версию лирики…"
@@ -805,15 +682,8 @@ Window {
             }
             MenuSeparator {}
             MenuItem {
-                text: "Оформление дока…"
-                onTriggered: {
-                    if (panelMenu.visible) {
-                        panelMenu.openAppearanceAfterClose = true
-                        panelMenu.dismiss()
-                    } else {
-                        Qt.callLater(panelMenu.openAppearance)
-                    }
-                }
+                text: "Настройки…"
+                onTriggered: window.desktop.settingsRequested("general")
             }
             MenuItem {
                 text: "Скрыть док"
