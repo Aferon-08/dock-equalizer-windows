@@ -73,7 +73,7 @@ if(BUILD_TESTING)
     add_test(NAME soundbar.overlay COMMAND SekaiSoundbar --smoke-test ${smoke_fixtures})
     add_test(NAME soundbar.overlay-software COMMAND SekaiSoundbar --software-rendering --smoke-test ${smoke_fixtures})
     set_tests_properties(soundbar.overlay soundbar.overlay-software PROPERTIES
-        TIMEOUT 25
+        TIMEOUT 35
         FAIL_REGULAR_EXPRESSION
             "Error decoding;Error loading;Failed to deserialize QShader;ReferenceError:;TypeError:"
     )

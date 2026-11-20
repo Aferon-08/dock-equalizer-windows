@@ -10,6 +10,7 @@ Window {
     required property var displays
     required property var startup
     required property var lyricsSearch
+    required property var appState
     property var previewDock: null
     property string section: "general"
 
@@ -570,18 +571,18 @@ Window {
 
             FieldLabel { text: "Уведомления"; font.pixelSize: 23 }
             Surface {
-                Copy { text: "Нажмите на карточку в доке, чтобы раскрыть подробности." }
+                Copy { text: "Карточка раскрывается сама, когда в верхней части экрана есть место." }
                 Action {
                     Layout.fillWidth: true
                     text: "Отправить тестовое уведомление"
                     emphasized: true
                     onClicked: {
-                        if (!panel.previewDock)
+                        if (panel.displays.enabledCount === 0) {
                             notificationStatus.text = "Включите док хотя бы на одном мониторе."
-                        else if (!panel.previewDock.showTestNotification())
-                            notificationStatus.text = "Дождитесь выхода из полноэкранного режима на мониторе дока."
-                        else
-                            notificationStatus.text = "Уведомление отправлено в док."
+                            return
+                        }
+                        panel.appState.postTestNotification()
+                        notificationStatus.text = "Уведомление отправлено на включённые мониторы."
                     }
                 }
                 Copy {

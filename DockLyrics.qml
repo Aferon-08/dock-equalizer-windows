@@ -19,6 +19,8 @@ Item {
     readonly property var material: Material.read(host.settings)
     readonly property vector4d materialStyle: Qt.vector4d(material.enabled ? 1 : 0, material.blur, material.darkening, material.refraction)
     property rect glassRect: Qt.rect(0, 0, 1, 1)
+    property point presentationOffset: Qt.point(0, 0)
+    property real presentationScale: 1
     required property var host
     // Optional host-specific cache/IPC behavior; the view itself uses only Qt.
     property Component bridgeComponent: null
@@ -418,7 +420,18 @@ Item {
         NumberAnimation { id: swipeBackX; target: root; property: "swipeX"; to: 0; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
         NumberAnimation { id: swipeBackY; target: root; property: "swipeY"; to: 0; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
     }
-    transform: Translate { x: root.swipeX; y: root.swipeY }
+    transform: [
+        Scale {
+            origin.x: cover.x + cover.width / 2
+            origin.y: cover.y + cover.height / 2
+            xScale: root.presentationScale
+            yScale: root.presentationScale
+        },
+        Translate {
+            x: root.swipeX + root.presentationOffset.x
+            y: root.swipeY + root.presentationOffset.y
+        }
+    ]
     x: dock.x
     y: dock.y
     width: Math.max(1, dock.capWidth)
@@ -441,6 +454,8 @@ Item {
     }
 
     // The same art and progress move between the two layouts, without crossfading copies.
+    readonly property rect coverBounds: Qt.rect(x + swipeX + cover.x, y + swipeY + cover.y,
+        cover.width, cover.height)
     Rectangle {
         id: cover
         layer.enabled: true

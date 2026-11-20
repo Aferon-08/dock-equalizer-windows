@@ -166,7 +166,8 @@ int main(int argc, char *argv[])
         {QStringLiteral("appearance"), QVariant::fromValue(&appearance)},
         {QStringLiteral("displays"), QVariant::fromValue(&displays)},
         {QStringLiteral("startup"), QVariant::fromValue(&startup)},
-        {QStringLiteral("lyricsSearch"), QVariant::fromValue(&search)}
+        {QStringLiteral("lyricsSearch"), QVariant::fromValue(&search)},
+        {QStringLiteral("appState"), QVariant::fromValue(appState.get())}
     });
     if (!settingsWindow)
         return 1;
