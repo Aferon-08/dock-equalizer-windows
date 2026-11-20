@@ -1,10 +1,11 @@
-qt_add_executable(SekaiSoundbar WIN32 main.cpp DesktopOverlay.cpp DesktopOverlay.h)
-target_sources(SekaiSoundbar PRIVATE MediaSessions.cpp MediaSessions.h PlaybackClock.h ArtworkColor.cpp ArtworkColor.h
+target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.h
+    MediaSessions.cpp MediaSessions.h PlaybackClock.h ArtworkColor.cpp ArtworkColor.h
     DisplaySettings.cpp DisplaySettings.h DockAppearance.cpp DockAppearance.h StartupSettings.cpp StartupSettings.h
     LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h
     MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
+target_include_directories(SekaiSoundbar PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
 target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}")
 if(WIN32)
@@ -12,67 +13,6 @@ if(WIN32)
         WinCaptureAbi.h BackdropTextureNode.h)
     target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore)
 endif()
-
-# Explicit inputs keep the SekaiPOP adapters out of QML scanning and deployment.
-set(shared_ui
-    BackingLayer.qml
-    BackingPhrase.qml
-    DockLyrics.qml
-    DockWings.qml
-    FireflyScene.qml
-    KaraokeLine.qml
-    LandingSplashes.qml
-    LyricMarker.qml
-    LyricsFinale.qml
-    LyricsReel.qml
-    MarkerScene.qml
-    MultiVoiceGlow.qml
-    MultiVoiceLyrics.qml
-    SpectrumRibbon.qml
-    VisualizerCapsule.qml
-    WaitingDots.qml
-    WavyProgress.qml
-    AnalysisPolicy.js
-    BackingLayout.js
-    BeatTracker.js
-    DockMaterial.js
-    FireflyMotion.js
-    ImportedLyrics.js
-    LightMotion.js
-    LyricsEnd.js
-    LyricsMath.js
-    LyricsTimeline.js
-    MarkerLayout.js
-    MarkerMotion.js
-    MultiVoiceFinale.js
-    MultiVoiceMath.js
-    VoiceAnnotations.js
-)
-set(shared_assets assets/next.svg assets/previous.svg assets/volume.svg)
-foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml)
-    set_source_files_properties("qml/${file}" PROPERTIES QT_RESOURCE_ALIAS "${file}")
-endforeach()
-foreach(file IN LISTS shared_ui shared_assets)
-    set_source_files_properties("${PROJECT_SOURCE_DIR}/${file}" PROPERTIES QT_RESOURCE_ALIAS "${file}")
-endforeach()
-list(TRANSFORM shared_ui PREPEND "${PROJECT_SOURCE_DIR}/")
-list(TRANSFORM shared_assets PREPEND "${PROJECT_SOURCE_DIR}/")
-
-qt_add_qml_module(SekaiSoundbar
-    URI Sekai.Soundbar
-    QML_FILES qml/Main.qml qml/AlignmentDialog.qml qml/ApplicationState.qml qml/DockPresence.qml qml/SettingsWindow.qml
-              ${shared_ui}
-    RESOURCES ${shared_assets}
-)
-
-qt_add_shaders(SekaiSoundbar soundbar_shaders
-    PREFIX "/qt/qml/Sekai/Soundbar"
-    BASE "${PROJECT_SOURCE_DIR}"
-    FILES
-        "${PROJECT_SOURCE_DIR}/glass.frag"
-        "${PROJECT_SOURCE_DIR}/liquid.frag"
-        "${PROJECT_SOURCE_DIR}/spectrum-ribbon.frag"
-)
 
 if(WIN32)
     install(TARGETS SekaiSoundbar RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
