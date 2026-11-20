@@ -15,6 +15,7 @@
 #include <QApplication>
 #include <QCursor>
 #include <QMenu>
+#include <QMessageBox>
 #include <QNetworkProxyFactory>
 #include <QPainter>
 #include <QPainterPath>
@@ -25,6 +26,7 @@
 #include <QScopeGuard>
 #include <QSettings>
 #include <QSystemTrayIcon>
+#include <QTimer>
 
 #include <map>
 #include <memory>
@@ -116,8 +118,14 @@ int main(int argc, char *argv[])
     const HANDLE instance = smokeMode ? nullptr : CreateMutexW(nullptr, FALSE, L"Local\\SekaiSoundbar.Instance");
     const bool alreadyRunning = instance && GetLastError() == ERROR_ALREADY_EXISTS;
     const auto releaseInstance = qScopeGuard([instance] { if (instance) CloseHandle(instance); });
-    if (alreadyRunning)
+    if (alreadyRunning) {
+        if (WindowsNotifications::hasPackageIdentity()) {
+            QMessageBox::information(nullptr, QStringLiteral("Sekai Soundbar (MSIX)"),
+                QStringLiteral("Док уже запущен. Завершите его через меню в области уведомлений Windows, "
+                               "затем снова откройте Sekai Soundbar (MSIX) из меню «Пуск»."));
+        }
         return 0;
+    }
     QQuickWindow::setGraphicsApi(software || !hasHardwareD3d11()
         ? QSGRendererInterface::Software : QSGRendererInterface::Direct3D11);
     QNetworkProxyFactory::setUseSystemConfiguration(true);
@@ -290,8 +298,26 @@ int main(int argc, char *argv[])
                 showDocks();
         });
         tray.show();
-        if (args.contains(QStringLiteral("--settings")))
+        if (windowsNotifications.status() == QStringLiteral("permissionRequired")) {
+            auto *startupPermission = new QTimer(settingsWindow.get());
+            QObject::connect(startupPermission, &QTimer::timeout, settingsWindow.get(), [&windowsNotifications,
+                    owner = settingsWindow.get(), startupPermission] {
+                if (!owner->isVisible() || windowsNotifications.status() != QStringLiteral("permissionRequired")) {
+                    startupPermission->stop();
+                    startupPermission->deleteLater();
+                } else if (owner->isActive() && owner->isExposed()) {
+                    startupPermission->stop();
+                    startupPermission->deleteLater();
+                    windowsNotifications.requestAccess(owner);
+                }
+            });
+            QTimer::singleShot(0, &viewConnections, [&, startupPermission] {
+                openSettings(QStringLiteral("notifications"), nullptr);
+                startupPermission->start(100);
+            });
+        } else if (args.contains(QStringLiteral("--settings"))) {
             openSettings({}, nullptr);
+        }
     }
     return app.exec();
 }
