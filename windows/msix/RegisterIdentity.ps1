@@ -18,7 +18,7 @@ try {
     $version = [version]$env:SEKAI_IDENTITY_VERSION
     try {
         if (!($previous | Where-Object Version -ge $version)) {
-            Add-AppxPackage -Path $env:SEKAI_IDENTITY_PACKAGE -ExternalLocation $env:SEKAI_PROGRAM_DIR -AllowUnsigned
+            Add-AppxPackage -Path $env:SEKAI_IDENTITY_PACKAGE -ExternalLocation $env:SEKAI_PROGRAM_DIR
         }
         $program = Join-Path $env:SEKAI_PROGRAM_DIR 'SekaiSoundbar.exe'
         $probe = Start-Process -FilePath $program -WorkingDirectory $env:SEKAI_PROGRAM_DIR `
@@ -34,6 +34,7 @@ try {
     }
     exit 0
 } catch {
-    Write-Output ('0x{0:X8} {1}' -f $_.Exception.HResult, $_.Exception.Message)
+    $message = ($_.Exception.Message -split '\r?\n', 2)[0].Trim()
+    Set-Content -LiteralPath $env:SEKAI_IDENTITY_ERROR -Value $message -Encoding Unicode
     exit 1
 }

@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Dist)
+param([Parameter(Mandatory)][string]$Dist, [switch]$ExpectNotificationIdentity)
 
 $ErrorActionPreference = 'Stop'
 $Dist = (Resolve-Path $Dist).Path
@@ -9,7 +9,9 @@ $installed = Join-Path $env:LOCALAPPDATA 'Programs\SekaiSoundbar'
 $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SekaiSoundbar'
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Sekai Soundbar\Sekai Soundbar.lnk'
 $extract = Join-Path $env:RUNNER_TEMP 'SekaiSoundbarPortable'
-$testNotificationIdentity = [Environment]::OSVersion.Version.Build -ge 22000
+if ($ExpectNotificationIdentity -and [Environment]::OSVersion.Version.Build -lt 22000) {
+    throw 'Testing the notification identity requires Windows 11.'
+}
 
 function Invoke-Checked([string]$Exe, [string]$Arguments) {
     $process = Start-Process $Exe -ArgumentList $Arguments -WorkingDirectory (Split-Path $Exe) -PassThru -Wait
@@ -19,9 +21,11 @@ function Invoke-Checked([string]$Exe, [string]$Arguments) {
 # Reveal missing deployment files instead of picking them up from the build SDK.
 $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
 Remove-Item Env:QT_PLUGIN_PATH, Env:QML_IMPORT_PATH, Env:QML2_IMPORT_PATH -ErrorAction SilentlyContinue
-Expand-Archive (Join-Path $Dist "$stem.zip") $extract
-$portable = Join-Path $extract "$stem\SekaiSoundbar.exe"
-Invoke-Checked $portable "--software-rendering $argsForSmoke"
+if (!$ExpectNotificationIdentity) {
+    Expand-Archive (Join-Path $Dist "$stem.zip") $extract
+    $portable = Join-Path $extract "$stem\SekaiSoundbar.exe"
+    Invoke-Checked $portable "--software-rendering $argsForSmoke"
+}
 
 $setup = Join-Path $Dist "$stem-Setup.exe"
 if ((Test-Path $installed) -or (Test-Path $uninstallKey)) {
@@ -32,21 +36,21 @@ $program = Join-Path $installed 'app\SekaiSoundbar.exe'
 if (!(Test-Path $shortcut) -or !(Test-Path $uninstallKey)) {
     throw 'Setup did not register the app or create its shortcut.'
 }
-if ($testNotificationIdentity) {
+if ($ExpectNotificationIdentity) {
     Invoke-Checked $program '--check-notification-identity'
 }
 Invoke-Checked $program "--software-rendering $argsForSmoke"
 Invoke-Checked $setup '/S'
-if ($testNotificationIdentity) {
+if ($ExpectNotificationIdentity) {
     Invoke-Checked $program '--check-notification-identity'
 }
-if ((Get-FileHash $program).Hash -ne (Get-FileHash $portable).Hash) {
+if (!$ExpectNotificationIdentity -and (Get-FileHash $program).Hash -ne (Get-FileHash $portable).Hash) {
     throw 'Installed and portable executables differ after update.'
 }
 Invoke-Checked (Join-Path $installed 'Uninstall.exe') '/S'
 if ((Test-Path $installed) -or (Test-Path $shortcut) -or (Test-Path $uninstallKey)) {
     throw 'Uninstall left the program, Start menu shortcut or uninstall entry behind.'
 }
-if ($testNotificationIdentity -and (Get-AppxPackage -Name 'Aferon08.SekaiSoundbar.Desktop')) {
+if ($ExpectNotificationIdentity -and (Get-AppxPackage -Name 'Aferon08.SekaiSoundbar.Desktop')) {
     throw 'Uninstall left the notification identity registered.'
 }

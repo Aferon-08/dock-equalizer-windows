@@ -6,7 +6,9 @@ RequestExecutionLevel user
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
+!ifdef IDENTITY_PACKAGE
 !include "WinVer.nsh"
+!endif
 
 Name "Sekai Soundbar"
 OutFile "${SETUP}"
@@ -37,12 +39,17 @@ LangString InstallFailed ${LANG_ENGLISH} "The program files could not be install
 LangString InstallFailed ${LANG_RUSSIAN} "Не удалось установить файлы программы."
 LangString RequiresX64 ${LANG_ENGLISH} "Sekai Soundbar requires a 64-bit version of Windows."
 LangString RequiresX64 ${LANG_RUSSIAN} "Для Sekai Soundbar требуется 64-битная версия Windows."
+
+Var InstanceGuard
+
+!ifdef IDENTITY_PACKAGE
+LangString RequiresWin11 ${LANG_ENGLISH} "This edition of Sekai Soundbar requires Windows 11."
+LangString RequiresWin11 ${LANG_RUSSIAN} "Для этой сборки Sekai Soundbar требуется Windows 11."
 LangString IdentityInstallFailed ${LANG_ENGLISH} "Windows could not register Sekai Soundbar for access to app notifications."
 LangString IdentityInstallFailed ${LANG_RUSSIAN} "Windows не удалось зарегистрировать Sekai Soundbar для доступа к уведомлениям приложений."
 LangString IdentityRemoveFailed ${LANG_ENGLISH} "Windows could not remove Sekai Soundbar's notification registration."
 LangString IdentityRemoveFailed ${LANG_RUSSIAN} "Windows не удалось удалить регистрацию Sekai Soundbar для уведомлений."
 
-Var InstanceGuard
 Var IdentityResult
 Var IdentityMessage
 
@@ -60,10 +67,21 @@ Var IdentityMessage
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_NAME", w "${IDENTITY_NAME}")'
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_PUBLISHER", w "${IDENTITY_PUBLISHER}")'
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_VERSION", w "${VERSION}.0")'
-    nsExec::ExecToStack /TIMEOUT=120000 '$\"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe$\" -NoLogo -NoProfile -NonInteractive -Command $\"& ([ScriptBlock]::Create([IO.File]::ReadAllText($$env:SEKAI_IDENTITY_SCRIPT)))$\"'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_ERROR", w "$PLUGINSDIR\identity-error.txt")'
+    nsExec::Exec /TIMEOUT=120000 '$\"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe$\" -NoLogo -NoProfile -NonInteractive -Command $\"& ([ScriptBlock]::Create([IO.File]::ReadAllText($$env:SEKAI_IDENTITY_SCRIPT)))$\"'
     Pop $IdentityResult
-    Pop $IdentityMessage
+    StrCpy $IdentityMessage ""
+    ${If} $IdentityResult != 0
+        ClearErrors
+        FileOpen $0 "$PLUGINSDIR\identity-error.txt" r
+        ${IfNot} ${Errors}
+            FileSeek $0 2 SET ; Skip the UTF-16LE byte order mark written by PowerShell.
+            FileReadUTF16LE $0 $IdentityMessage
+            FileClose $0
+        ${EndIf}
+    ${EndIf}
 !macroend
+!endif
 
 !macro ACQUIRE_LOCK
     ${IfNot} ${RunningX64}
@@ -89,6 +107,14 @@ Var IdentityMessage
 
 Function .onInit
     !insertmacro ACQUIRE_LOCK
+    !ifdef IDENTITY_PACKAGE
+    ${IfNot} ${AtLeastWin11}
+        SetErrorLevel 1
+        IfSilent +2
+        MessageBox MB_ICONSTOP "$(RequiresWin11)"
+        Abort
+    ${EndIf}
+    !endif
 FunctionEnd
 
 Function un.onInit
@@ -125,13 +151,13 @@ stage:
 replace:
     Rename "$INSTDIR\staging" "$INSTDIR\app"
     IfErrors rollback
-    ${If} ${AtLeastWin11}
-        !insertmacro NOTIFICATION_IDENTITY Install
-        SetOutPath "$INSTDIR"
-        ${If} $IdentityResult != 0
-            Goto identityFailed
-        ${EndIf}
+    !ifdef IDENTITY_PACKAGE
+    !insertmacro NOTIFICATION_IDENTITY Install
+    SetOutPath "$INSTDIR"
+    ${If} $IdentityResult != 0
+        Goto identityFailed
     ${EndIf}
+    !endif
     RMDir /r "$INSTDIR\previous"
 
     SetOutPath "$INSTDIR\app"
@@ -148,6 +174,7 @@ replace:
     System::Call 'kernel32::CloseHandle(p $InstanceGuard)'
     Goto done
 
+!ifdef IDENTITY_PACKAGE
 identityFailed:
     RMDir /r "$INSTDIR\app"
     ${If} ${FileExists} "$INSTDIR\previous\SekaiSoundbar.exe"
@@ -162,6 +189,7 @@ identityFailed:
     IfSilent +2
     MessageBox MB_ICONSTOP "$(IdentityInstallFailed)$\r$\n$IdentityResult $IdentityMessage"
     Abort
+!endif
 
 rollback:
     IfFileExists "$INSTDIR\previous\SekaiSoundbar.exe" 0 failed
@@ -179,6 +207,7 @@ done:
 SectionEnd
 
 Section "Uninstall"
+    !ifdef IDENTITY_PACKAGE
     ${If} ${AtLeastWin11}
         !insertmacro NOTIFICATION_IDENTITY Remove
         ${If} $IdentityResult != 0
@@ -189,6 +218,7 @@ Section "Uninstall"
             Abort
         ${EndIf}
     ${EndIf}
+    !endif
     SetOutPath "$TEMP"
     ClearErrors
     IfFileExists "$INSTDIR\app\*.*" 0 +2

@@ -7,7 +7,6 @@ import shutil
 import struct
 import subprocess
 import tarfile
-import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -54,35 +53,36 @@ def checksum(path: Path) -> str:
         return hashlib.file_digest(binary, "sha256").hexdigest()
 
 
-def make_notification_identity(stage: Path, work: Path, version: str, makeappx: str) -> tuple[Path, dict]:
-    assets = HERE / "msix"
-    payload = work / "identity"
-    shutil.copytree(assets / "PackageAssets", payload / "PackageAssets")
-    manifest = (assets / "AppxManifest.xml.in").read_text(encoding="utf-8").replace("@VERSION@", version)
-    (payload / "AppxManifest.xml").write_text(manifest, encoding="utf-8")
+def notification_identity_args(exe: Path, package: Path | None, version: str) -> list[str]:
+    embedded = re.search(rb'<msix xmlns="urn:schemas-microsoft-com:msix\.v1"\s+[^<>]+/>', exe.read_bytes())
+    if package is None:
+        if embedded:
+            raise ValueError("The identity-enabled EXE requires a signed --notification-package")
+        return []
 
-    package_manifest = ET.fromstring(manifest)
-    identity = package_manifest.find("{*}Identity").attrib
-    app = package_manifest.find("{*}Applications/{*}Application").attrib
-    exe_manifest = (assets / "Executable.manifest").read_bytes()
-    exe_identity = ET.fromstring(exe_manifest).find("{urn:schemas-microsoft-com:msix.v1}msix").attrib
-    if exe_identity != {"publisher": identity["Publisher"], "packageName": identity["Name"], "applicationId": app["Id"]}:
-        raise ValueError("Executable and package identities differ")
-    if exe_manifest.replace(b"\r\n", b"\n") not in (stage / app["Executable"]).read_bytes().replace(b"\r\n", b"\n"):
-        raise ValueError("The staged executable is missing its notification identity manifest")
-
-    package = work / "notification-identity.msix"
-    if Path(makeappx).stem.lower() == "makeappx":
-        subprocess.run([makeappx, "pack", "/d", str(payload), "/p", str(package), "/nv"], check=True)
-    else:
-        subprocess.run([makeappx, "pack", "-d", str(payload), "-p", str(package)], check=True)
     with zipfile.ZipFile(package) as archive:
-        if archive.testzip() or archive.read("AppxManifest.xml") != (payload / "AppxManifest.xml").read_bytes():
-            raise ValueError("Invalid notification identity package")
-    return package, identity
+        signature = "AppxSignature.p7x"
+        if (signature not in archive.namelist() or not archive.read(signature).startswith(b"PKCX")
+                or archive.testzip()):
+            raise ValueError("Expected a signed MSIX notification package")
+        manifest = ET.fromstring(archive.read("AppxManifest.xml"))
+    identity = manifest.find("{*}Identity").attrib
+    application = manifest.find("{*}Applications/{*}Application").attrib
+    if (identity["Version"] != f"{version}.0" or application["Executable"] != exe.name
+            or manifest.findtext("{*}Properties/{*}AllowExternalContent") != "true"):
+        raise ValueError("The notification package must target this external executable and version")
+    if not any(capability.get("Name") == "userNotificationListener"
+               for capability in manifest.findall("{*}Capabilities/{*}Capability")):
+        raise ValueError("The notification package does not declare notification access")
+
+    expected = {"publisher": identity["Publisher"], "packageName": identity["Name"], "applicationId": application["Id"]}
+    if not embedded or ET.fromstring(embedded.group()).attrib != expected:
+        raise ValueError("Executable and package identities differ")
+    return [f"-DIDENTITY_PACKAGE={package}", f"-DIDENTITY_SCRIPT={HERE / 'msix/RegisterIdentity.ps1'}",
+            f"-DIDENTITY_NAME={identity['Name']}", f"-DIDENTITY_PUBLISHER={identity['Publisher']}"]
 
 
-def package(stage: Path, out: Path, makensis: str, makeappx: str) -> None:
+def package(stage: Path, out: Path, makensis: str, notification_package: Path | None) -> None:
     for name in REQUIRED:
         if not (stage / name).is_file():
             raise ValueError(f"Incomplete runtime: {name}")
@@ -90,6 +90,7 @@ def package(stage: Path, out: Path, makensis: str, makeappx: str) -> None:
     version = (stage / "VERSION.txt").read_text(encoding="ascii").strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError(f"Invalid package version: {version}")
+    identity_args = notification_identity_args(stage / "SekaiSoundbar.exe", notification_package, version)
     for module in QT_MODULES:
         if not list((stage / "licenses" / "Qt").glob(f"{module}-*/LICENSES/LGPL-3.0-only.txt")):
             raise ValueError(f"Missing LGPL license text for {module}")
@@ -106,25 +107,22 @@ def package(stage: Path, out: Path, makensis: str, makeappx: str) -> None:
     stem = "SekaiSoundbar-Windows11-x64"
     portable = out / f"{stem}.zip"
     setup = out / f"{stem}-Setup.exe"
-    with zipfile.ZipFile(portable, "w", zipfile.ZIP_DEFLATED) as archive:
-        for file in sorted([*files, manifest]):
-            archive.write(file, f"{stem}/{file.relative_to(stage).as_posix()}")
-    with zipfile.ZipFile(portable) as archive:
-        bad = archive.testzip()
-        if bad:
-            raise ValueError(f"Corrupt ZIP entry: {bad}")
+    if notification_package is None:
+        with zipfile.ZipFile(portable, "w", zipfile.ZIP_DEFLATED) as archive:
+            for file in sorted([*files, manifest]):
+                archive.write(file, f"{stem}/{file.relative_to(stage).as_posix()}")
+        with zipfile.ZipFile(portable) as archive:
+            bad = archive.testzip()
+            if bad:
+                raise ValueError(f"Corrupt ZIP entry: {bad}")
+        print(f"{checksum(portable)}  {portable.name}")
 
-    with tempfile.TemporaryDirectory(prefix="soundbar-identity-") as temp:
-        identity_package, identity = make_notification_identity(stage, Path(temp), version, makeappx)
-        subprocess.run([
-            makensis, "-V2", "-INPUTCHARSET", "UTF8", f"-DVERSION={version}",
-            f"-DPAYLOAD_LICENSE={stage / 'LICENSE'}", f"-DPAYLOAD_FILES={stage / '*'}",
-            f"-DIDENTITY_PACKAGE={identity_package}", f"-DIDENTITY_SCRIPT={HERE / 'msix/RegisterIdentity.ps1'}",
-            f"-DIDENTITY_NAME={identity['Name']}", f"-DIDENTITY_PUBLISHER={identity['Publisher']}",
-            f"-DSETUP={setup}", str(HERE / "installer.nsi"),
-        ], check=True)
-    for file in (portable, setup):
-        print(f"{checksum(file)}  {file.name}")
+    subprocess.run([
+        makensis, "-V2", "-INPUTCHARSET", "UTF8", f"-DVERSION={version}",
+        f"-DPAYLOAD_LICENSE={stage / 'LICENSE'}", f"-DPAYLOAD_FILES={stage / '*'}",
+        *identity_args, f"-DSETUP={setup}", str(HERE / "installer.nsi"),
+    ], check=True)
+    print(f"{checksum(setup)}  {setup.name}")
 
 
 def main() -> None:
@@ -132,7 +130,8 @@ def main() -> None:
     parser.add_argument("--stage", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--makensis", default="makensis")
-    parser.add_argument("--makeappx", default="MakeAppx.exe")
+    parser.add_argument("--notification-package", type=Path,
+                        help="Signed external-location MSIX matching the staged executable")
     parser.add_argument("--qt-archives", type=Path)
     parser.add_argument("--qt-version", default="6.8.2")
     args = parser.parse_args()
@@ -142,7 +141,10 @@ def main() -> None:
         parser.error("--out must be outside --stage")
     if args.qt_archives:
         stage_qt_notices(args.qt_archives, stage, args.qt_version)
-    package(stage, out, args.makensis, args.makeappx)
+    identity = args.notification_package.resolve() if args.notification_package else None
+    if identity and identity.is_relative_to(stage):
+        parser.error("--notification-package must be outside --stage")
+    package(stage, out, args.makensis, identity)
 
 
 if __name__ == "__main__":

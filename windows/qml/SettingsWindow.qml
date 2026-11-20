@@ -624,7 +624,7 @@ Window {
                 Copy {
                     text: {
                         switch (notifications.listenerStatus) {
-                        case "packageRequired": return "Для чтения уведомлений установите Sekai Soundbar через Setup.exe и запустите его из меню «Пуск»."
+                        case "packageRequired": return "Для чтения уведомлений приложений Windows нужна сборка с подписанным пакетом доступа."
                         case "permissionRequired": return "Разрешите доку читать уведомления приложений Windows."
                         case "requesting": return "Ожидаем ответ на запрос Windows."
                         case "connecting": return "Читаем Центр уведомлений Windows."
