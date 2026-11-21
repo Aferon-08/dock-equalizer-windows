@@ -155,11 +155,15 @@ Item {
     readonly property real phase: Math.max(0, Math.min(1.1,
         (staggeredOpening ? Geometry.arrival(reveal, 0.11) : reveal) * (1 - fusion)))
         * (1 - Motion.smooth(hideProgress / 0.44))
-    readonly property real dropletLength: thickness + (length - thickness) * phase
+    readonly property real wingLength: noticeVisible ? Math.max(0, Math.min(host.settings.width,
+        Math.min(housingRect.x, parent.width - housingRect.x - housingRect.width) - gap - 14)) : length
+    readonly property real dropletLength: thickness + (wingLength - thickness) * phase
     readonly property real radius: host.dock.radius + (40 - host.dock.radius) * lyricLayer.musicLayout
-    readonly property real outward: -radius + (gap + length / 2 + radius) * phase
+    readonly property real outward: -radius + (gap + wingLength / 2 + radius) * phase
     readonly property real wingScale: (1 - Motion.smooth((hideProgress - 0.05) / 0.44))
-        * (noticeVisible ? 1 - notification.splitProgress : 1)
+        * (noticeVisible ? (1 - notification.splitProgress) * Motion.smooth(Geometry.phase(wingLength, 30, 64)) : 1)
+    readonly property real wingSpan: Math.max(0, dropletLength * wingScale)
+    readonly property real wingHeight: Math.min(thickness, Math.max(0, dropletLength)) * wingScale
     readonly property real contentOpacity: staggeredOpening ? Motion.smooth(Geometry.phase(1 - hideProgress, 0.26, 0.51))
         : 1 - Motion.smooth(hideProgress / 0.28)
     readonly property real playerTaper: Geometry.taper(hideProgress)
@@ -169,6 +173,13 @@ Item {
             : Geometry.pullToEdge(rect, hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
     }
     readonly property rect housingRect: noticeVisible ? notification.bodyBounds : playerHousing
+    readonly property rect leftWingBounds: wingBounds(-1)
+    readonly property rect rightWingBounds: wingBounds(1)
+    function wingBounds(side) {
+        const edge = side < 0 ? housingRect.x : housingRect.x + housingRect.width
+        const centerY = housingRect.y + Math.min(playerHousing.height, housingRect.height) / 2
+        return Qt.rect(edge + side * outward - wingSpan / 2, centerY - wingHeight / 2, wingSpan, wingHeight)
+    }
     readonly property real housingRadius: Math.min(noticeVisible ? notification.bodyRadius : radius,
         housingRect.width / 2, housingRect.height / 2)
     readonly property real pad: 32
@@ -189,11 +200,13 @@ Item {
 
     Item {
         id: liquid
+        readonly property real centerX: root.dock.x + root.bodyWidth / 2 + lyricLayer.swipeX
         width: Math.max(root.bodyAlong + 2 * (root.length + root.gap + root.pad),
-            root.noticeVisible ? root.notification.surfaceWidth + 2 * root.pad : 0)
+            root.noticeVisible ? 2 * (root.pad + Math.max(root.notification.surfaceWidth / 2,
+                centerX - root.leftWingBounds.x, root.rightWingBounds.x + root.wingSpan - centerX)) : 0)
         height: (root.noticeVisible ? Math.max(root.bodyAcross, root.notification.maximumDetailsHeight)
             : root.bodyAcross) + 2 * root.pad
-        x: root.dock.x + root.bodyWidth / 2 - width / 2 + lyricLayer.swipeX
+        x: centerX - width / 2
         y: root.dock.y + root.bodyHeight / 2 - root.bodyAcross / 2 - root.pad + lyricLayer.swipeY
         rotation: root.vertical ? 90 : 0
 
@@ -251,10 +264,13 @@ Item {
             function inShader(rect) {
                 return Qt.vector4d(rect.x - liquid.x, rect.y - liquid.y, rect.width, rect.height)
             }
-            readonly property vector4d wingData: Qt.vector4d(
-                playerRect.x - root.outward, playerRect.y + playerRect.w / 2,
-                playerRect.x + playerRect.z + root.outward, root.dropletLength * root.wingScale)
-            readonly property vector4d params: Qt.vector4d(root.thickness * root.wingScale,
+            readonly property vector4d wingData: root.vertical
+                ? Qt.vector4d(playerRect.x - root.outward, playerRect.y + playerRect.w / 2,
+                    playerRect.x + playerRect.z + root.outward, root.wingSpan)
+                : Qt.vector4d(root.leftWingBounds.x + root.wingSpan / 2 - liquid.x,
+                    root.leftWingBounds.y + root.wingHeight / 2 - liquid.y,
+                    root.rightWingBounds.x + root.wingSpan / 2 - liquid.x, root.wingSpan)
+            readonly property vector4d params: Qt.vector4d(root.wingHeight,
                 root.noticeVisible || root.hideProgress > 0 ? root.housingRadius : root.radius,
                 Math.sin(Math.PI * Math.min(1, root.phase)) * root.thickness * 0.85,
                 root.host.dock.shadow)
@@ -296,13 +312,12 @@ Item {
                 channel: index
                 palette: root.colors
                 housingVisible: !root.shaderAvailable
-                visible: root.phase > 0.01
-                opacity: root.spectrumOpacity * root.contentOpacity
-                    * (root.noticeVisible ? 1 - root.notification.splitProgress : 1)
-                width: root.dropletLength
-                height: root.thickness + 3
+                visible: root.phase > 0.01 && root.wingHeight > 1
+                opacity: root.spectrumOpacity * root.contentOpacity * root.wingScale
+                width: root.wingSpan
+                height: root.wingHeight + 3
                 x: (index === 0 ? skin.wingData.x : skin.wingData.z) - width / 2
-                y: skin.wingData.y - root.thickness / 2
+                y: skin.wingData.y - root.wingHeight / 2
             }
         }
     }
