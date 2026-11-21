@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import "DockMaterial.js" as Material
 import "DockGeometry.js" as Geometry
+import "MarkerMotion.js" as Motion
 import QtQuick.Effects
 import QtQuick.Controls as Controls
 import "LyricsMath.js" as LM
@@ -23,6 +24,7 @@ Item {
     property bool gatheringParts: false
     property bool staggeredOpening: false
     property real openingProgress: 1
+    property rect openingBounds: Qt.rect(0, 0, 1, 1)
     property point miniCenter: Qt.point(0, 0)
     readonly property real coverAlpha: coverMotion.alpha
     readonly property real progressAlpha: progressMotion.alpha
@@ -34,6 +36,8 @@ Item {
         destination: root.miniCenter
         tucking: root.gatheringParts
         entrance: root.openingProgress
+        entranceBounds: root.openingBounds
+        entranceSurface: Qt.size(root.width, root.height)
     }
     // Optional host-specific cache/IPC behavior; the view itself uses only Qt.
     property Component bridgeComponent: null
@@ -183,8 +187,7 @@ Item {
     readonly property real layout: Math.max(0, Math.min(staggeredOpening || host.settings.limitPlayerOvershoot ? 1 : 1.08,
         staggeredOpening ? Geometry.arrival(wideReveal, 0.055) : wideReveal))
     readonly property real layoutSpring: staggeredOpening ? Geometry.recoil(Geometry.phase(wideReveal, 0.72, 1)) : 0
-    readonly property real expandedEntrance: staggeredOpening ? Math.min(openingProgress, wideReveal) : 1
-    readonly property real headerEntrance: compactTrackHeader ? openingProgress : expandedEntrance
+    readonly property real headerUnfold: staggeredOpening && !compactTrackHeader ? wideReveal : 1
     readonly property real baseWidth: host.dock.baseWidth || host.dock.item.width
     readonly property real baseHeight: host.dock.baseCapHeight || 69
     readonly property real maxBody: Math.max(280,
@@ -372,6 +375,9 @@ Item {
     Behavior on wordLightTail { Vector3dAnimation { duration: root.waitingLightAmount > 0.5 ? 320 : (root.host.settings.trailDelay ?? 230); easing.type: Easing.OutCubic } }
     Behavior on wordLightMist { Vector3dAnimation { duration: root.waitingLightAmount > 0.5 ? 420 : (root.host.settings.mistDelay ?? 300); easing.type: Easing.OutCubic } }
     readonly property var dock: host.dock.item
+    function openingPose() {
+        return { cover: cover.opacity, coverScale: coverMotion.edgeScale.width, volume: volume.opacity }
+    }
     function diagnostics(): string {
         return JSON.stringify({ mode: root.mode, available: root.available, wide: root.wide,
             timingSource: root.importedTiming ? "imported" : root.hasTimingDocument ? "mixed" : "standard",
@@ -381,7 +387,7 @@ Item {
             lyricsEnded: root.lyricsEnded, finale: root.finaleState.phase, playing: root.playing, content: root.available ? "lyrics" : root.emptyLabel, ambient: root.ambientLight, dismissed: root.dismissedUntilPlay, swipe: [root.swipeX, root.swipeY], swipeDirection: root.lastSwipeDirection, position: root.position, duration: root.duration, reportedDuration: root.reportedDuration, youtubeId: root.youtubeId, index: reel.currentIndex,
             text: reel.current.text, lineOnly: reel.current.lineOnly === true,
             wordSpans: (reel.current.wordSpans || []).length,
-            trackHeaderVisible: header.visible && header.opacity * titleMotion.alpha > 0.95,
+            trackHeaderVisible: header.visible && header.opacity * titleMotion.alpha * titleMotion.entranceOpacity > 0.95,
             progressRenderer: progress.rendererName, progressSpectrum: progress.spectrumPeak,
             waiting: reel.waiting, waitProgress: reel.waitProgress, cursor: reel.cursor,
             marker: [reel.markerPose.x, reel.markerPose.y, reel.markerPose.alpha], handoff: reel.transfer,
@@ -494,7 +500,7 @@ Item {
         transform: PlayerPart {
             id: coverMotion
             part: cover
-            entranceOffset: Qt.point(-33, -8); entranceDelay: 0.49; entranceEnd: 0.95
+            entranceSlot: Qt.point(-0.23, 0.48); entranceDelay: 0.30; entranceEnd: 0.86
             tuckedScale: Qt.size(0.70, 0.72)
             tuckDelay: 120; tuckDuration: 710; tuckEasing: Easing.InOutSine
             returnDelay: 160; returnDuration: 685; spring: 0.86
@@ -538,7 +544,8 @@ Item {
         transform: PlayerPart {
             id: progressMotion
             part: progress
-            entranceOffset: Qt.point(-10, 17); entranceDelay: 0.61
+            entranceSlot: Qt.point(0.03, 0.72); entranceDelay: 0.39; entranceEnd: 0.94
+            entranceScale: Qt.size(0.22, 0.23)
             tuckedScale: Qt.size(0.075, 0.70)
             tuckDelay: 166; tuckDuration: 642; tuckEasing: Easing.InOutSine
             returnDelay: 205; returnDuration: 750; spring: 1.22
@@ -565,7 +572,7 @@ Item {
         transform: PlayerPart {
             id: volumeMotion
             part: volume
-            entranceOffset: Qt.point(24, 9); entranceDelay: 0.63
+            entranceSlot: Qt.point(0.27, 0.63); entranceDelay: 0.50; entranceEnd: 0.98
             tuckDelay: 82; tuckDuration: 480
             returnDelay: 278; returnDuration: 530; spring: 1.23
             arc: 21; tilt: -18
@@ -597,8 +604,9 @@ Item {
         id: header
         width: parent.width
         height: 90
-        visible: root.compactTrackHeader || root.layout > 0.01
-        opacity: root.compactTrackHeader ? root.musicLayout : Math.min(1, root.layout)
+        visible: opacity > 0.001
+        opacity: root.compactTrackHeader ? root.musicLayout
+            : root.staggeredOpening ? Motion.smooth(root.wideReveal / 0.48) : Math.min(1, root.layout)
         Text {
             id: trackTitle
             x: progress.x; y: 12
@@ -612,8 +620,8 @@ Item {
             transform: PlayerPart {
                 id: titleMotion
                 part: trackTitle
-                entrance: root.headerEntrance
-                entranceOffset: Qt.point(0, -21); entranceDelay: 0.53; entranceEnd: 0.96
+                unfold: Geometry.phase(root.headerUnfold, 0.02, 0.80)
+                entranceSlot: Qt.point(0.04, 0.23); entranceDelay: 0.35; entranceEnd: 0.89
                 pivot: Qt.point(Math.min(trackTitle.width, trackTitle.contentWidth) / 2, trackTitle.height / 2)
                 tuckDelay: 78; tuckDuration: 585
                 returnDelay: 245; returnDuration: 621; spring: 0.98
@@ -633,8 +641,8 @@ Item {
             transform: PlayerPart {
                 id: artistMotion
                 part: trackArtist
-                entrance: root.headerEntrance
-                entranceOffset: Qt.point(-15, 9); entranceDelay: 0.59; entranceEnd: 0.99
+                unfold: Geometry.phase(root.headerUnfold, 0.08, 0.86)
+                entranceSlot: Qt.point(-0.04, 0.43); entranceDelay: 0.40; entranceEnd: 0.94
                 pivot: Qt.point(Math.min(trackArtist.width, trackArtist.contentWidth) / 2, trackArtist.height / 2)
                 tuckDelay: 118; tuckDuration: 560; tuckEasing: Easing.InOutQuint
                 returnDelay: 285; returnDuration: 626; spring: 1.08
@@ -662,10 +670,10 @@ Item {
                     transform: PlayerPart {
                         id: buttonMotion
                         part: button
-                        entrance: root.headerEntrance
-                        entranceOffset: Qt.point(23 + 6 * button.index, -10 + 8 * button.index)
-                        entranceDelay: 0.62 + 0.035 * button.index
-                        entranceEnd: 0.93 + 0.03 * button.index
+                        unfold: Geometry.phase(root.headerUnfold, 0.11 + 0.045 * button.index, 0.86 + 0.045 * button.index)
+                        entranceSlot: Qt.point(0.10 + 0.10 * button.index, 0.26 + 0.065 * button.index)
+                        entranceDelay: 0.43 + 0.035 * button.index
+                        entranceEnd: 0.91 + 0.035 * button.index
                         restingCenter: Qt.point(playbackControls.x + button.x + pivot.x,
                             playbackControls.y + button.y + pivot.y)
                         tuckDelay: button.index === 1 ? 180 : 34 + 20 * button.index
@@ -722,8 +730,8 @@ Item {
             transform: PlayerPart {
                 id: playedTimeMotion
                 part: playedTime
-                entrance: root.expandedEntrance
-                entranceOffset: Qt.point(-10, 8); entranceDelay: 0.68
+                unfold: root.staggeredOpening ? Geometry.phase(root.wideReveal, 0.23, 0.92) : 1
+                entranceSlot: Qt.point(-0.12, 0.64); entranceDelay: 0.50; entranceEnd: 0.97
                 tuckDelay: 82; tuckDuration: 515
                 returnDelay: 287; returnDuration: 581; spring: 0.92
                 arc: -11; tilt: 13
@@ -740,8 +748,8 @@ Item {
             transform: PlayerPart {
                 id: totalTimeMotion
                 part: totalTime
-                entrance: root.expandedEntrance
-                entranceOffset: Qt.point(10, 8); entranceDelay: 0.71
+                unfold: root.staggeredOpening ? Geometry.phase(root.wideReveal, 0.27, 0.97) : 1
+                entranceSlot: Qt.point(0.23, 0.68); entranceDelay: 0.54
                 tuckDelay: 115; tuckDuration: 470
                 returnDelay: 317; returnDuration: 570
                 arc: 12; tilt: -16
@@ -756,8 +764,9 @@ Item {
         transform: PlayerPart {
             id: sheetMotion
             part: lyricSheet
-            entrance: root.expandedEntrance
-            entranceOffset: Qt.point(0, 28); entranceDelay: 0.72
+            unfold: root.staggeredOpening ? Geometry.phase(root.wideReveal, 0.23, 1) : 1
+            entranceSlot: Qt.point(0, 0.77); entranceDelay: 0.51
+            entranceScale: Qt.size(0.15, 0.22)
             pivot: Qt.point(lyricSheet.width / 2, lyricGlass.y + lyricGlass.height / 2)
             tuckedScale: Qt.size(0.087, 0.19)
             tuckDuration: 568

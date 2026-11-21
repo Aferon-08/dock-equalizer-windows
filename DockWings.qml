@@ -160,13 +160,13 @@ Item {
     readonly property real outward: -radius + (gap + length / 2 + radius) * phase
     readonly property real wingScale: (1 - Motion.smooth((hideProgress - 0.05) / 0.44))
         * (noticeVisible ? 1 - notification.splitProgress : 1)
-    readonly property real contentOpacity: staggeredOpening ? Motion.smooth((0.48 - hideProgress) / 0.43)
+    readonly property real contentOpacity: staggeredOpening ? Motion.smooth(Geometry.phase(1 - hideProgress, 0.26, 0.51))
         : 1 - Motion.smooth(hideProgress / 0.28)
     readonly property real playerTaper: Geometry.taper(hideProgress)
     readonly property rect playerHousing: {
-        const rect = Geometry.pullToEdge(Qt.rect(dock.x, dock.y, bodyWidth, bodyHeight),
-            hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
-        return staggeredOpening ? Geometry.settleHousing(rect, 1 - hideProgress) : rect
+        const rect = Qt.rect(dock.x, dock.y, bodyWidth, bodyHeight)
+        return staggeredOpening ? Geometry.playerFromEdge(rect, hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
+            : Geometry.pullToEdge(rect, hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
     }
     readonly property rect housingRect: noticeVisible ? notification.bodyBounds : playerHousing
     readonly property real housingRadius: Math.min(noticeVisible ? notification.bodyRadius : radius,
@@ -313,6 +313,8 @@ Item {
         gatheringParts: root.noticeVisible && root.notification.splittingPlayer
         staggeredOpening: root.staggeredOpening
         openingProgress: root.staggeredOpening ? 1 - root.hideProgress : 1
+        openingBounds: Qt.rect(root.playerHousing.x - x - swipeX, root.playerHousing.y - y - swipeY,
+            root.playerHousing.width, root.playerHousing.height)
         miniCenter: root.notification ? Qt.point(root.notification.miniCenter.x - x - swipeX,
             root.notification.miniCenter.y - y - swipeY) : Qt.point(0, 0)
         host: root.host
