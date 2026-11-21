@@ -156,12 +156,17 @@ Item {
         }
     }
 
-    Item {
+    Rectangle {
+        id: badge
         parent: viewport.contentItem
         x: card.inset
         y: card.headerY
         width: card.badgeSize
         height: width
+        radius: 13
+        color: Qt.alpha(card.accent, 0.13)
+        border.color: Qt.alpha(card.accent, 0.37)
+        antialiasing: true
         opacity: badgeArrival.alpha
         transform: Arrival {
             id: badgeArrival

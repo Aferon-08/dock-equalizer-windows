@@ -33,10 +33,9 @@ Dialog {
     }
 
     contentItem: ColumnLayout {
-        spacing: 12
+        spacing: 10
 
         RowLayout {
-            spacing: 8
             Button {
                 text: "Выбрать аудиофайл…"
                 enabled: !panel.controller.busy
@@ -46,23 +45,19 @@ Dialog {
                 Layout.fillWidth: true
                 text: panel.audioFile.toString()
                     ? decodeURIComponent(panel.audioFile.toString().split("/").pop())
-                    : "Нужна запись текущего трека"
+                    : "Выберите ту же запись песни"
                 textFormat: Text.PlainText
                 elide: Text.ElideMiddle
             }
         }
 
-        Label {
-            id: lyricsLabel
-            Layout.fillWidth: true
-            text: "Текст песни"
-        }
         ScrollView {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.max(92, Math.min(190, panel.ownerWindow.workArea.height - 270))
             TextArea {
                 id: lyrics
-                Accessible.name: lyricsLabel.text
+                placeholderText: "Вставьте готовый текст песни"
+                placeholderTextColor: "#8bb0a4"
                 textFormat: TextEdit.PlainText
                 readOnly: panel.controller.busy
                 wrapMode: TextEdit.Wrap
@@ -86,7 +81,6 @@ Dialog {
             indeterminate: value <= 0
         }
         RowLayout {
-            spacing: 8
             Button {
                 visible: !panel.controller.ready
                 text: "Подготовить модуль"
