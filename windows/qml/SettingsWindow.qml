@@ -592,15 +592,6 @@ Window {
             readonly property string listenerStatus: windowsSource.status
             readonly property bool receivesWindows: listenerStatus === "active" && panel.displays.enabledCount > 0
 
-            Timer {
-                interval: 2000
-                repeat: true
-                triggeredOnStart: true
-                running: panel.active && (notifications.listenerStatus === "active"
-                    || notifications.windowsSource.bannerControlAvailable)
-                onTriggered: notifications.windowsSource.refreshBannerSettings()
-            }
-
             function sendTest(scenario) {
                 if (panel.displays.enabledCount === 0) {
                     notificationStatus.text = "Включите док хотя бы на одном мониторе."
@@ -665,11 +656,11 @@ Window {
                 visible: notifications.listenerStatus === "active" || notifications.windowsSource.bannersHidden
                 FieldLabel { text: "Только в доке" }
                 Copy {
-                    text: "Режим «Не беспокоить» скрывает обычные баннеры Windows. Уведомления остаются в Центре и появляются в доке."
+                    text: "Док отключает баннеры приложений. Их уведомления остаются в Центре уведомлений и появляются в доке."
                 }
                 Action {
                     Layout.fillWidth: true
-                    visible: notifications.windowsSource.bannerControlAvailable
+                    visible: notifications.windowsSource.bannerControlAvailable || notifications.windowsSource.bannersHidden
                     enabled: notifications.receivesWindows || notifications.windowsSource.bannersHidden
                     text: notifications.windowsSource.bannersHidden ? "Вернуть баннеры Windows" : "Скрыть баннеры Windows"
                     emphasized: !notifications.windowsSource.bannersHidden
@@ -678,12 +669,16 @@ Window {
                 Copy {
                     visible: !notifications.windowsSource.bannerControlAvailable
                         && notifications.windowsSource.bannerError === ""
-                    text: "Включите «Не беспокоить» в параметрах уведомлений Windows."
+                    text: "Показ баннеров можно настроить отдельно для каждого приложения в параметрах Windows."
                 }
                 Copy {
                     visible: text !== ""
                     text: notifications.windowsSource.bannerError
                     color: panel.warning
+                }
+                Copy {
+                    visible: notifications.windowsSource.bannersHidden && notifications.receivesWindows
+                    text: "Приложений с отключёнными баннерами · " + notifications.windowsSource.suppressedBannerCount
                 }
                 Copy {
                     visible: !notifications.receivesWindows
@@ -706,7 +701,7 @@ Window {
                     text: notifications.windowsSource.testResult
                 }
                 Copy {
-                    text: "Windows может показывать будильники и приоритетные уведомления. Режим действует и после выхода из дока."
+                    text: "Системные предупреждения и будильники обрабатывает Windows. Док возвращает прежние настройки при выходе."
                 }
             }
             Surface {

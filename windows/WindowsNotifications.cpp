@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QSettings>
 #include <QStringList>
 
 #include <algorithm>
@@ -10,12 +11,13 @@
 #ifdef Q_OS_WIN
 #include "NotificationFeed.h"
 #include "WinNotificationAbi.h"
+#include "WindowsNotificationBanners.h"
 
 #include <appmodel.h>
 #include <asyncinfo.h>
 #include <roapi.h>
 #include <shobjidl.h>
-#include <string_view>
+#include <string>
 #include <winstring.h>
 #include <wrl/client.h>
 
@@ -25,9 +27,7 @@ using Microsoft::WRL::ComPtr;
 using namespace winnotification;
 constexpr qint64 windowsEpochMs = 11644473600000LL;
 const QString probeTitle = QStringLiteral("Проверка Sekai Soundbar");
-constexpr wchar_t normalNotifications[] = L"Microsoft.QuietHoursProfile.Unrestricted";
-constexpr wchar_t priorityNotifications[] = L"Microsoft.QuietHoursProfile.PriorityOnly";
-constexpr wchar_t alarmsOnly[] = L"Microsoft.QuietHoursProfile.AlarmsOnly";
+const auto dockOnlyKey = QStringLiteral("notifications/dockOnly");
 
 qint64 windowsTime()
 {
@@ -138,13 +138,11 @@ QStringList notificationText(winnotification::UserNotification *entry)
     return {};
 }
 
-QVariantMap toCard(winnotification::UserNotification *entry, qint64 timestamp)
+QVariantMap toCard(winnotification::UserNotification *entry, qint64 timestamp, AppInfo *appInfo,
+    const QString &appId)
 {
     QString source = WindowsNotifications::tr("Приложение Windows");
-    QString appId;
-    ComPtr<AppInfo> appInfo;
-    if (SUCCEEDED(entry->get_AppInfo(appInfo.GetAddressOf())) && appInfo) {
-        appId = readString(appInfo.Get(), &AppInfo::get_AppUserModelId);
+    if (appInfo) {
         ComPtr<AppDisplayInfo> display;
         if (SUCCEEDED(appInfo->get_DisplayInfo(display.GetAddressOf())) && display) {
             const auto displayName = readString(display.Get(), &AppDisplayInfo::get_DisplayName);
@@ -167,22 +165,21 @@ QVariantMap toCard(winnotification::UserNotification *entry, qint64 timestamp)
     return event;
 }
 
-std::optional<bool> readBannerSettings(QuietHoursSettings *settings)
+QString probeSender()
 {
-    if (!settings)
+    UINT32 length = 0;
+    if (GetCurrentApplicationUserModelId(&length, nullptr) == ERROR_INSUFFICIENT_BUFFER && length) {
+        std::wstring id(length, L'\0');
+        if (GetCurrentApplicationUserModelId(&length, id.data()) == ERROR_SUCCESS)
+            return QString::fromWCharArray(id.c_str());
+    }
+    length = 0;
+    if (GetCurrentPackageFamilyName(&length, nullptr) != ERROR_INSUFFICIENT_BUFFER || !length)
         return {};
-    LPWSTR value = nullptr;
-    const HRESULT result = settings->get_UserSelectedProfile(&value);
-    const std::unique_ptr<wchar_t, decltype(&CoTaskMemFree)> profile(value, &CoTaskMemFree);
-    if (FAILED(result) || !profile)
+    std::wstring family(length, L'\0');
+    if (GetCurrentPackageFamilyName(&length, family.data()) != ERROR_SUCCESS)
         return {};
-
-    const std::wstring_view name(profile.get());
-    if (name == normalNotifications)
-        return false;
-    if (name == priorityNotifications || name == alarmsOnly)
-        return true;
-    return {};
+    return QString::fromWCharArray(family.c_str()) + QStringLiteral("!SekaiSoundbar");
 }
 
 HRESULT showTestToast(const QString &message)
@@ -237,6 +234,13 @@ struct WindowsNotifications::Private
 {
 #ifdef Q_OS_WIN
     bool apartment = false;
+    bool dockAvailable = false;
+    bool suppressing = false;
+    bool scannedSources = false;
+    QSettings *settings = nullptr;
+    std::unique_ptr<WindowsNotificationBanners> banners;
+    QSet<QString> senders;
+    qint64 nextBannerScan = 0;
     ComPtr<Listener> listener;
     ComPtr<AsyncOperation<Access>> permission;
     ComPtr<AsyncOperation<NotificationList *>> read;
@@ -251,16 +255,23 @@ struct WindowsNotifications::Private
 #endif
 };
 
-WindowsNotifications::WindowsNotifications(bool enabled)
+WindowsNotifications::WindowsNotifications(bool enabled, QSettings &settings)
     : m_data(std::make_unique<Private>())
 {
 #ifdef Q_OS_WIN
     if (!enabled)
         return;
+    m_data->settings = &settings;
+    m_data->banners = std::make_unique<WindowsNotificationBanners>(settings);
+    m_bannersHidden = settings.value(dockOnlyKey).toBool();
+    refreshBannerSettings();
     if (!hasPackageIdentity()) {
         setStatus(QStringLiteral("packageRequired"));
         return;
     }
+    const auto sender = probeSender();
+    if (!sender.isEmpty())
+        m_data->senders.insert(sender);
     const HRESULT apartment = RoInitialize(RO_INIT_SINGLETHREADED);
     m_data->apartment = SUCCEEDED(apartment);
     if (!m_data->apartment) {
@@ -283,6 +294,7 @@ WindowsNotifications::WindowsNotifications(bool enabled)
     m_timer.start(400);
 #else
     Q_UNUSED(enabled);
+    Q_UNUSED(settings);
 #endif
 }
 
@@ -294,6 +306,8 @@ WindowsNotifications::~WindowsNotifications()
         permission->Cancel();
     if (const auto read = asyncInfo(m_data->read.Get()))
         read->Cancel();
+    if (m_data->banners)
+        m_data->banners->restore();
     const bool uninitialize = m_data->apartment;
     m_data.reset();
     if (uninitialize)
@@ -315,8 +329,11 @@ void WindowsNotifications::setStatus(const QString &status, const QString &diagn
 {
     if (status == m_status && diagnostic == m_diagnostic)
         return;
+    const bool readinessChanged = (m_status == QStringLiteral("active")) != (status == QStringLiteral("active"));
     m_status = status;
     m_diagnostic = diagnostic;
+    if (readinessChanged)
+        refreshBannerSettings();
     emit statusChanged();
 }
 
@@ -327,44 +344,65 @@ void WindowsNotifications::setTestResult(const QString &result, bool testing)
     emit testChanged();
 }
 
-void WindowsNotifications::refreshBannerSettings()
+void WindowsNotifications::setDockAvailable(bool available)
 {
-    updateBannerSettings(std::nullopt);
+#ifdef Q_OS_WIN
+    if (m_data->dockAvailable == available)
+        return;
+    m_data->dockAvailable = available;
+    refreshBannerSettings();
+#else
+    Q_UNUSED(available);
+#endif
 }
 
 void WindowsNotifications::setBannersHidden(bool hidden)
 {
-    if (!hidden || m_status == QStringLiteral("active"))
-        updateBannerSettings(hidden);
+#ifdef Q_OS_WIN
+    if (!m_data->banners || (hidden && (!m_data->dockAvailable || m_status != QStringLiteral("active")
+            || !m_bannerControlAvailable))) {
+        return;
+    }
+    m_data->settings->setValue(dockOnlyKey, hidden);
+    m_data->settings->sync();
+    m_bannersHidden = hidden && m_data->settings->status() == QSettings::NoError;
+    refreshBannerSettings();
+    if (m_data->settings->status() != QSettings::NoError) {
+        m_bannerError = tr("Не удалось сохранить настройку показа баннеров.");
+        emit bannerSettingsChanged();
+    }
+#else
+    Q_UNUSED(hidden);
+#endif
 }
 
-void WindowsNotifications::updateBannerSettings(std::optional<bool> requested)
+void WindowsNotifications::refreshBannerSettings()
 {
 #ifdef Q_OS_WIN
-    if (!m_data->apartment)
+    if (!m_data->banners)
         return;
-
-    ComPtr<QuietHoursSettings> settings;
-    const HRESULT result = CoCreateInstance(quietHoursClassId, nullptr, CLSCTX_LOCAL_SERVER, quietHoursSettingsId,
-        reinterpret_cast<void **>(settings.GetAddressOf()));
-    auto current = SUCCEEDED(result) ? readBannerSettings(settings.Get()) : std::nullopt;
-    if (requested && current && requested != current) {
-        settings->put_UserSelectedProfile(*requested ? priorityNotifications : normalNotifications);
-        current = readBannerSettings(settings.Get());
+    m_bannerControlAvailable = m_data->banners->available();
+    const bool suppress = m_bannersHidden && m_data->dockAvailable && m_status == QStringLiteral("active");
+    m_suppressedBannerCount = 0;
+    m_bannerError.clear();
+    if (suppress) {
+        if (!m_data->suppressing)
+            m_data->suppressing = m_data->banners->restore();
+        if (m_data->suppressing) {
+            const auto result = m_data->banners->suppress(m_data->senders);
+            m_suppressedBannerCount = result.hidden;
+            if (!result.complete)
+                m_bannerError = tr("Не удалось обновить баннеры у части приложений.");
+        } else {
+            m_bannerError = tr("Windows не восстановила некоторые настройки баннеров.");
+        }
+        m_data->nextBannerScan = m_data->clock.elapsed() + 5000;
+    } else {
+        m_data->suppressing = false;
+        if (!m_data->banners->restore())
+            m_bannerError = tr("Windows не восстановила некоторые настройки баннеров.");
     }
-
-    QString error;
-    if (requested && requested != current)
-        error = tr("Ошибка переключения режима «Не беспокоить». Откройте параметры уведомлений Windows.");
-    else if (!requested && current == m_bannersHidden)
-        error = m_bannerError;
-    if (current == m_bannersHidden && error == m_bannerError)
-        return;
-    m_bannersHidden = current;
-    m_bannerError = error;
     emit bannerSettingsChanged();
-#else
-    Q_UNUSED(requested);
 #endif
 }
 
@@ -436,6 +474,7 @@ void WindowsNotifications::refresh()
     const auto accessResult = m_data->listener->GetAccessStatus(&access);
     if (FAILED(accessResult) || access != Access::Allowed) {
         m_data->read.Reset();
+        m_data->scannedSources = false;
         m_data->nextRead = elapsed;
         m_data->feed.reset(windowsTime());
         if (FAILED(accessResult)) {
@@ -485,6 +524,7 @@ void WindowsNotifications::refresh()
     }
 
     QList<QPair<qint64, QVariantMap>> arrivals;
+    const auto knownSenderCount = m_data->senders.size();
     for (UINT32 index = 0; index < count; ++index) {
         ComPtr<winnotification::UserNotification> entry;
         UINT32 id = 0;
@@ -492,14 +532,27 @@ void WindowsNotifications::refresh()
         if (FAILED(list->GetAt(index, entry.GetAddressOf())) || !entry || FAILED(entry->get_Id(&id)))
             continue;
         entry->get_CreationTime(&timestamp);
-        if (!m_data->feed.observe(id, timestamp.ticks))
+        const bool fresh = m_data->feed.observe(id, timestamp.ticks);
+        if (!fresh && m_data->scannedSources)
             continue;
-        auto card = toCard(entry.Get(), timestamp.ticks);
+        ComPtr<AppInfo> appInfo;
+        entry->get_AppInfo(appInfo.GetAddressOf());
+        const auto appId = appInfo ? readString(appInfo.Get(), &AppInfo::get_AppUserModelId) : QString();
+        if (!appId.isEmpty())
+            m_data->senders.insert(appId);
+        if (!fresh)
+            continue;
+        auto card = toCard(entry.Get(), timestamp.ticks, appInfo.Get(), appId);
         if (m_testing && card.value(QStringLiteral("title")).toString() == probeTitle
                 && card.value(QStringLiteral("detail")).toString() == m_data->testMessage) {
             setTestResult(tr("Проверочное уведомление получено из Windows и передано доку."));
         }
         arrivals.append(qMakePair(qint64(timestamp.ticks), std::move(card)));
+    }
+    m_data->scannedSources = true;
+    if (m_status == QStringLiteral("active") && m_bannersHidden && m_data->dockAvailable
+            && (m_data->senders.size() != knownSenderCount || elapsed >= m_data->nextBannerScan)) {
+        refreshBannerSettings();
     }
     m_data->feed.finish();
     m_data->delivered += int(arrivals.size());
