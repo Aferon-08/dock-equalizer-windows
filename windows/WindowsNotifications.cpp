@@ -15,6 +15,7 @@
 #include <asyncinfo.h>
 #include <roapi.h>
 #include <shobjidl.h>
+#include <string_view>
 #include <winstring.h>
 #include <wrl/client.h>
 
@@ -24,6 +25,9 @@ using Microsoft::WRL::ComPtr;
 using namespace winnotification;
 constexpr qint64 windowsEpochMs = 11644473600000LL;
 const QString probeTitle = QStringLiteral("Проверка Sekai Soundbar");
+constexpr wchar_t normalNotifications[] = L"Microsoft.QuietHoursProfile.Unrestricted";
+constexpr wchar_t priorityNotifications[] = L"Microsoft.QuietHoursProfile.PriorityOnly";
+constexpr wchar_t alarmsOnly[] = L"Microsoft.QuietHoursProfile.AlarmsOnly";
 
 qint64 windowsTime()
 {
@@ -163,6 +167,24 @@ QVariantMap toCard(winnotification::UserNotification *entry, qint64 timestamp)
     return event;
 }
 
+std::optional<bool> readBannerSettings(QuietHoursSettings *settings)
+{
+    if (!settings)
+        return {};
+    LPWSTR value = nullptr;
+    const HRESULT result = settings->get_UserSelectedProfile(&value);
+    const std::unique_ptr<wchar_t, decltype(&CoTaskMemFree)> profile(value, &CoTaskMemFree);
+    if (FAILED(result) || !profile)
+        return {};
+
+    const std::wstring_view name(profile.get());
+    if (name == normalNotifications)
+        return false;
+    if (name == priorityNotifications || name == alarmsOnly)
+        return true;
+    return {};
+}
+
 HRESULT showTestToast(const QString &message)
 {
     constexpr wchar_t className[] = L"Windows.Data.Xml.Dom.XmlDocument";
@@ -195,9 +217,6 @@ HRESULT showTestToast(const QString &message)
     result = getFactory(L"Windows.UI.Notifications.ToastNotification", toastFactoryId, factory);
     if (FAILED(result) || FAILED(result = factory->CreateToastNotification(xmlDocument.Get(), toast.GetAddressOf())))
         return result;
-    ComPtr<ToastNotificationOptions> options;
-    if (SUCCEEDED(toast->QueryInterface(toastOptionsId, reinterpret_cast<void **>(options.GetAddressOf()))))
-        options->put_SuppressPopup(true);
 
     ComPtr<ToastManagerStatics> manager;
     ComPtr<ToastNotifier> notifier;
@@ -306,6 +325,47 @@ void WindowsNotifications::setTestResult(const QString &result, bool testing)
     m_testResult = result;
     m_testing = testing;
     emit testChanged();
+}
+
+void WindowsNotifications::refreshBannerSettings()
+{
+    updateBannerSettings(std::nullopt);
+}
+
+void WindowsNotifications::setBannersHidden(bool hidden)
+{
+    if (!hidden || m_status == QStringLiteral("active"))
+        updateBannerSettings(hidden);
+}
+
+void WindowsNotifications::updateBannerSettings(std::optional<bool> requested)
+{
+#ifdef Q_OS_WIN
+    if (!m_data->apartment)
+        return;
+
+    ComPtr<QuietHoursSettings> settings;
+    const HRESULT result = CoCreateInstance(quietHoursClassId, nullptr, CLSCTX_LOCAL_SERVER, quietHoursSettingsId,
+        reinterpret_cast<void **>(settings.GetAddressOf()));
+    auto current = SUCCEEDED(result) ? readBannerSettings(settings.Get()) : std::nullopt;
+    if (requested && current && requested != current) {
+        settings->put_UserSelectedProfile(*requested ? priorityNotifications : normalNotifications);
+        current = readBannerSettings(settings.Get());
+    }
+
+    QString error;
+    if (requested && requested != current)
+        error = tr("Ошибка переключения режима «Не беспокоить». Откройте параметры уведомлений Windows.");
+    else if (!requested && current == m_bannersHidden)
+        error = m_bannerError;
+    if (current == m_bannersHidden && error == m_bannerError)
+        return;
+    m_bannersHidden = current;
+    m_bannerError = error;
+    emit bannerSettingsChanged();
+#else
+    Q_UNUSED(requested);
+#endif
 }
 
 void WindowsNotifications::requestAccess(QWindow *owner)

@@ -590,6 +590,16 @@ Window {
             spacing: 14
             readonly property var windowsSource: panel.appState.windowsNotifications
             readonly property string listenerStatus: windowsSource.status
+            readonly property bool receivesWindows: listenerStatus === "active" && panel.displays.enabledCount > 0
+
+            Timer {
+                interval: 2000
+                repeat: true
+                triggeredOnStart: true
+                running: panel.active && (notifications.listenerStatus === "active"
+                    || notifications.windowsSource.bannerControlAvailable)
+                onTriggered: notifications.windowsSource.refreshBannerSettings()
+            }
 
             function sendTest(scenario) {
                 if (panel.displays.enabledCount === 0) {
@@ -629,7 +639,7 @@ Window {
                         case "requesting": return "Ожидаем ответ на запрос Windows."
                         case "connecting": return "Читаем Центр уведомлений Windows."
                         case "denied": return "Доступ к уведомлениям приложений отключён в настройках Windows."
-                        case "active": return "Уведомления приложений подключены. Для показа только в доке отключите штатные баннеры нужных приложений, сохранив их уведомления в Центре уведомлений."
+                        case "active": return "Уведомления приложений подключены."
                         default: return "Источник уведомлений приложений Windows недоступен."
                         }
                     }
@@ -646,8 +656,48 @@ Window {
                 }
                 Action {
                     Layout.fillWidth: true
+                    visible: notifications.listenerStatus === "denied"
+                    text: "Открыть разрешения Windows"
+                    onClicked: Qt.openUrlExternally("ms-settings:privacy-notifications")
+                }
+            }
+            Surface {
+                visible: notifications.listenerStatus === "active" || notifications.windowsSource.bannersHidden
+                FieldLabel { text: "Только в доке" }
+                Copy {
+                    text: "Режим «Не беспокоить» скрывает обычные баннеры Windows. Уведомления остаются в Центре и появляются в доке."
+                }
+                Action {
+                    Layout.fillWidth: true
+                    visible: notifications.windowsSource.bannerControlAvailable
+                    enabled: notifications.receivesWindows || notifications.windowsSource.bannersHidden
+                    text: notifications.windowsSource.bannersHidden ? "Вернуть баннеры Windows" : "Скрыть баннеры Windows"
+                    emphasized: !notifications.windowsSource.bannersHidden
+                    onClicked: notifications.windowsSource.setBannersHidden(!notifications.windowsSource.bannersHidden)
+                }
+                Copy {
+                    visible: !notifications.windowsSource.bannerControlAvailable
+                        && notifications.windowsSource.bannerError === ""
+                    text: "Включите «Не беспокоить» в параметрах уведомлений Windows."
+                }
+                Copy {
+                    visible: text !== ""
+                    text: notifications.windowsSource.bannerError
+                    color: panel.warning
+                }
+                Copy {
+                    visible: !notifications.receivesWindows
+                    text: "Для показа в доке нужен доступ к уведомлениям и хотя бы один включённый монитор."
+                }
+                Action {
+                    Layout.fillWidth: true
+                    text: "Открыть параметры уведомлений Windows"
+                    onClicked: Qt.openUrlExternally("ms-settings:notifications")
+                }
+                Action {
+                    Layout.fillWidth: true
                     visible: notifications.listenerStatus === "active"
-                    enabled: !notifications.windowsSource.testing
+                    enabled: notifications.receivesWindows && !notifications.windowsSource.testing
                     text: "Проверить через Центр уведомлений Windows"
                     onClicked: notifications.windowsSource.sendTestNotification()
                 }
@@ -655,17 +705,8 @@ Window {
                     visible: text !== ""
                     text: notifications.windowsSource.testResult
                 }
-                Action {
-                    Layout.fillWidth: true
-                    visible: notifications.listenerStatus === "denied"
-                    text: "Открыть разрешения Windows"
-                    onClicked: Qt.openUrlExternally("ms-settings:privacy-notifications")
-                }
-                Action {
-                    Layout.fillWidth: true
-                    visible: notifications.listenerStatus === "active"
-                    text: "Открыть параметры баннеров Windows"
-                    onClicked: Qt.openUrlExternally("ms-settings:notifications")
+                Copy {
+                    text: "Windows может показывать будильники и приоритетные уведомления. Режим действует и после выхода из дока."
                 }
             }
             Surface {
