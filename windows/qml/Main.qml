@@ -100,6 +100,8 @@ Window {
     property bool smokeHoldOpen: true
     property bool smokeSawGlassNeck: false
     property bool smokeSawPackedEntrance: false
+    property bool smokeTestedWingResize: false
+    property rect smokeCompactWing: Qt.rect(0, 0, 0, 0)
     property bool smokeSawStaggeredTuck: false
     property bool smokeSawReleaseSpring: false
     property bool smokeSawStaggeredReturn: false
@@ -183,16 +185,12 @@ Window {
     }
 
     function capsuleRegion(side) {
-        if (!presence.interactive || wings.phase < 0.01 || wings.wingScale < 0.01)
+        if (!presence.interactive || wings.phase < 0.01 || wings.wingHeight <= 1)
             return Qt.rect(0, 0, 0, 0)
         const padding = 8
-        const centerX = stage.width / 2 + wings.lyricsView.swipeX
-            + side * (wings.bodyWidth / 2 + wings.outward)
-        const centerY = pill.y + pill.capHeight / 2 + wings.lyricsView.swipeY
-        const length = wings.dropletLength * wings.wingScale
-        const thickness = wings.thickness * wings.wingScale
-        return scaledRect(centerX - length / 2 - padding,
-            centerY - thickness / 2 - padding, length + 2 * padding, thickness + 2 * padding)
+        const bounds = side < 0 ? wings.leftWingBounds : wings.rightWingBounds
+        return scaledRect(bounds.x - padding, bounds.y - padding,
+            bounds.width + 2 * padding, bounds.height + 2 * padding)
     }
 
     function updatePanelRegion() {
@@ -1158,6 +1156,18 @@ Window {
                     window.failSmoke("resuming playback did not restore the unobscured compact layout")
                     return
                 }
+                if (!window.smokeTestedWingResize) {
+                    window.smokeCompactWing = wings.leftWingBounds
+                    const message = "Автоматически сохраняются в папке снимков экрана."
+                    window.appState.showNotification({
+                        kind: "app", accent: "#c3b5ff",
+                        title: "Снимок экрана скопирован в буфер обмена и автоматически сохранён в папке снимков экрана",
+                        summary: message, detail: message, source: "Ножницы", sentAt: new Date()
+                    })
+                    window.smokePhase = 34
+                    window.smokeStarted = Date.now()
+                    return
+                }
                 window.demoPlaying = false
                 window.desktop.showRequested()
                 const lyricsView = wings.lyricsView
@@ -1168,6 +1178,36 @@ Window {
                 lyricsView.moveSwipe(10, 0)
                 lyricsView.finishSwipe(true)
                 window.smokePhase = 18
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 34 && wait >= 1350) {
+                const card = noticeLayer.bodyBounds
+                const left = wings.leftWingBounds
+                const right = wings.rightWingBounds
+                const previous = window.smokeCompactWing
+                const leftGap = card.x - left.x - left.width
+                const rightGap = right.x - card.x - card.width
+                const canShowWings = wings.wingLength >= 64
+                if (!noticeLayer.attached || card.width < pill.capWidth + 30 || noticeLayer.detailProgress > 0
+                        || (canShowWings && (Math.abs(leftGap - wings.gap) > 2 || Math.abs(rightGap - wings.gap) > 2
+                            || left.x < 0 || right.x + right.width > stage.width
+                            || left.width >= previous.width || window.leftRegion.width <= 0
+                            || window.rightRegion.width <= 0))
+                        || (wings.wingLength <= 30 && (window.leftRegion.width > 0 || window.rightRegion.width > 0))) {
+                    window.failSmoke("compact spectrum capsules must follow the edges of a wider notification")
+                    return
+                }
+                window.appState.dismissNotification()
+                window.smokePhase = 35
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 35 && !noticeLayer.presenting) {
+                const left = wings.leftWingBounds
+                const previous = window.smokeCompactWing
+                if (Math.abs(left.x - previous.x) > 2 || Math.abs(left.width - previous.width) > 2) {
+                    window.failSmoke("compact spectrum capsules did not return with the player")
+                    return
+                }
+                window.smokeTestedWingResize = true
+                window.smokePhase = 17
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 18 && wait >= 700) {
                 const lyricsView = wings.lyricsView
