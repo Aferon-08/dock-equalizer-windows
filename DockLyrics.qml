@@ -873,20 +873,10 @@ Item {
             x: reel.x; y: reel.y; width: reel.width; height: reel.height
             visible: !root.available && (!root.nativeClock || root.layout > 0.01)
             opacity: root.lyricsOpacity * (root.nativeClock ? Math.min(1, root.layout) : 1)
-            Column {
+            Text {
                 anchors.centerIn: parent
-                spacing: 8
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    visible: root.layout > 0.5
-                    text: root.host.theme.iconFont ? "music_note" : "♪"; color: root.colors.accent; opacity: 0.75
-                    font.family: root.host.theme.iconFont || root.host.theme.fontFamily; font.pixelSize: 22
-                }
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: root.emptyLabel; color: root.colors.secondary
-                    font.family: root.host.theme.fontFamily; font.pixelSize: 16
-                }
+                text: root.emptyLabel; color: root.colors.secondary
+                font.family: root.host.theme.fontFamily; font.pixelSize: 16
             }
         }
         Text {
