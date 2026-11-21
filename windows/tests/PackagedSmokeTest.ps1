@@ -42,7 +42,19 @@ if ($ExpectNotificationIdentity) {
     Invoke-Checked $program '--check-notification-identity'
 }
 Invoke-Checked $program "--software-rendering $argsForSmoke"
+$marker = Join-Path $installed 'app\reuse-marker.txt'
+Set-Content $marker 'The installer must reuse the verified runtime directory.'
+$locked = [IO.File]::Open($program, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+try {
+    Invoke-Checked $setup '/S'
+} finally {
+    $locked.Dispose()
+}
+if (!(Test-Path $marker)) { throw 'Setup replaced the verified runtime during reinstall.' }
+# A changed file must force the ordinary replacement path.
+Set-Content (Join-Path $installed 'app\VERSION.txt') 'modified'
 Invoke-Checked $setup '/S'
+if (Test-Path $marker) { throw 'Setup reused a runtime with a modified file.' }
 Move-Item (Join-Path $installed 'app') (Join-Path $installed 'previous')
 New-Item -Path (Join-Path $installed 'app') -ItemType Directory | Out-Null
 Invoke-Checked $setup '/S'

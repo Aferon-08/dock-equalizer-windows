@@ -136,6 +136,7 @@ def package(stage: Path, out: Path, makensis: str, notification_package: Path | 
     subprocess.run([
         makensis, "-V2", "-INPUTCHARSET", "UTF8", f"-DVERSION={version}",
         f"-DPAYLOAD_LICENSE={stage / 'LICENSE'}", f"-DPAYLOAD_FILES={stage / '*'}",
+        f"-DRUNTIME_MANIFEST={manifest}", f"-DRUNTIME_VERIFY_SCRIPT={HERE / 'VerifyRuntime.ps1'}",
         *identity_args, f"-DSETUP={setup}", str(HERE / "installer.nsi"),
     ], check=True)
     print(f"{checksum(setup)}  {setup.name}")

@@ -46,6 +46,8 @@ LangString CopyRuntime ${LANG_ENGLISH} "Extract the program files"
 LangString CopyRuntime ${LANG_RUSSIAN} "Распаковка файлов программы"
 LangString WriteRemoval ${LANG_ENGLISH} "Write Uninstall.exe"
 LangString WriteRemoval ${LANG_RUSSIAN} "Запись Uninstall.exe"
+LangString ReuseRuntime ${LANG_ENGLISH} "Verified the installed program files. Keeping them in place."
+LangString ReuseRuntime ${LANG_RUSSIAN} "Установленные файлы проверены. Замена папки программы не требуется."
 LangString RequiresX64 ${LANG_ENGLISH} "Sekai Soundbar requires a 64-bit version of Windows."
 LangString RequiresX64 ${LANG_RUSSIAN} "Для Sekai Soundbar требуется 64-битная версия Windows."
 
@@ -54,6 +56,27 @@ Var FileOperation
 Var FileError
 Var MoveSource
 Var MoveDestination
+Var RuntimeReused
+
+Function CheckInstalledRuntime
+    StrCpy $RuntimeReused 0
+    IfFileExists "$INSTDIR\app\SekaiSoundbar.exe" 0 runtimeCheckDone
+    InitPluginsDir
+    SetOutPath "$PLUGINSDIR"
+    File /oname=VerifyRuntime.ps1 "${RUNTIME_VERIFY_SCRIPT}"
+    File /oname=runtime-sha256.txt "${RUNTIME_MANIFEST}"
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_RUNTIME_SCRIPT", w "$PLUGINSDIR\VerifyRuntime.ps1")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_RUNTIME_MANIFEST", w "$PLUGINSDIR\runtime-sha256.txt")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_RUNTIME_DIR", w "$INSTDIR\app")'
+    nsExec::Exec /TIMEOUT=90000 '$\"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe$\" -NoLogo -NoProfile -NonInteractive -Command $\"& ([ScriptBlock]::Create([IO.File]::ReadAllText($$env:SEKAI_RUNTIME_SCRIPT)))$\"'
+    Pop $0
+    SetOutPath "$INSTDIR"
+    ${If} $0 == 0
+        StrCpy $RuntimeReused 1
+        DetailPrint "$(ReuseRuntime)"
+    ${EndIf}
+runtimeCheckDone:
+FunctionEnd
 
 !macro MOVE_RUNTIME SOURCE DESTINATION
     StrCpy $MoveSource "$INSTDIR\${SOURCE}"
@@ -223,6 +246,10 @@ discardBackup:
     RMDir /r "$INSTDIR\previous"
 
 stage:
+    Call CheckInstalledRuntime
+    ${If} $RuntimeReused == 1
+        Goto writeUninstaller
+    ${EndIf}
     StrCpy $FileOperation "$(CleanStaging)"
     StrCpy $FileError "$INSTDIR\staging"
     RMDir /r "$INSTDIR\staging"
@@ -234,12 +261,16 @@ stage:
     File /r "${PAYLOAD_FILES}"
     IfErrors failed
 
+writeUninstaller:
     StrCpy $FileOperation "$(WriteRemoval)"
     StrCpy $FileError "$INSTDIR\Uninstall.exe"
     ClearErrors
     SetOutPath "$INSTDIR"
     WriteUninstaller "$INSTDIR\Uninstall.exe"
     IfErrors failed
+    ${If} $RuntimeReused == 1
+        Goto registerRuntime
+    ${EndIf}
     IfFileExists "$INSTDIR\app" 0 replace
     RMDir "$INSTDIR\previous" ; Clear an empty backup left by an earlier install.
     !insertmacro MOVE_RUNTIME app previous
@@ -252,6 +283,7 @@ replace:
     ${If} $FileError != ""
         Goto rollback
     ${EndIf}
+registerRuntime:
     !ifdef IDENTITY_PACKAGE
     !insertmacro NOTIFICATION_IDENTITY Install
     SetOutPath "$INSTDIR"
@@ -285,13 +317,15 @@ testTrustFailed:
 
 !ifdef IDENTITY_PACKAGE
 identityFailed:
-    RMDir /r "$INSTDIR\app"
-    ${If} ${FileExists} "$INSTDIR\previous"
-        !insertmacro MOVE_RUNTIME previous app
-    ${Else}
-        Delete "$INSTDIR\Uninstall.exe"
-        SetOutPath "$TEMP"
-        RMDir "$INSTDIR"
+    ${If} $RuntimeReused == 0
+        RMDir /r "$INSTDIR\app"
+        ${If} ${FileExists} "$INSTDIR\previous"
+            !insertmacro MOVE_RUNTIME previous app
+        ${Else}
+            Delete "$INSTDIR\Uninstall.exe"
+            SetOutPath "$TEMP"
+            RMDir "$INSTDIR"
+        ${EndIf}
     ${EndIf}
     DetailPrint "$IdentityResult $IdentityMessage"
     SetErrorLevel 3
