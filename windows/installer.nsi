@@ -6,6 +6,9 @@ RequestExecutionLevel user
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
+!ifdef TEST_CERTIFICATE
+!include "FileFunc.nsh"
+!endif
 !ifdef IDENTITY_PACKAGE
 !include "WinVer.nsh"
 !endif
@@ -41,6 +44,30 @@ LangString RequiresX64 ${LANG_ENGLISH} "Sekai Soundbar requires a 64-bit version
 LangString RequiresX64 ${LANG_RUSSIAN} "Для Sekai Soundbar требуется 64-битная версия Windows."
 
 Var InstanceGuard
+
+!ifdef TEST_CERTIFICATE
+LangString TestTrustPrompt ${LANG_ENGLISH} "This test build needs to add the Sekai Soundbar Test certificate to Local Computer → Trusted People. Allow this operation? Windows will request administrator approval."
+LangString TestTrustPrompt ${LANG_RUSSIAN} "Для тестовой сборки нужно добавить сертификат Sekai Soundbar Test в хранилище «Локальный компьютер → Доверенные лица». Разрешить? Windows запросит подтверждение администратора."
+LangString TestTrustFailed ${LANG_ENGLISH} "Windows does not trust the Sekai Soundbar Test certificate. Setup was stopped."
+LangString TestTrustFailed ${LANG_RUSSIAN} "Windows не доверяет сертификату Sekai Soundbar Test. Установка остановлена."
+
+Function CheckTestCertificate
+    nsExec::Exec /TIMEOUT=15000 '$\"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe$\" -NoLogo -NoProfile -NonInteractive -Command $\"if (Test-Path -LiteralPath Cert:\LocalMachine\TrustedPeople\${TEST_CERT_THUMBPRINT}) { exit 0 }; exit 1$\"'
+    Pop $0
+FunctionEnd
+
+Function TrustTestCertificate
+    ; Only this mode runs elevated. Its PowerShell command comes from this executable.
+    ; Read the DER once, check its SHA-256 and import those same bytes.
+    InitPluginsDir
+    SetOutPath "$PLUGINSDIR"
+    File /oname=SekaiSoundbar-Test-Publisher.cer "${TEST_CERTIFICATE}"
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_TEST_CERTIFICATE", w "$PLUGINSDIR\SekaiSoundbar-Test-Publisher.cer")'
+    nsExec::Exec /TIMEOUT=30000 `$\"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe$\" -NoLogo -NoProfile -NonInteractive -Command $\"$$ErrorActionPreference='Stop'; $$b=[IO.File]::ReadAllBytes($$env:SEKAI_TEST_CERTIFICATE); $$h=[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($$b)).Replace('-',''); if ($$h -ne '${TEST_CERT_SHA256}') { exit 1 }; $$c=[Security.Cryptography.X509Certificates.X509Certificate2]::new($$b); $$s=[Security.Cryptography.X509Certificates.X509Store]::new('TrustedPeople','LocalMachine'); $$s.Open('ReadWrite'); try { $$s.Add($$c) } finally { $$s.Close() }$\"`
+    Pop $0
+    SetErrorLevel $0
+FunctionEnd
+!endif
 
 !ifdef IDENTITY_PACKAGE
 LangString RequiresWin11 ${LANG_ENGLISH} "This edition of Sekai Soundbar requires Windows 11."
@@ -106,6 +133,14 @@ Var IdentityMessage
 !macroend
 
 Function .onInit
+    !ifdef TEST_CERTIFICATE
+    ${GetParameters} $0
+    ${If} $0 == "/SekaiTrustTestPublisher"
+        SetSilent silent
+        Call TrustTestCertificate
+        Quit
+    ${EndIf}
+    !endif
     !insertmacro ACQUIRE_LOCK
     !ifdef IDENTITY_PACKAGE
     ${IfNot} ${AtLeastWin11}
@@ -122,6 +157,18 @@ Function un.onInit
 FunctionEnd
 
 Section "Sekai Soundbar"
+    !ifdef TEST_CERTIFICATE
+    Call CheckTestCertificate
+    ${If} $0 != 0
+        IfSilent testTrustFailed
+        MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$(TestTrustPrompt)" IDNO testTrustFailed
+        ExecShellWait "runas" "$EXEPATH" "/SekaiTrustTestPublisher" SW_HIDE
+        Call CheckTestCertificate
+        ${If} $0 != 0
+            Goto testTrustFailed
+        ${EndIf}
+    ${EndIf}
+    !endif
     SetOutPath "$INSTDIR"
     ; Recover the previous runtime if a prior upgrade was interrupted.
     IfFileExists "$INSTDIR\previous\SekaiSoundbar.exe" 0 stage
@@ -173,6 +220,14 @@ replace:
     WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
     System::Call 'kernel32::CloseHandle(p $InstanceGuard)'
     Goto done
+
+!ifdef TEST_CERTIFICATE
+testTrustFailed:
+    SetErrorLevel 4
+    IfSilent +2
+    MessageBox MB_ICONSTOP "$(TestTrustFailed)"
+    Abort
+!endif
 
 !ifdef IDENTITY_PACKAGE
 identityFailed:
