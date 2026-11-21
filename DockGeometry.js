@@ -19,6 +19,20 @@ function recoil(progress) {
     return Math.sin(2.85 * Math.PI * phase) * Math.pow(1 - phase, 1.8)
 }
 
+function phase(progress, start, end) {
+    return Motion.clamp((progress - start) / (end - start), 0, 1)
+}
+
+function arrival(progress, spring) {
+    return Motion.travel(progress / 0.79) + spring * recoil(phase(progress, 0.67, 1))
+}
+
+function settleHousing(rect, progress) {
+    const bounce = recoil(phase(progress, 0.86, 1))
+    return Qt.rect(rect.x - 8 * bounce, rect.y + 5 * bounce,
+        rect.width + 16 * bounce, rect.height + 4 * bounce)
+}
+
 function pullToEdge(rect, progress, offsetX, offsetY) {
     const shrink = Motion.smooth((progress - 0.08) / 0.53)
     const pull = Motion.smooth((progress - 0.49) / 0.51)

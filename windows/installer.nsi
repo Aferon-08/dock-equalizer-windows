@@ -26,10 +26,13 @@ SetCompressor /SOLID lzma
 
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SekaiSoundbar"
 !define STARTUP_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+Var RuntimeFolder
+Var PreviousFolder
+
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_LICENSE "${PAYLOAD_LICENSE}"
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$INSTDIR\app\SekaiSoundbar.exe"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\$RuntimeFolder\SekaiSoundbar.exe"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -48,6 +51,8 @@ LangString WriteRemoval ${LANG_ENGLISH} "Write Uninstall.exe"
 LangString WriteRemoval ${LANG_RUSSIAN} "Запись Uninstall.exe"
 LangString ReuseRuntime ${LANG_ENGLISH} "Verified the installed program files. Keeping them in place."
 LangString ReuseRuntime ${LANG_RUSSIAN} "Установленные файлы проверены. Замена папки программы не требуется."
+LangString InstallBesideRuntime ${LANG_ENGLISH} "The old program directory is busy. Installing the update alongside it."
+LangString InstallBesideRuntime ${LANG_RUSSIAN} "Старая папка программы занята. Обновление будет установлено рядом."
 LangString RequiresX64 ${LANG_ENGLISH} "Sekai Soundbar requires a 64-bit version of Windows."
 LangString RequiresX64 ${LANG_RUSSIAN} "Для Sekai Soundbar требуется 64-битная версия Windows."
 
@@ -58,16 +63,27 @@ Var MoveSource
 Var MoveDestination
 Var RuntimeReused
 
+!macro READ_RUNTIME_FOLDER
+    StrCpy $RuntimeFolder "app"
+    ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "InstallLocation"
+    ${If} $0 == $INSTDIR
+        ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "RuntimeFolder"
+        ${If} $0 == "app-update"
+            StrCpy $RuntimeFolder "app-update"
+        ${EndIf}
+    ${EndIf}
+!macroend
+
 Function CheckInstalledRuntime
     StrCpy $RuntimeReused 0
-    IfFileExists "$INSTDIR\app\SekaiSoundbar.exe" 0 runtimeCheckDone
+    IfFileExists "$INSTDIR\$RuntimeFolder\SekaiSoundbar.exe" 0 runtimeCheckDone
     InitPluginsDir
     SetOutPath "$PLUGINSDIR"
     File /oname=VerifyRuntime.ps1 "${RUNTIME_VERIFY_SCRIPT}"
     File /oname=runtime-sha256.txt "${RUNTIME_MANIFEST}"
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_RUNTIME_SCRIPT", w "$PLUGINSDIR\VerifyRuntime.ps1")'
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_RUNTIME_MANIFEST", w "$PLUGINSDIR\runtime-sha256.txt")'
-    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_RUNTIME_DIR", w "$INSTDIR\app")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_RUNTIME_DIR", w "$INSTDIR\$RuntimeFolder")'
     nsExec::Exec /TIMEOUT=90000 '$\"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe$\" -NoLogo -NoProfile -NonInteractive -Command $\"& ([ScriptBlock]::Create([IO.File]::ReadAllText($$env:SEKAI_RUNTIME_SCRIPT)))$\"'
     Pop $0
     SetOutPath "$INSTDIR"
@@ -151,7 +167,7 @@ Var IdentityMessage
     !endif
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_SCRIPT", w "$PLUGINSDIR\RegisterIdentity.ps1")'
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_PACKAGE", w "$PLUGINSDIR\notification-identity.msix")'
-    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_PROGRAM_DIR", w "$INSTDIR\app")'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_PROGRAM_DIR", w "$INSTDIR\$RuntimeFolder")'
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_ACTION", w "${ACTION}")'
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_NAME", w "${IDENTITY_NAME}")'
     System::Call 'kernel32::SetEnvironmentVariableW(w "SEKAI_IDENTITY_PUBLISHER", w "${IDENTITY_PUBLISHER}")'
@@ -232,11 +248,13 @@ Section "Sekai Soundbar"
     ${EndIf}
     !endif
     SetOutPath "$INSTDIR"
+    !insertmacro READ_RUNTIME_FOLDER
+    StrCpy $PreviousFolder $RuntimeFolder
     ; Recover the previous runtime if a prior upgrade was interrupted.
     IfFileExists "$INSTDIR\previous\SekaiSoundbar.exe" 0 stage
-    IfFileExists "$INSTDIR\app\SekaiSoundbar.exe" discardBackup
-    RMDir "$INSTDIR\app"
-    !insertmacro MOVE_RUNTIME previous app
+    IfFileExists "$INSTDIR\$RuntimeFolder\SekaiSoundbar.exe" discardBackup
+    RMDir "$INSTDIR\$RuntimeFolder"
+    !insertmacro MOVE_RUNTIME previous $RuntimeFolder
     ${If} $FileError != ""
         Goto failed
     ${EndIf}
@@ -271,15 +289,25 @@ writeUninstaller:
     ${If} $RuntimeReused == 1
         Goto registerRuntime
     ${EndIf}
-    IfFileExists "$INSTDIR\app" 0 replace
+    IfFileExists "$INSTDIR\$RuntimeFolder" 0 replace
     RMDir "$INSTDIR\previous" ; Clear an empty backup left by an earlier install.
-    !insertmacro MOVE_RUNTIME app previous
+    !insertmacro MOVE_RUNTIME $RuntimeFolder previous
     ${If} $FileError != ""
-        Goto failed
+        ${If} $FileError != "Win32 32"
+        ${AndIf} $FileError != "Win32 33"
+            Goto failed
+        ${EndIf}
+        DetailPrint "$(InstallBesideRuntime)"
+        ${If} $RuntimeFolder == "app"
+            StrCpy $RuntimeFolder "app-update"
+        ${Else}
+            StrCpy $RuntimeFolder "app"
+        ${EndIf}
+        RMDir /r "$INSTDIR\$RuntimeFolder"
     ${EndIf}
 
 replace:
-    !insertmacro MOVE_RUNTIME staging app
+    !insertmacro MOVE_RUNTIME staging $RuntimeFolder
     ${If} $FileError != ""
         Goto rollback
     ${EndIf}
@@ -293,17 +321,29 @@ registerRuntime:
     !endif
     RMDir /r "$INSTDIR\previous"
 
-    SetOutPath "$INSTDIR\app"
+    SetOutPath "$INSTDIR\$RuntimeFolder"
     CreateDirectory "$SMPROGRAMS\Sekai Soundbar"
-    CreateShortCut "$SMPROGRAMS\Sekai Soundbar\Sekai Soundbar.lnk" "$INSTDIR\app\SekaiSoundbar.exe"
+    CreateShortCut "$SMPROGRAMS\Sekai Soundbar\Sekai Soundbar.lnk" "$INSTDIR\$RuntimeFolder\SekaiSoundbar.exe"
     WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Sekai Soundbar"
     WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
-    WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\app\SekaiSoundbar.exe"
+    WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\$RuntimeFolder\SekaiSoundbar.exe"
     WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
+    WriteRegStr HKCU "${UNINSTALL_KEY}" "RuntimeFolder" "$RuntimeFolder"
     WriteRegStr HKCU "${UNINSTALL_KEY}" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
     WriteRegStr HKCU "${UNINSTALL_KEY}" "QuietUninstallString" '$\"$INSTDIR\Uninstall.exe$\" /S'
     WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify" 1
     WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
+    ${If} $RuntimeFolder != $PreviousFolder
+        ReadRegStr $0 HKCU "${STARTUP_KEY}" "SekaiSoundbar"
+        ${If} $0 == '$\"$INSTDIR\$PreviousFolder\SekaiSoundbar.exe$\"'
+            WriteRegStr HKCU "${STARTUP_KEY}" "SekaiSoundbar" '$\"$INSTDIR\$RuntimeFolder\SekaiSoundbar.exe$\"'
+        ${EndIf}
+    ${EndIf}
+    ${If} $RuntimeFolder == "app"
+        RMDir /r "$INSTDIR\app-update"
+    ${Else}
+        RMDir /r "$INSTDIR\app"
+    ${EndIf}
     System::Call 'kernel32::CloseHandle(p $InstanceGuard)'
     Goto done
 
@@ -318,13 +358,15 @@ testTrustFailed:
 !ifdef IDENTITY_PACKAGE
 identityFailed:
     ${If} $RuntimeReused == 0
-        RMDir /r "$INSTDIR\app"
-        ${If} ${FileExists} "$INSTDIR\previous"
-            !insertmacro MOVE_RUNTIME previous app
-        ${Else}
-            Delete "$INSTDIR\Uninstall.exe"
-            SetOutPath "$TEMP"
-            RMDir "$INSTDIR"
+        RMDir /r "$INSTDIR\$RuntimeFolder"
+        ${If} $RuntimeFolder == $PreviousFolder
+            ${If} ${FileExists} "$INSTDIR\previous"
+                !insertmacro MOVE_RUNTIME previous $RuntimeFolder
+            ${Else}
+                Delete "$INSTDIR\Uninstall.exe"
+                SetOutPath "$TEMP"
+                RMDir "$INSTDIR"
+            ${EndIf}
         ${EndIf}
     ${EndIf}
     DetailPrint "$IdentityResult $IdentityMessage"
@@ -335,10 +377,11 @@ identityFailed:
 !endif
 
 rollback:
+    StrCmp $RuntimeFolder $PreviousFolder 0 failed
     IfFileExists "$INSTDIR\previous" 0 failed
     Push $FileOperation
     Push $FileError
-    !insertmacro MOVE_RUNTIME previous app
+    !insertmacro MOVE_RUNTIME previous $RuntimeFolder
     ${If} $FileError != ""
         DetailPrint "$FileOperation · $FileError"
     ${EndIf}
@@ -358,6 +401,7 @@ done:
 SectionEnd
 
 Section "Uninstall"
+    !insertmacro READ_RUNTIME_FOLDER
     !ifdef IDENTITY_PACKAGE
     ${If} ${AtLeastWin11}
         !insertmacro NOTIFICATION_IDENTITY Remove
@@ -374,6 +418,8 @@ Section "Uninstall"
     ClearErrors
     IfFileExists "$INSTDIR\app\*.*" 0 +2
     RMDir /r "$INSTDIR\app"
+    IfFileExists "$INSTDIR\app-update\*.*" 0 +2
+    RMDir /r "$INSTDIR\app-update"
     IfFileExists "$INSTDIR\previous\*.*" 0 +2
     RMDir /r "$INSTDIR\previous"
     IfFileExists "$INSTDIR\staging\*.*" 0 +2
@@ -382,7 +428,7 @@ Section "Uninstall"
     Delete "$SMPROGRAMS\Sekai Soundbar\Sekai Soundbar.lnk"
     RMDir "$SMPROGRAMS\Sekai Soundbar"
     ReadRegStr $0 HKCU "${STARTUP_KEY}" "SekaiSoundbar"
-    ${If} $0 == '$\"$INSTDIR\app\SekaiSoundbar.exe$\"'
+    ${If} $0 == '$\"$INSTDIR\$RuntimeFolder\SekaiSoundbar.exe$\"'
         DeleteRegValue HKCU "${STARTUP_KEY}" "SekaiSoundbar"
     ${EndIf}
     DeleteRegKey HKCU "${UNINSTALL_KEY}"

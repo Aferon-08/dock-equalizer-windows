@@ -23,7 +23,7 @@ QtObject {
             return
         motion.from = current
         motion.to = target
-        motion.duration = Math.max(1, Math.round(450 * Math.abs(target - current)))
+        motion.duration = Math.max(1, Math.round((target === 0 ? 1080 : 450) * Math.abs(target - current)))
         motion.start()
     }
 
