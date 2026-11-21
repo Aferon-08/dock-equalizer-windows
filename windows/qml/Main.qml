@@ -99,6 +99,7 @@ Window {
     property bool smokeObstructed: false
     property bool smokeHoldOpen: true
     property bool smokeSawGlassNeck: false
+    property bool smokeSawPackedEntrance: false
     property bool smokeSawStaggeredTuck: false
     property bool smokeSawReleaseSpring: false
     property bool smokeSawStaggeredReturn: false
@@ -833,6 +834,18 @@ Window {
         onRunningChanged: if (!running) visualizerService.resetRhythm()
     }
 
+    FrameAnimation {
+        running: window.smokeMode && window.smokePhase === 0 && !window.smokeSawPackedEntrance
+        onTriggered: {
+            const hull = wings.playerHousing
+            const parts = wings.lyricsView.openingPose()
+            if (hull.y < 0 && hull.y + hull.height > 0 && parts.cover > 0.12
+                    && parts.coverScale < 0.65 && parts.volume < 0.015) {
+                window.smokeSawPackedEntrance = true
+            }
+        }
+    }
+
     Timer {
         id: smokeTimer
         interval: 100
@@ -855,6 +868,10 @@ Window {
                 }
                 if (stage.GraphicsInfo.api === GraphicsInfo.Software && !solidHousing.visible) {
                     window.failSmoke("the software renderer needs a solid housing")
+                    return
+                }
+                if (!window.smokeSawPackedEntrance) {
+                    window.failSmoke("the compressed cover must appear at the top edge before the volume control")
                     return
                 }
                 if (!wings.visible || (wings.ownsHousing === solidHousing.visible) || !isFinite(pill.width)
