@@ -280,7 +280,7 @@ void LyricsAlignment::finish(bool cleanExit)
                     document = LyricsImport::parseWordtime(text, m_duration);
                     if (document.value(QStringLiteral("ok")).toBool()) {
                         m_export = bytes;
-                        status = QStringLiteral("Разметка готова. Её можно сохранить в JSON.");
+                        status = QStringLiteral("Разметка готова.");
                     } else {
                         status = document.value(QStringLiteral("message")).toString();
                         document.clear();

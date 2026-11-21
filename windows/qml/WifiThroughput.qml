@@ -42,81 +42,66 @@ Item {
         }
     }
 
-    Rectangle {
+    Canvas {
+        id: plot
         anchors.top: rates.bottom
-        anchors.topMargin: 5
+        anchors.topMargin: 8
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        radius: 9
-        color: "#18101820"
-        border.color: Qt.alpha(chart.accent, 0.18)
+        anchors.bottomMargin: 4
 
-        Canvas {
-            id: plot
-            anchors.fill: parent
-            anchors.margins: 5
-            Connections {
-                target: chart
-                function onSamplesChanged() { plot.requestPaint() }
-                function onAccentChanged() { plot.requestPaint() }
+        Connections {
+            target: chart
+            function onSamplesChanged() { plot.requestPaint() }
+            function onAccentChanged() { plot.requestPaint() }
+        }
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        onPaint: {
+            const ctx = getContext("2d")
+            ctx.clearRect(0, 0, width, height)
+            if (width < 4 || height < 4)
+                return
+            ctx.strokeStyle = Qt.alpha("#c3d8cf", 0.10)
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            for (const fraction of [1 / 3, 2 / 3]) {
+                const y = Math.floor(height * fraction) + 0.5
+                ctx.moveTo(0, y)
+                ctx.lineTo(width, y)
             }
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-            onPaint: {
-                const ctx = getContext("2d")
-                ctx.clearRect(0, 0, width, height)
-                if (width < 4 || height < 4)
-                    return
-                ctx.strokeStyle = Qt.alpha(chart.accent, 0.18)
-                ctx.lineWidth = 1
-                ctx.beginPath()
-                for (const fraction of [0.25, 0.5, 0.75]) {
-                    ctx.moveTo(0, height * fraction)
-                    ctx.lineTo(width, height * fraction)
-                }
-                ctx.stroke()
-                drawCurve(ctx, "down", chart.accent, true)
-                drawCurve(ctx, "up", chart.upload, false)
-            }
+            ctx.stroke()
+            drawCurve(ctx, "down", chart.accent)
+            drawCurve(ctx, "up", chart.upload)
+        }
 
-            function drawCurve(ctx, key, color, fill) {
-                const points = chart.samples
-                if (!points.length)
-                    return
-                ctx.beginPath()
-                for (let i = 0; i < points.length; ++i) {
-                    const x = 1.5 + (width - 3) * (1 - (points.length - 1 - i) / 19)
-                    const y = height - 2 - (height - 4) * points[i][key] / chart.ceiling
-                    if (i === 0)
-                        ctx.moveTo(x, y)
-                    else
-                        ctx.lineTo(x, y)
-                }
-                ctx.lineCap = "round"
-                ctx.lineJoin = "round"
-                ctx.lineWidth = 1.7
-                ctx.strokeStyle = color
-                ctx.stroke()
-                if (fill && points.length > 1) {
-                    const gradient = ctx.createLinearGradient(0, 1, 0, height)
-                    gradient.addColorStop(0, Qt.alpha(color, 0.25))
-                    gradient.addColorStop(1, Qt.alpha(color, 0.02))
-                    ctx.lineTo(width - 1.5, height)
-                    ctx.lineTo(1.5 + (width - 3) * (1 - (points.length - 1) / 19), height)
-                    ctx.closePath()
-                    ctx.fillStyle = gradient
-                    ctx.fill()
-                }
+        function drawCurve(ctx, key, color) {
+            const points = chart.samples
+            if (!points.length)
+                return
+            ctx.beginPath()
+            for (let i = 0; i < points.length; ++i) {
+                const x = 1.5 + (width - 3) * (1 - (points.length - 1 - i) / 19)
+                const y = height - 2 - (height - 4) * points[i][key] / chart.ceiling
+                if (i === 0)
+                    ctx.moveTo(x, y)
+                else
+                    ctx.lineTo(x, y)
             }
+            ctx.lineCap = "round"
+            ctx.lineJoin = "round"
+            ctx.lineWidth = 1.7
+            ctx.strokeStyle = color
+            ctx.stroke()
         }
-        Text {
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: 5
-            text: chart.rate(chart.ceiling)
-            color: "#c3d8cf"
-            font.pixelSize: 10
-        }
+    }
+    Text {
+        anchors.right: plot.right
+        anchors.top: plot.top
+        anchors.rightMargin: 4
+        text: chart.rate(chart.ceiling)
+        color: "#c3d8cf"
+        font.pixelSize: 10
     }
 }

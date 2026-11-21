@@ -21,7 +21,7 @@ QtObject {
         regular: {
             kind: "regular", accent: "#a4e7cc", title: "Тестовое уведомление",
             summary: "Проверка показа в доке", source: "Sekai Soundbar",
-            detail: "Уведомление отправлено из настроек. События дока будут появляться в этой области."
+            detail: "Уведомление отправлено из настроек."
         },
         update: {
             kind: "system", accent: "#ffdb91", title: "Доступно обновление Windows",
