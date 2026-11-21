@@ -40,10 +40,49 @@ LangString Running ${LANG_ENGLISH} "Close Sekai Soundbar from its menu, then run
 LangString Running ${LANG_RUSSIAN} "Закройте Sekai Soundbar через меню дока и запустите установщик снова."
 LangString InstallFailed ${LANG_ENGLISH} "The program files could not be installed."
 LangString InstallFailed ${LANG_RUSSIAN} "Не удалось установить файлы программы."
+LangString CleanStaging ${LANG_ENGLISH} "Clear the staging directory"
+LangString CleanStaging ${LANG_RUSSIAN} "Очистка временной папки"
+LangString CopyRuntime ${LANG_ENGLISH} "Extract the program files"
+LangString CopyRuntime ${LANG_RUSSIAN} "Распаковка файлов программы"
+LangString WriteRemoval ${LANG_ENGLISH} "Write Uninstall.exe"
+LangString WriteRemoval ${LANG_RUSSIAN} "Запись Uninstall.exe"
 LangString RequiresX64 ${LANG_ENGLISH} "Sekai Soundbar requires a 64-bit version of Windows."
 LangString RequiresX64 ${LANG_RUSSIAN} "Для Sekai Soundbar требуется 64-битная версия Windows."
 
 Var InstanceGuard
+Var FileOperation
+Var FileError
+Var MoveSource
+Var MoveDestination
+
+!macro MOVE_RUNTIME SOURCE DESTINATION
+    StrCpy $MoveSource "$INSTDIR\${SOURCE}"
+    StrCpy $MoveDestination "$INSTDIR\${DESTINATION}"
+    StrCpy $FileOperation "${SOURCE} → ${DESTINATION}"
+    Call MoveRuntime
+!macroend
+
+Function MoveRuntime
+    StrCpy $1 12
+
+retryMove:
+    System::Call 'kernel32::MoveFileW(w "$MoveSource", w "$MoveDestination") i .r0 ?e'
+    Pop $FileError
+    ${If} $0 != 0
+        StrCpy $FileError ""
+        Return
+    ${EndIf}
+    ${If} $FileError == 5
+    ${OrIf} $FileError == 32
+    ${OrIf} $FileError == 33
+        IntOp $1 $1 - 1
+        ${If} $1 > 0
+            Sleep 250
+            Goto retryMove
+        ${EndIf}
+    ${EndIf}
+    StrCpy $FileError "Win32 $FileError"
+FunctionEnd
 
 !ifdef TEST_CERTIFICATE
 LangString TestTrustPrompt ${LANG_ENGLISH} "This test build needs to add the Sekai Soundbar Test certificate to Local Computer → Trusted People. Allow this operation? Windows will request administrator approval."
@@ -173,31 +212,46 @@ Section "Sekai Soundbar"
     ; Recover the previous runtime if a prior upgrade was interrupted.
     IfFileExists "$INSTDIR\previous\SekaiSoundbar.exe" 0 stage
     IfFileExists "$INSTDIR\app\SekaiSoundbar.exe" discardBackup
-    ClearErrors
-    Rename "$INSTDIR\previous" "$INSTDIR\app"
-    IfErrors failed
+    RMDir "$INSTDIR\app"
+    !insertmacro MOVE_RUNTIME previous app
+    ${If} $FileError != ""
+        Goto failed
+    ${EndIf}
     Goto stage
 
 discardBackup:
     RMDir /r "$INSTDIR\previous"
 
 stage:
+    StrCpy $FileOperation "$(CleanStaging)"
+    StrCpy $FileError "$INSTDIR\staging"
     RMDir /r "$INSTDIR\staging"
-    SetOutPath "$INSTDIR\staging"
+    IfFileExists "$INSTDIR\staging" failed
+    StrCpy $FileOperation "$(CopyRuntime)"
     ClearErrors
+    SetOutPath "$INSTDIR\staging"
+    IfErrors failed
     File /r "${PAYLOAD_FILES}"
     IfErrors failed
 
+    StrCpy $FileOperation "$(WriteRemoval)"
+    StrCpy $FileError "$INSTDIR\Uninstall.exe"
+    ClearErrors
     SetOutPath "$INSTDIR"
     WriteUninstaller "$INSTDIR\Uninstall.exe"
     IfErrors failed
-    IfFileExists "$INSTDIR\app\SekaiSoundbar.exe" 0 replace
-    Rename "$INSTDIR\app" "$INSTDIR\previous"
-    IfErrors failed
+    IfFileExists "$INSTDIR\app" 0 replace
+    RMDir "$INSTDIR\previous" ; Clear an empty backup left by an earlier install.
+    !insertmacro MOVE_RUNTIME app previous
+    ${If} $FileError != ""
+        Goto failed
+    ${EndIf}
 
 replace:
-    Rename "$INSTDIR\staging" "$INSTDIR\app"
-    IfErrors rollback
+    !insertmacro MOVE_RUNTIME staging app
+    ${If} $FileError != ""
+        Goto rollback
+    ${EndIf}
     !ifdef IDENTITY_PACKAGE
     !insertmacro NOTIFICATION_IDENTITY Install
     SetOutPath "$INSTDIR"
@@ -232,8 +286,8 @@ testTrustFailed:
 !ifdef IDENTITY_PACKAGE
 identityFailed:
     RMDir /r "$INSTDIR\app"
-    ${If} ${FileExists} "$INSTDIR\previous\SekaiSoundbar.exe"
-        Rename "$INSTDIR\previous" "$INSTDIR\app"
+    ${If} ${FileExists} "$INSTDIR\previous"
+        !insertmacro MOVE_RUNTIME previous app
     ${Else}
         Delete "$INSTDIR\Uninstall.exe"
         SetOutPath "$TEMP"
@@ -247,15 +301,23 @@ identityFailed:
 !endif
 
 rollback:
-    IfFileExists "$INSTDIR\previous\SekaiSoundbar.exe" 0 failed
-    Rename "$INSTDIR\previous" "$INSTDIR\app"
+    IfFileExists "$INSTDIR\previous" 0 failed
+    Push $FileOperation
+    Push $FileError
+    !insertmacro MOVE_RUNTIME previous app
+    ${If} $FileError != ""
+        DetailPrint "$FileOperation · $FileError"
+    ${EndIf}
+    Pop $FileError
+    Pop $FileOperation
 
 failed:
     SetOutPath "$INSTDIR"
     RMDir /r "$INSTDIR\staging"
+    DetailPrint "$FileOperation · $FileError"
     SetErrorLevel 1
     IfSilent +2
-    MessageBox MB_ICONSTOP "$(InstallFailed)"
+    MessageBox MB_ICONSTOP "$(InstallFailed)$\r$\n$FileOperation$\r$\n$FileError"
     Abort
 
 done:
