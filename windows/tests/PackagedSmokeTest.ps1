@@ -31,6 +31,8 @@ $setup = Join-Path $Dist "$stem-Setup.exe"
 if ((Test-Path $installed) -or (Test-Path $uninstallKey)) {
     throw 'Use a clean test account for the setup smoke test.'
 }
+# An interrupted installation can leave an app directory with no executable.
+New-Item -Path (Join-Path $installed 'app') -ItemType Directory -Force | Out-Null
 Invoke-Checked $setup '/S'
 $program = Join-Path $installed 'app\SekaiSoundbar.exe'
 if (!(Test-Path $shortcut) -or !(Test-Path $uninstallKey)) {
@@ -40,6 +42,9 @@ if ($ExpectNotificationIdentity) {
     Invoke-Checked $program '--check-notification-identity'
 }
 Invoke-Checked $program "--software-rendering $argsForSmoke"
+Invoke-Checked $setup '/S'
+Move-Item (Join-Path $installed 'app') (Join-Path $installed 'previous')
+New-Item -Path (Join-Path $installed 'app') -ItemType Directory | Out-Null
 Invoke-Checked $setup '/S'
 if ($ExpectNotificationIdentity) {
     Invoke-Checked $program '--check-notification-identity'
