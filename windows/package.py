@@ -53,9 +53,12 @@ def checksum(path: Path) -> str:
         return hashlib.file_digest(binary, "sha256").hexdigest()
 
 
-def notification_identity_args(exe: Path, package: Path | None, version: str) -> list[str]:
+def notification_identity_args(exe: Path, package: Path | None, version: str,
+                               test_certificate: Path | None = None) -> list[str]:
     embedded = re.search(rb'<msix xmlns="urn:schemas-microsoft-com:msix\.v1"\s+[^<>]+/>', exe.read_bytes())
     if package is None:
+        if test_certificate:
+            raise ValueError("A test certificate requires a signed --notification-package")
         if embedded:
             raise ValueError("The identity-enabled EXE requires a signed --notification-package")
         return []
@@ -66,6 +69,10 @@ def notification_identity_args(exe: Path, package: Path | None, version: str) ->
                 or archive.testzip()):
             raise ValueError("Expected a signed MSIX notification package")
         manifest = ET.fromstring(archive.read("AppxManifest.xml"))
+        if test_certificate:
+            certificate_data = test_certificate.read_bytes()
+            if not certificate_data or certificate_data not in archive.read(signature)[4:]:
+                raise ValueError("The test certificate must be present in the MSIX signature")
     identity = manifest.find("{*}Identity").attrib
     application = manifest.find("{*}Applications/{*}Application").attrib
     if (identity["Version"] != f"{version}.0" or application["Executable"] != exe.name
@@ -78,11 +85,19 @@ def notification_identity_args(exe: Path, package: Path | None, version: str) ->
     expected = {"publisher": identity["Publisher"], "packageName": identity["Name"], "applicationId": application["Id"]}
     if not embedded or ET.fromstring(embedded.group()).attrib != expected:
         raise ValueError("Executable and package identities differ")
-    return [f"-DIDENTITY_PACKAGE={package}", f"-DIDENTITY_SCRIPT={HERE / 'msix/RegisterIdentity.ps1'}",
+    args = [f"-DIDENTITY_PACKAGE={package}", f"-DIDENTITY_SCRIPT={HERE / 'msix/RegisterIdentity.ps1'}",
             f"-DIDENTITY_NAME={identity['Name']}", f"-DIDENTITY_PUBLISHER={identity['Publisher']}"]
+    if test_certificate:
+        if identity["Publisher"] != "CN=Sekai Soundbar Test":
+            raise ValueError("Only the Sekai Soundbar test publisher can be installed by Setup")
+        args.extend([f"-DTEST_CERTIFICATE={test_certificate}",
+                     f"-DTEST_CERT_SHA256={hashlib.sha256(certificate_data).hexdigest().upper()}",
+                     f"-DTEST_CERT_THUMBPRINT={hashlib.sha1(certificate_data).hexdigest().upper()}"])
+    return args
 
 
-def package(stage: Path, out: Path, makensis: str, notification_package: Path | None) -> None:
+def package(stage: Path, out: Path, makensis: str, notification_package: Path | None,
+            test_certificate: Path | None = None) -> None:
     for name in REQUIRED:
         if not (stage / name).is_file():
             raise ValueError(f"Incomplete runtime: {name}")
@@ -90,7 +105,8 @@ def package(stage: Path, out: Path, makensis: str, notification_package: Path | 
     version = (stage / "VERSION.txt").read_text(encoding="ascii").strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError(f"Invalid package version: {version}")
-    identity_args = notification_identity_args(stage / "SekaiSoundbar.exe", notification_package, version)
+    identity_args = notification_identity_args(stage / "SekaiSoundbar.exe", notification_package, version,
+                                               test_certificate)
     for module in QT_MODULES:
         if not list((stage / "licenses" / "Qt").glob(f"{module}-*/LICENSES/LGPL-3.0-only.txt")):
             raise ValueError(f"Missing LGPL license text for {module}")
@@ -132,6 +148,8 @@ def main() -> None:
     parser.add_argument("--makensis", default="makensis")
     parser.add_argument("--notification-package", type=Path,
                         help="Signed external-location MSIX matching the staged executable")
+    parser.add_argument("--test-certificate", type=Path,
+                        help="Public DER certificate to offer to install in LocalMachine\\TrustedPeople")
     parser.add_argument("--qt-archives", type=Path)
     parser.add_argument("--qt-version", default="6.8.2")
     args = parser.parse_args()
@@ -144,7 +162,10 @@ def main() -> None:
     identity = args.notification_package.resolve() if args.notification_package else None
     if identity and identity.is_relative_to(stage):
         parser.error("--notification-package must be outside --stage")
-    package(stage, out, args.makensis, identity)
+    certificate = args.test_certificate.resolve() if args.test_certificate else None
+    if certificate and certificate.is_relative_to(stage):
+        parser.error("--test-certificate must be outside --stage")
+    package(stage, out, args.makensis, identity, certificate)
 
 
 if __name__ == "__main__":
