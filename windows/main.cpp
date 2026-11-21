@@ -159,11 +159,11 @@ int main(int argc, char *argv[])
     SystemAudio audio(liveInputs);
     BatteryStatus batteryStatus(liveInputs);
     WifiStatus wifiStatus(!liveInputs);
-    WindowsNotifications windowsNotifications(liveInputs);
+    QSettings settings(QStringLiteral("SekaiSoundbar"), QStringLiteral("Settings"));
+    WindowsNotifications windowsNotifications(liveInputs, settings);
     LyricsImport lyrics;
     LyricsSearch search;
     LyricsAlignment alignment;
-    QSettings settings(QStringLiteral("SekaiSoundbar"), QStringLiteral("Settings"));
     DockAppearance appearance(smokeMode ? nullptr : &settings);
     DisplaySettings displays(smokeMode ? nullptr : &settings);
     StartupSettings startup(!smokeMode && !trayExitTest);
@@ -182,12 +182,13 @@ int main(int argc, char *argv[])
                         media.trackAlbum(), media.length());
     });
     bool exitRequested = false;
-    const auto requestExit = [&settings, &exitRequested](int code) {
+    const auto requestExit = [&settings, &windowsNotifications, &exitRequested](int code) {
         if (std::exchange(exitRequested, true))
             return;
 #ifdef Q_OS_WIN
         setExitDeadline(code);
 #endif
+        windowsNotifications.setDockAvailable(false);
         settings.sync();
         QCoreApplication::exit(code);
     };
@@ -293,6 +294,7 @@ int main(int argc, char *argv[])
                 Qt::QueuedConnection);
             docks.emplace(screen, ScreenDock{std::move(desktop), std::move(window)});
         }
+        windowsNotifications.setDockAvailable(!docks.empty());
         updatePreview();
     };
 

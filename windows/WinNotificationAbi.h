@@ -78,13 +78,6 @@ struct ListenerStatics : IInspectable
     virtual HRESULT STDMETHODCALLTYPE get_Current(Listener **) = 0;
 };
 
-// The shell's private COM interface for the user's manual Do Not Disturb profile.
-struct QuietHoursSettings : IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE get_UserSelectedProfile(LPWSTR *) = 0;
-    virtual HRESULT STDMETHODCALLTYPE put_UserSelectedProfile(LPCWSTR) = 0;
-};
-
 struct XmlDocumentIO : IInspectable
 {
     virtual HRESULT STDMETHODCALLTYPE LoadXml(HSTRING) = 0;
@@ -109,10 +102,6 @@ struct ToastManagerStatics : IInspectable
 
 inline constexpr GUID listenerStaticsId{0xff6123cf, 0x4386, 0x4aa3,
     {0xb7, 0x3d, 0xb8, 0x04, 0xe5, 0xb6, 0x3b, 0x23}};
-inline constexpr GUID quietHoursClassId{0xf53321fa, 0x34f8, 0x4b7f,
-    {0xb9, 0xa3, 0x36, 0x18, 0x77, 0xcb, 0x94, 0xcf}};
-inline constexpr GUID quietHoursSettingsId{0x6bff4732, 0x81ec, 0x4ffb,
-    {0xae, 0x67, 0xb6, 0xc1, 0xbc, 0x29, 0x63, 0x1f}};
 inline constexpr GUID xmlDocumentIOId{0x6cd0e74e, 0xee65, 0x4489,
     {0x9e, 0xbf, 0xca, 0x43, 0xe8, 0x7b, 0xa6, 0x37}};
 inline constexpr GUID xmlDocumentId{0xf7f3a506, 0x1e87, 0x42d6,
