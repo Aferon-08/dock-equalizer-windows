@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import "DockMaterial.js" as Material
+import "DockGeometry.js" as Geometry
 import QtQuick.Effects
 import QtQuick.Controls as Controls
 import "LyricsMath.js" as LM
@@ -20,6 +21,8 @@ Item {
     readonly property vector4d materialStyle: Qt.vector4d(material.enabled ? 1 : 0, material.blur, material.darkening, material.refraction)
     property rect glassRect: Qt.rect(0, 0, 1, 1)
     property bool gatheringParts: false
+    property bool staggeredOpening: false
+    property real openingProgress: 1
     property point miniCenter: Qt.point(0, 0)
     readonly property real coverAlpha: coverMotion.alpha
     readonly property real progressAlpha: progressMotion.alpha
@@ -30,6 +33,7 @@ Item {
     component PlayerPart: DockPartMotion {
         destination: root.miniCenter
         tucking: root.gatheringParts
+        entrance: root.openingProgress
     }
     // Optional host-specific cache/IPC behavior; the view itself uses only Qt.
     property Component bridgeComponent: null
@@ -176,7 +180,11 @@ Item {
     onLinesChanged: report()
     property real wideReveal: 0
     property bool ready: false
-    readonly property real layout: Math.max(0, Math.min(host.settings.limitPlayerOvershoot ? 1 : 1.08, wideReveal))
+    readonly property real layout: Math.max(0, Math.min(staggeredOpening || host.settings.limitPlayerOvershoot ? 1 : 1.08,
+        staggeredOpening ? Geometry.arrival(wideReveal, 0.055) : wideReveal))
+    readonly property real layoutSpring: staggeredOpening ? Geometry.recoil(Geometry.phase(wideReveal, 0.72, 1)) : 0
+    readonly property real expandedEntrance: staggeredOpening ? Math.min(openingProgress, wideReveal) : 1
+    readonly property real headerEntrance: compactTrackHeader ? openingProgress : expandedEntrance
     readonly property real baseWidth: host.dock.baseWidth || host.dock.item.width
     readonly property real baseHeight: host.dock.baseCapHeight || 69
     readonly property real maxBody: Math.max(280,
@@ -198,8 +206,9 @@ Item {
     readonly property real expandedWidth: expandedWidthFor(voiceExpansion)
     readonly property real targetWidth: Math.min(host.settings.compactWidth ?? 480, maxBody) + (expandedWidth - Math.min(host.settings.compactWidth ?? 480, maxBody)) * layout
     // Signed deltas let a long native dock contract to the reference proportions.
-    readonly property real extraWidth: (targetWidth - baseWidth) * musicLayout
-    readonly property real extraHeight: (76 - baseHeight) * musicLayout + expandedHeightExtraFor(voiceExpansion) * layout
+    readonly property real extraWidth: (targetWidth - baseWidth) * musicLayout + 10 * layoutSpring
+    readonly property real extraHeight: (76 - baseHeight) * musicLayout
+        + expandedHeightExtraFor(voiceExpansion) * layout + 6 * layoutSpring
     readonly property real headerHeight: Math.max(100 * layout, swipeEnabled ? 14 : 0)
     readonly property real iconsOffset: 84 * layout
     readonly property real iconsScale: 1 - (1 - Math.min(1,
@@ -216,7 +225,12 @@ Item {
         animation.start()
     }
     onWideChanged: animateLayout()
-    NumberAnimation { id: widen; target: root; property: "wideReveal"; to: 1; duration: root.host.settings.expandDuration ?? 850; easing.type: Easing.OutBack; easing.overshoot: root.host.settings.playerSpring ?? 1.2 }
+    NumberAnimation {
+        id: widen; target: root; property: "wideReveal"; to: 1
+        duration: root.host.settings.expandDuration ?? 850
+        easing.type: root.staggeredOpening ? Easing.Linear : Easing.OutBack
+        easing.overshoot: root.host.settings.playerSpring ?? 1.2
+    }
     NumberAnimation { id: narrow; target: root; property: "wideReveal"; to: 0; duration: 600; easing.type: Easing.InOutCubic }
 
     property var clock: LM.clockReset(0, Date.now())
@@ -475,11 +489,12 @@ Item {
         radius: 10 + 2 * Math.min(1, root.layout)
             + (Math.min(width, height) / 2 - 12) * Math.max(0, coverMotion.progress)
         color: root.colors.module
-        opacity: root.musicLayout * coverMotion.alpha
+        opacity: root.musicLayout * coverMotion.alpha * coverMotion.entranceOpacity
         visible: opacity > 0.001
         transform: PlayerPart {
             id: coverMotion
             part: cover
+            entranceOffset: Qt.point(-33, -8); entranceDelay: 0.49; entranceEnd: 0.95
             tuckedScale: Qt.size(0.70, 0.72)
             tuckDelay: 120; tuckDuration: 710; tuckEasing: Easing.InOutSine
             returnDelay: 160; returnDuration: 685; spring: 0.86
@@ -518,11 +533,12 @@ Item {
         y: root.compactTrackHeader ? 53 + 10 * Math.min(1, root.layout) : 45 + 18 * Math.min(1, root.layout)
         width: Math.max(1, root.width - x - (68 + 14 * Math.min(1, root.layout)))
         height: 20
-        opacity: root.musicLayout * progressMotion.alpha
+        opacity: root.musicLayout * progressMotion.alpha * progressMotion.entranceOpacity
         visible: opacity > 0.001 && root.opacity > 0.001 && (!root.nativeClock || root.player.positionSupported)
         transform: PlayerPart {
             id: progressMotion
             part: progress
+            entranceOffset: Qt.point(-10, 17); entranceDelay: 0.61
             tuckedScale: Qt.size(0.075, 0.70)
             tuckDelay: 166; tuckDuration: 642; tuckEasing: Easing.InOutSine
             returnDelay: 205; returnDuration: 750; spring: 1.22
@@ -544,11 +560,12 @@ Item {
         x: root.width - 54
         y: root.compactTrackHeader ? 51 + 10 * Math.min(1, root.layout) : 26 + 34 * Math.min(1, root.layout)
         width: 24; height: 24
-        opacity: root.musicLayout * volumeMotion.alpha
+        opacity: root.musicLayout * volumeMotion.alpha * volumeMotion.entranceOpacity
         visible: opacity > 0.001 && (!root.nativeClock || root.player.volumeSupported)
         transform: PlayerPart {
             id: volumeMotion
             part: volume
+            entranceOffset: Qt.point(24, 9); entranceDelay: 0.63
             tuckDelay: 82; tuckDuration: 480
             returnDelay: 278; returnDuration: 530; spring: 1.23
             arc: 21; tilt: -18
@@ -591,10 +608,12 @@ Item {
             elide: Text.ElideRight
             color: root.colors.ink
             font.family: root.host.theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold
-            opacity: titleMotion.alpha
+            opacity: titleMotion.alpha * titleMotion.entranceOpacity
             transform: PlayerPart {
                 id: titleMotion
                 part: trackTitle
+                entrance: root.headerEntrance
+                entranceOffset: Qt.point(0, -21); entranceDelay: 0.53; entranceEnd: 0.96
                 pivot: Qt.point(Math.min(trackTitle.width, trackTitle.contentWidth) / 2, trackTitle.height / 2)
                 tuckDelay: 78; tuckDuration: 585
                 returnDelay: 245; returnDuration: 621; spring: 0.98
@@ -610,10 +629,12 @@ Item {
             elide: Text.ElideRight
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 11
-            opacity: artistMotion.alpha
+            opacity: artistMotion.alpha * artistMotion.entranceOpacity
             transform: PlayerPart {
                 id: artistMotion
                 part: trackArtist
+                entrance: root.headerEntrance
+                entranceOffset: Qt.point(-15, 9); entranceDelay: 0.59; entranceEnd: 0.99
                 pivot: Qt.point(Math.min(trackArtist.width, trackArtist.contentWidth) / 2, trackArtist.height / 2)
                 tuckDelay: 118; tuckDuration: 560; tuckEasing: Easing.InOutQuint
                 returnDelay: 285; returnDuration: 626; spring: 1.08
@@ -636,10 +657,15 @@ Item {
                         : index === 1 ? root.player.canTogglePlaying : root.player.canGoNext)
                     width: root.nativeClock && root.width < 390 ? 30 : 42
                     height: 32
-                    opacity: buttonMotion.alpha * (root.nativeClock && !commandAvailable ? 0.35 : 1)
+                    opacity: buttonMotion.alpha * buttonMotion.entranceOpacity
+                        * (root.nativeClock && !commandAvailable ? 0.35 : 1)
                     transform: PlayerPart {
                         id: buttonMotion
                         part: button
+                        entrance: root.headerEntrance
+                        entranceOffset: Qt.point(23 + 6 * button.index, -10 + 8 * button.index)
+                        entranceDelay: 0.62 + 0.035 * button.index
+                        entranceEnd: 0.93 + 0.03 * button.index
                         restingCenter: Qt.point(playbackControls.x + button.x + pivot.x,
                             playbackControls.y + button.y + pivot.y)
                         tuckDelay: button.index === 1 ? 180 : 34 + 20 * button.index
@@ -692,10 +718,12 @@ Item {
             text: !root.nativeClock || root.player.positionSupported ? root.timeLabel(root.position) : "—:—"
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 10
-            opacity: playedTimeMotion.alpha
+            opacity: playedTimeMotion.alpha * playedTimeMotion.entranceOpacity
             transform: PlayerPart {
                 id: playedTimeMotion
                 part: playedTime
+                entrance: root.expandedEntrance
+                entranceOffset: Qt.point(-10, 8); entranceDelay: 0.68
                 tuckDelay: 82; tuckDuration: 515
                 returnDelay: 287; returnDuration: 581; spring: 0.92
                 arc: -11; tilt: 13
@@ -708,10 +736,12 @@ Item {
             text: root.duration > 0 ? root.timeLabel(root.duration) : "—:—"
             color: root.colors.secondary
             font.family: root.host.theme.fontFamily; font.pixelSize: 10
-            opacity: totalTimeMotion.alpha
+            opacity: totalTimeMotion.alpha * totalTimeMotion.entranceOpacity
             transform: PlayerPart {
                 id: totalTimeMotion
                 part: totalTime
+                entrance: root.expandedEntrance
+                entranceOffset: Qt.point(10, 8); entranceDelay: 0.71
                 tuckDelay: 115; tuckDuration: 470
                 returnDelay: 317; returnDuration: 570
                 arc: 12; tilt: -16
@@ -721,11 +751,13 @@ Item {
     Item {
         id: lyricSheet
         anchors.fill: parent
-        opacity: sheetMotion.alpha
+        opacity: sheetMotion.alpha * sheetMotion.entranceOpacity
         visible: opacity > 0.001
         transform: PlayerPart {
             id: sheetMotion
             part: lyricSheet
+            entrance: root.expandedEntrance
+            entranceOffset: Qt.point(0, 28); entranceDelay: 0.72
             pivot: Qt.point(lyricSheet.width / 2, lyricGlass.y + lyricGlass.height / 2)
             tuckedScale: Qt.size(0.087, 0.19)
             tuckDuration: 568

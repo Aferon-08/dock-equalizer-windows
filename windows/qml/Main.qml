@@ -365,7 +365,7 @@ Window {
             property real lyricsWidth: 560
             property bool autoSpotify: false
             property bool multivoice: true
-            property int openDuration: 900
+            property int openDuration: 1080
             property int closeDuration: 620
             property real spring: 1.6
             property int fusionDuration: 850
@@ -378,7 +378,7 @@ Window {
             property real voiceHeight: 28
             property real lyricFontSize: 17
             property int lyricFade: 240
-            property int expandDuration: 850
+            property int expandDuration: 1080
             readonly property bool limitPlayerOvershoot: true
             property real playerSpring: 1.2
             property int followDelay: 190
@@ -486,6 +486,7 @@ Window {
             anchors.fill: parent
             host: demoHost
             hideProgress: presence.hideProgress
+            staggeredOpening: true
             notification: noticeLayer
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
@@ -525,6 +526,8 @@ Window {
             trackKey: window.activeTrackKey
             miniPauseDelay: window.smokeMode ? 1450 : 40000
             topInset: pill.y
+            availableHeight: Math.max(compactHeight, window.workArea.height / Math.max(0.01, stage.scale)
+                - topInset - 44)
             onDismissed: window.appState.dismissNotification()
             onNeckBoundsChanged: {
                 if (window.smokePhase === 22 && neckBounds.width > 0 && miniBounds.width > miniBounds.height
@@ -1001,7 +1004,7 @@ Window {
                     window.failSmoke("the dock expanded before its clear area settled")
                     return
                 }
-                if (wait < 1050) return
+                if (wait < 1700) return
                 if (!wings.lyricsView.wide || wings.lyricsHeightExtra <= 100) {
                     window.failSmoke("the dock did not expand after its area was clear")
                     return
@@ -1065,7 +1068,11 @@ Window {
                     return
                 }
                 window.smokeObstructed = true
-                window.appState.postTestNotification()
+                const message = "Автоматически сохраняются в папке снимков экрана."
+                window.appState.showNotification({
+                    kind: "app", accent: "#c3b5ff", title: "Снимок экрана скопирован в буфер обмена",
+                    summary: message, detail: message, source: "Ножницы", sentAt: new Date()
+                })
                 window.smokePhase = 14
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 14 && noticeLayer.reveal === 1) {
@@ -1074,6 +1081,12 @@ Window {
                         || window.rightRegion.width > 0 || window.miniPlayerRegion.width > 0
                         || wings.housingRect.height !== noticeLayer.compactHeight) {
                     window.failSmoke("the obstructed idle notification did not use a compact glass body")
+                    return
+                }
+                const text = noticeLayer.textLayout()
+                if (noticeLayer.bodyBounds.width <= 450 || text.titleOverflow > 0.5 || text.messageTruncated
+                        || text.messageY >= text.detailY) {
+                    window.failSmoke("the compact app notice did not make room for its full title and preview")
                     return
                 }
                 window.smokeObstructed = false
@@ -1085,8 +1098,21 @@ Window {
                     window.failSmoke("the notification did not expand automatically in the glass housing")
                     return
                 }
+                const text = noticeLayer.textLayout()
+                if (text.titleOverflow > 0.5 || Math.abs(text.titleCenterOffset.x) > 0.1
+                        || Math.abs(text.titleCenterOffset.y) > 0.1) {
+                    window.failSmoke("the expanded app title did not center between the icon and close button")
+                    return
+                }
+                if (text.duplicateVisible || Math.abs(text.messageY - text.detailY) > 0.1
+                        || !Qt.colorEqual(text.messageColor, noticeLayer.accent)
+                        || text.message !== window.appState.dockNotification.detail) {
+                    window.failSmoke("the accent message did not move from the preview into the body")
+                    return
+                }
+                if (wait < 1850) return
                 window.appState.enqueueNotification(window.appState.testScenarios.charging)
-                if (window.appState.dockNotification.kind !== "regular") {
+                if (window.appState.dockNotification.kind !== "app") {
                     window.failSmoke("the automatic event displaced the visible notification")
                     return
                 }
@@ -1108,7 +1134,7 @@ Window {
                 window.demoPlaying = true
                 window.smokePhase = 17
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 17 && wait >= 850) {
+            } else if (window.smokePhase === 17 && wait >= 1150) {
                 if (!presence.interactive || !window.visible || wings.lyricsView.wide) {
                     window.failSmoke("resuming playback did not restore the unobscured compact layout")
                     return
@@ -1145,7 +1171,7 @@ Window {
                 window.desktop.showRequested()
                 window.smokePhase = 20
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 20 && wait >= 850) {
+            } else if (window.smokePhase === 20 && wait >= 1150) {
                 if (!presence.interactive || window.swipeDismissed
                         || !JSON.parse(wings.lyricsView.diagnostics()).trackHeaderVisible) {
                     window.failSmoke("the tray did not restore the paused track after a swipe")
@@ -1156,7 +1182,7 @@ Window {
                 window.demoPlaying = true
                 window.smokePhase = 21
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 21 && wings.lyricsView.layout === 1 && window.notificationSpaceReady) {
+            } else if (window.smokePhase === 21 && wings.lyricsView.wideReveal === 1 && window.notificationSpaceReady) {
                 window.appState.postTestNotification()
                 window.smokePhase = 22
                 window.smokeStarted = Date.now()
@@ -1253,9 +1279,38 @@ Window {
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 30 && JSON.parse(wings.lyricsView.diagnostics()).progressRenderer
                     === "materialProgressRenderer") {
+                const line = "Длинное уведомление переносится на новые строки, чтобы сохранить весь текст."
+                const lineCount = Math.ceil(noticeLayer.availableHeight / 10)
+                window.appState.showNotification({
+                    kind: "app", accent: "#c3b5ff",
+                    title: "Длинный заголовок уведомления прокручивается вперёд и назад с паузами на обоих концах",
+                    summary: line,
+                    detail: (line + "\n").repeat(lineCount) + "Конец сообщения.", source: "Ножницы", sentAt: new Date()
+                })
+                window.smokePhase = 31
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 31 && noticeLayer.reveal === 1
+                    && noticeLayer.detailProgress === 1 && noticeLayer.splitProgress === 1) {
+                const text = noticeLayer.textLayout()
+                const body = noticeLayer.bodyBounds
+                if (text.titleOverflow <= 0.5 || text.messageTruncated || text.messageLines < 4
+                        || text.scrollRange <= 0 || text.duplicateVisible
+                        || !text.message.endsWith("Конец сообщения.")
+                        || body.x < 0 || body.y + body.height > stage.height
+                        || Math.abs(body.width - noticeLayer.maxCardWidth) > 1
+                        || body.x + body.width >= noticeLayer.miniBounds.x) {
+                    window.failSmoke("long notification text did not wrap and scroll inside the available desktop area")
+                    return
+                }
+                window.smokePhase = 32
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 32 && noticeLayer.textLayout().titleScroll === 1) {
+                window.smokePhase = 33
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 33 && noticeLayer.textLayout().titleScroll < 0.85) {
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
-                console.log("PASS desktop expansion, liquid mini-player, staggered return, notifications, progress styles and pause")
+                console.log("PASS desktop expansion, staggered player, notification sizing, progress styles and pause")
                 Qt.exit(0)
             }
         }

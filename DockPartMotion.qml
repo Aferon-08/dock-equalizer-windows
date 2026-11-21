@@ -18,10 +18,17 @@ Matrix4x4 {
     property int returnDelay: 130
     property int returnDuration: 620
     property real spring: 1.1
+    property real entrance: 1
+    property point entranceOffset: Qt.point(0, 0)
+    property real entranceDelay: 0
+    property real entranceEnd: 1
 
     property real progress: 0
     property bool ready: false
     readonly property real alpha: 1 - Motion.smooth((progress - 0.68) / 0.30)
+    readonly property real entrancePhase: Geometry.phase(entrance, entranceDelay, entranceEnd)
+    readonly property real entranceOpacity: Motion.smooth(entrancePhase / 0.66)
+    readonly property real entranceTranslation: 1 - Geometry.arrival(entrancePhase, 0.24)
 
     onTuckingChanged: {
         if (!ready)
@@ -64,7 +71,9 @@ Matrix4x4 {
         const c = Math.sin(angle) * sx
         const d = Math.cos(angle) * sy
         const x = (destination.x - restingCenter.x) * progress + pivot.x - a * pivot.x - b * pivot.y
+            + entranceOffset.x * entranceTranslation
         const y = (destination.y - restingCenter.y) * progress + arc * arch + pivot.y - c * pivot.x - d * pivot.y
+            + entranceOffset.y * entranceTranslation
         return Qt.matrix4x4(a, b, 0, x, c, d, 0, y, 0, 0, 1, 0, 0, 0, 0, 1)
     }
 }

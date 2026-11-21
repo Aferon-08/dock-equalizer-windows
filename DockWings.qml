@@ -17,6 +17,7 @@ Item {
     property Component lyricsBridgeComponent: null
     property bool previewGlass: false
     property real hideProgress: 0
+    property bool staggeredOpening: false
     property var notification: null
     readonly property bool noticeVisible: !vertical && !!notification?.presenting
     readonly property real noticeMix: noticeVisible ? notification.coverAmount : 0
@@ -81,7 +82,7 @@ Item {
         property: "reveal"
         to: 1
         duration: root.host.settings.openDuration ?? 900
-        easing.type: Easing.OutBack
+        easing.type: root.staggeredOpening ? Easing.Linear : Easing.OutBack
         easing.overshoot: root.host.settings.spring ?? 1.6
     }
     NumberAnimation {
@@ -151,17 +152,22 @@ Item {
         Qt.rgba(colors.ink.r, colors.ink.g, colors.ink.b, 0.12))
     // Leave room for the opening overshoot, so the spring never hits a clamp.
     // Compact capsules flow into the player; their expanded counterpart is light.
-    readonly property real phase: Math.max(0, Math.min(1.1, reveal * (1 - fusion)))
+    readonly property real phase: Math.max(0, Math.min(1.1,
+        (staggeredOpening ? Geometry.arrival(reveal, 0.11) : reveal) * (1 - fusion)))
         * (1 - Motion.smooth(hideProgress / 0.44))
     readonly property real dropletLength: thickness + (length - thickness) * phase
     readonly property real radius: host.dock.radius + (40 - host.dock.radius) * lyricLayer.musicLayout
     readonly property real outward: -radius + (gap + length / 2 + radius) * phase
     readonly property real wingScale: (1 - Motion.smooth((hideProgress - 0.05) / 0.44))
         * (noticeVisible ? 1 - notification.splitProgress : 1)
-    readonly property real contentOpacity: 1 - Motion.smooth(hideProgress / 0.28)
+    readonly property real contentOpacity: staggeredOpening ? Motion.smooth((0.48 - hideProgress) / 0.43)
+        : 1 - Motion.smooth(hideProgress / 0.28)
     readonly property real playerTaper: Geometry.taper(hideProgress)
-    readonly property rect playerHousing: Geometry.pullToEdge(
-        Qt.rect(dock.x, dock.y, bodyWidth, bodyHeight), hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
+    readonly property rect playerHousing: {
+        const rect = Geometry.pullToEdge(Qt.rect(dock.x, dock.y, bodyWidth, bodyHeight),
+            hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
+        return staggeredOpening ? Geometry.settleHousing(rect, 1 - hideProgress) : rect
+    }
     readonly property rect housingRect: noticeVisible ? notification.bodyBounds : playerHousing
     readonly property real housingRadius: Math.min(noticeVisible ? notification.bodyRadius : radius,
         housingRect.width / 2, housingRect.height / 2)
@@ -183,7 +189,8 @@ Item {
 
     Item {
         id: liquid
-        width: root.bodyAlong + 2 * (root.length + root.gap + root.pad)
+        width: Math.max(root.bodyAlong + 2 * (root.length + root.gap + root.pad),
+            root.noticeVisible ? root.notification.surfaceWidth + 2 * root.pad : 0)
         height: (root.noticeVisible ? Math.max(root.bodyAcross, root.notification.maximumDetailsHeight)
             : root.bodyAcross) + 2 * root.pad
         x: root.dock.x + root.bodyWidth / 2 - width / 2 + lyricLayer.swipeX
@@ -304,6 +311,8 @@ Item {
         enabled: root.hideProgress === 0 && !root.noticeVisible
         opacity: root.contentOpacity * (root.noticeVisible ? root.notification.playerOpacity : 1)
         gatheringParts: root.noticeVisible && root.notification.splittingPlayer
+        staggeredOpening: root.staggeredOpening
+        openingProgress: root.staggeredOpening ? 1 - root.hideProgress : 1
         miniCenter: root.notification ? Qt.point(root.notification.miniCenter.x - x - swipeX,
             root.notification.miniCenter.y - y - swipeY) : Qt.point(0, 0)
         host: root.host

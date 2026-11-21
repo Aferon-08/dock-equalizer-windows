@@ -16,6 +16,7 @@ Item {
     required property string trackKey
     required property int miniPauseDelay
     required property real topInset
+    required property real availableHeight
 
     signal dismissed()
 
@@ -31,23 +32,27 @@ Item {
         && (keepPausedMini || (active && clearForDetails && widePlayer))
     readonly property bool movingPlayer: splittingPlayer || (!active && splitProgress > 0)
     readonly property real compactHeight: 76
-    readonly property real maximumDetailsHeight: 236
-    readonly property real detailsHeight: lastEvent?.kind === "wifi" && (wifi.hasCounters || wifi.state === "loading")
-        ? maximumDetailsHeight : 176
-    readonly property real soloWidth: Math.min(450, width - 48)
     readonly property real miniDiameter: 66
     readonly property real miniGap: 16
+    readonly property real miniSpan: miniDiameter + miniGap
+    readonly property real detailsWidth: card.preferredWidth
+    readonly property real detailsHeight: card.preferredHeight
+    readonly property real maximumDetailsHeight: Math.max(compactHeight, detailsHeight, expandedHeight) + 16
+    readonly property real compactPlayerWidth: Math.min(renderer.host.settings.compactWidth, renderer.lyricsView.maxBody)
+    readonly property real maxCardWidth: Math.min(720, Math.max(1, width - 56 - (widePlayer ? miniSpan : 0)))
+    readonly property real surfaceWidth: Math.max(expandedEnvelope.width, expandedWidth + miniSpan + 36)
     readonly property color accent: lastEvent?.accent ?? "#a4e7cc"
     readonly property rect expandedEnvelope: {
-        const view = renderer.lyricsView
-        const footprintWidth = widePlayer ? view.expandedBodySize.width + 36
-            : attached ? Math.min(renderer.host.settings.compactWidth, view.maxBody) : soloWidth
+        const footprintWidth = widePlayer
+            ? Math.max(renderer.lyricsView.expandedBodySize.width, detailsWidth + miniSpan) + 36
+            : Math.max(attached ? compactPlayerWidth : 0, detailsWidth)
         return Qt.rect((width - footprintWidth) / 2, topInset, footprintWidth, detailsHeight)
     }
 
     property var lastEvent: null
     property real reveal: active ? 1 : 0
     property real detailProgress: presenting && clearForDetails ? 1 : 0
+    property real expandedWidth: detailsWidth
     property real expandedHeight: detailsHeight
     property real splitProgress: 0
     property real mergeWeight: splittingPlayer || miniPauseExpired ? 0 : 1
@@ -58,8 +63,11 @@ Item {
     property rect retiringDeckBounds: Qt.rect(0, 0, 0, 0)
     property real cardRetraction: !active && (keepPausedMini || miniPauseExpired) ? 1 : 0
     property real miniRetreat: miniPauseExpired ? 1 : 0
-    Behavior on reveal { NumberAnimation { duration: 560; easing.type: Easing.InOutCubic } }
-    Behavior on detailProgress { NumberAnimation { duration: 460; easing.type: Easing.InOutCubic } }
+    Behavior on reveal { NumberAnimation { duration: notice.active ? 1020 : 560 } }
+    Behavior on detailProgress {
+        NumberAnimation { duration: notice.clearForDetails ? 840 : 500 }
+    }
+    Behavior on expandedWidth { NumberAnimation { duration: 420; easing.type: Easing.InOutCubic } }
     Behavior on expandedHeight { NumberAnimation { duration: 380; easing.type: Easing.InOutCubic } }
     Behavior on mergeWeight { NumberAnimation { duration: 180; easing.type: Easing.InOutSine } }
     Behavior on attachment { NumberAnimation { duration: 360; easing.type: Easing.InOutCubic } }
@@ -123,7 +131,10 @@ Item {
 
     readonly property real coverAmount: movingPlayer
         ? Motion.smooth((splitProgress - 0.04) / 0.65) : Motion.smooth((reveal - 0.06) / 0.52)
-    readonly property real detailAmount: Motion.smooth(detailProgress)
+    readonly property real detailAmount: Motion.travel(detailProgress / 0.86)
+    readonly property real detailSpring: Geometry.recoil(Geometry.phase(detailProgress, 0.70, 1))
+    readonly property real extruded: Motion.smooth((splitProgress - 0.10) / 0.68)
+    readonly property real extraPlayerWidth: Math.max(0, expandedWidth + miniSpan - renderer.playerHousing.width) * extruded
     readonly property real releaseRecoil: Geometry.recoil((splitProgress - 0.76) / 0.24)
     readonly property real mergeRecoil: mergeWeight * Geometry.recoil((0.39 - splitProgress) / 0.39)
     readonly property real bodyTaper: Math.max(Geometry.taper(cardRetraction),
@@ -133,13 +144,16 @@ Item {
         return Geometry.mix(radius, Geometry.mix(renderer.radius, radius, coverAmount), attachment)
     }
     readonly property rect bodyBounds: {
-        const height = Geometry.mix(compactHeight, expandedHeight, detailAmount)
-        const solo = Geometry.pullToEdge(Qt.rect((width - soloWidth) / 2, topInset, soloWidth, height),
-            1 - reveal, 0, 0)
+        const height = Geometry.mix(compactHeight, expandedHeight, detailAmount) + 9 * detailSpring
+        const cardWidth = expandedWidth + 14 * detailSpring
+        const solo = Geometry.settleHousing(Geometry.pullToEdge(
+            Qt.rect((width - cardWidth) / 2, topInset, cardWidth, height), 1 - reveal, 0, 0), reveal)
         const body = retiringMini ? retiringDeckBounds : renderer.playerHousing
-        const widthTaken = (miniDiameter + miniGap) * Motion.smooth((splitProgress - 0.1) / 0.78)
-        const playerBounds = Qt.rect(body.x + nudge * coverAmount - 10 * mergeRecoil, body.y,
-            Math.max(1, body.width - widthTaken - 4 * releaseRecoil + 20 * mergeRecoil),
+        const widthTaken = miniSpan * Motion.smooth((splitProgress - 0.1) / 0.78)
+        const extra = extraPlayerWidth
+            + (widePlayer ? 0 : Math.max(0, cardWidth - body.width) * coverAmount) + 14 * detailSpring * extruded
+        const playerBounds = Qt.rect(body.x - extra / 2 + nudge * coverAmount - 10 * mergeRecoil, body.y,
+            Math.max(1, body.width + extra - widthTaken - 4 * releaseRecoil + 20 * mergeRecoil),
             Geometry.mix(body.height, height, coverAmount) + 9 * mergeRecoil)
         const housing = Geometry.mixRect(solo, playerBounds, attachment)
         return cardRetraction > 0 ? Geometry.pullToEdge(housing, cardRetraction, 0, 0) : housing
@@ -149,8 +163,8 @@ Item {
         * (1 - Motion.smooth((splitProgress - 0.72) / 0.26))
     readonly property point miniCenter: {
         const body = renderer.playerHousing
-        const extruded = Motion.smooth((splitProgress - 0.10) / 0.68)
-        return Qt.point(body.x + body.width - Geometry.mix(miniDiameter * 0.78, miniDiameter / 2, extruded)
+        const right = body.x + body.width + extraPlayerWidth / 2
+        return Qt.point(right - Geometry.mix(miniDiameter * 0.78, miniDiameter / 2, extruded)
             + 6 * miniStretch + 11 * releaseRecoil,
             body.y + 47 + 6 * miniStretch - 4 * releaseRecoil)
     }
@@ -179,24 +193,34 @@ Item {
 
     readonly property real playerOpacity: miniPauseExpired ? 0 : (1 - cardRetraction) * (movingPlayer
         ? 1 : 1 - coverAmount)
-    readonly property real textOpacity: (1 - Motion.smooth(cardRetraction / 0.45)) * (movingPlayer
-        ? Motion.smooth((splitProgress - 0.57) / 0.34) * Motion.smooth((reveal - 0.72) / 0.28)
-        : Motion.smooth((reveal - 0.39) / 0.51))
+    readonly property real cardEntrance: movingPlayer ? Math.min(reveal, splitProgress) : reveal
+
+    function textLayout() {
+        return card.textLayout()
+    }
 
     visible: presenting
 
     DockNotificationContent {
+        id: card
         x: notice.bodyBounds.x
         y: notice.bodyBounds.y
         width: notice.bodyBounds.width
         height: notice.bodyBounds.height
-        opacity: notice.textOpacity
-        visible: opacity > 0.001
+        opacity: 1 - Motion.smooth(notice.cardRetraction / 0.45)
+        visible: notice.cardEntrance > 0.27 && opacity > 0.001
         event: notice.lastEvent
         wifi: notice.wifi
         battery: notice.battery
         accent: notice.accent
+        availableWidth: notice.maxCardWidth
+        minimumWidth: notice.widePlayer
+            ? Math.max(404, notice.renderer.lyricsView.expandedBodySize.width - notice.miniSpan)
+            : notice.attached ? notice.compactPlayerWidth : 404
+        availableHeight: notice.availableHeight
+        entrance: notice.cardEntrance
         expansion: notice.detailAmount
+        detailProgress: notice.detailProgress
         dismissible: notice.active && opacity > 0.75
         onDismissed: notice.dismissed()
     }
