@@ -63,7 +63,8 @@ QString readString(Interface *object, Getter getter)
 ComPtr<IAsyncInfo> asyncInfo(IInspectable *operation)
 {
     ComPtr<IAsyncInfo> info;
-    operation->QueryInterface(__uuidof(IAsyncInfo), reinterpret_cast<void **>(info.GetAddressOf()));
+    if (operation)
+        operation->QueryInterface(__uuidof(IAsyncInfo), reinterpret_cast<void **>(info.GetAddressOf()));
     return info;
 }
 
@@ -269,6 +270,11 @@ WindowsNotifications::WindowsNotifications(bool enabled)
 WindowsNotifications::~WindowsNotifications()
 {
 #ifdef Q_OS_WIN
+    m_timer.stop();
+    if (const auto permission = asyncInfo(m_data->permission.Get()))
+        permission->Cancel();
+    if (const auto read = asyncInfo(m_data->read.Get()))
+        read->Cancel();
     const bool uninitialize = m_data->apartment;
     m_data.reset();
     if (uninitialize)

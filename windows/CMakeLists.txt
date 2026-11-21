@@ -100,6 +100,8 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/wordtime.json")
     add_test(NAME soundbar.overlay COMMAND SekaiSoundbar --smoke-test ${smoke_fixtures})
     add_test(NAME soundbar.overlay-software COMMAND SekaiSoundbar --software-rendering --smoke-test ${smoke_fixtures})
+    add_test(NAME soundbar.tray-exit COMMAND SekaiSoundbar --tray-exit-test --demo-preview --software-rendering)
+    set_tests_properties(soundbar.tray-exit PROPERTIES RESOURCE_LOCK soundbar_desktop TIMEOUT 15)
     # Both variants render on the same desktop. Let the QML phase watchdog report stalls on busy runners.
     set_tests_properties(soundbar.overlay soundbar.overlay-software PROPERTIES
         RESOURCE_LOCK soundbar_desktop

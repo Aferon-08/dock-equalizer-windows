@@ -1047,7 +1047,9 @@ Window {
                 }
                 window.smokePhase = 12
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 12 && wait >= 500) {
+            } else if (window.smokePhase === 12) {
+                if (presence.hideProgress > 0 && wait < presence.motion.duration + 300)
+                    return
                 if (!presence.interactive || presence.hideProgress !== 0) {
                     window.failSmoke("the reversed animation did not restore the panel")
                     return

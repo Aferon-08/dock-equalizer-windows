@@ -23,7 +23,6 @@
 #include <QQmlEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
-#include <QScopeGuard>
 #include <QSettings>
 #include <QSystemTrayIcon>
 #include <QTimer>
@@ -31,6 +30,7 @@
 #include <map>
 #include <memory>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -86,6 +86,9 @@ struct ScreenDock {
 #ifdef Q_OS_WIN
 #include <d3d11.h>
 
+#include <chrono>
+#include <thread>
+
 namespace {
 
 bool hasHardwareD3d11()
@@ -96,6 +99,15 @@ bool hasHardwareD3d11()
     if (device)
         device->Release();
     return SUCCEEDED(result);
+}
+
+void setExitDeadline(int code)
+{
+    // An audio driver or a WinRT call can stall while its worker is being joined.
+    std::thread([code] {
+        std::this_thread::sleep_for(std::chrono::seconds(7));
+        TerminateProcess(GetCurrentProcess(), DWORD(code));
+    }).detach();
 }
 
 } // namespace
@@ -115,15 +127,17 @@ int main(int argc, char *argv[])
 
     const auto args = app.arguments();
     const bool smokeMode = args.contains(QStringLiteral("--smoke-test"));
+    const bool trayExitTest = args.contains(QStringLiteral("--tray-exit-test"));
     const bool software = args.contains(QStringLiteral("--software-rendering"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QQuickWindow::setDefaultAlphaBuffer(true);
 #ifdef Q_OS_WIN
-    // The installer uses this same guard while switching the runtime folder.
-    const HANDLE instance = smokeMode ? nullptr : CreateMutexW(nullptr, FALSE, L"Local\\SekaiSoundbar.Instance");
-    const bool alreadyRunning = instance && GetLastError() == ERROR_ALREADY_EXISTS;
-    const auto releaseInstance = qScopeGuard([instance] { if (instance) CloseHandle(instance); });
-    if (alreadyRunning) {
+    // Windows releases this handle at process exit, after Qt and the native workers shut down.
+    SetLastError(ERROR_SUCCESS);
+    const HANDLE instance = smokeMode || trayExitTest ? nullptr
+        : CreateMutexW(nullptr, FALSE, L"Local\\SekaiSoundbar.Instance");
+    if (instance && GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(instance);
         if (WindowsNotifications::hasPackageIdentity()) {
             QMessageBox::information(nullptr, QStringLiteral("Sekai Soundbar"),
                 QStringLiteral("Док уже запущен. Завершите его через меню в области уведомлений Windows, "
@@ -152,7 +166,7 @@ int main(int argc, char *argv[])
     QSettings settings(QStringLiteral("SekaiSoundbar"), QStringLiteral("Settings"));
     DockAppearance appearance(smokeMode ? nullptr : &settings);
     DisplaySettings displays(smokeMode ? nullptr : &settings);
-    StartupSettings startup(!smokeMode);
+    StartupSettings startup(!smokeMode && !trayExitTest);
     const auto autoSearchSetting = QStringLiteral("lyrics/automatic");
     const auto proxySetting = QStringLiteral("lyrics/proxy");
     search.setAutomatic(settings.value(autoSearchSetting, true).toBool());
@@ -167,9 +181,19 @@ int main(int argc, char *argv[])
         search.setTrack(media.trackKey(), media.trackTitle(), media.trackArtist(),
                         media.trackAlbum(), media.length());
     });
+    bool exitRequested = false;
+    const auto requestExit = [&settings, &exitRequested](int code) {
+        if (std::exchange(exitRequested, true))
+            return;
+#ifdef Q_OS_WIN
+        setExitDeadline(code);
+#endif
+        settings.sync();
+        QCoreApplication::exit(code);
+    };
     QQmlEngine engine;
-    QObject::connect(&engine, &QQmlEngine::quit, &app, &QCoreApplication::quit);
-    QObject::connect(&engine, &QQmlEngine::exit, &app, &QCoreApplication::exit);
+    QObject::connect(&engine, &QQmlEngine::quit, &app, [requestExit] { requestExit(0); }, Qt::QueuedConnection);
+    QObject::connect(&engine, &QQmlEngine::exit, &app, requestExit, Qt::QueuedConnection);
     QQmlComponent stateComponent(&engine, u"Sekai.Soundbar", u"ApplicationState");
     std::unique_ptr<QObject> appState(stateComponent.createWithInitialProperties({
         {QStringLiteral("mediaSessions"), QVariant::fromValue(&media)},
@@ -294,7 +318,8 @@ int main(int argc, char *argv[])
         QObject::connect(&displays, &DisplaySettings::enabledScreensChanged, showDock, updateTray);
         trayMenu.addAction(QStringLiteral("Настройки…"), [&] { openSettings({}, nullptr); });
         trayMenu.addSeparator();
-        trayMenu.addAction(QStringLiteral("Выход"), &app, &QCoreApplication::quit);
+        auto *exitDock = trayMenu.addAction(QStringLiteral("Выход"));
+        QObject::connect(exitDock, &QAction::triggered, &app, [requestExit] { requestExit(0); }, Qt::QueuedConnection);
         tray.setContextMenu(&trayMenu);
         tray.setIcon(soundbarIcon());
         tray.setToolTip(QStringLiteral("Sekai Soundbar"));
@@ -320,9 +345,11 @@ int main(int argc, char *argv[])
                 openSettings(QStringLiteral("notifications"), nullptr);
                 startupPermission->start(100);
             });
-        } else if (args.contains(QStringLiteral("--settings"))) {
+        } else if (args.contains(QStringLiteral("--settings")) || trayExitTest) {
             openSettings({}, nullptr);
         }
+        if (trayExitTest)
+            QTimer::singleShot(300, exitDock, &QAction::trigger);
     }
     return app.exec();
 }
