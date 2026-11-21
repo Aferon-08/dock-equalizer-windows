@@ -14,7 +14,7 @@ Window {
     property var previewDock: null
     property string section: "general"
 
-    title: "Настройки Sekai Soundbar"
+    title: "Настройки — Sekai Soundbar"
     flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowSystemMenuHint
     color: "transparent"
     minimumWidth: 350
@@ -26,7 +26,6 @@ Window {
     readonly property color muted: "#9db7ad"
     readonly property color mint: "#96dcc0"
     readonly property color line: "#34584a"
-    readonly property color hairline: Qt.alpha(ink, 0.10)
     readonly property color warning: "#ffb8ad"
     readonly property bool wide: width >= 600
     readonly property bool effectsAvailable: shell.GraphicsInfo.api !== GraphicsInfo.Software
@@ -58,8 +57,8 @@ Window {
         Layout.fillWidth: true
         implicitHeight: fields.implicitHeight + 32
         radius: 17
-        color: "#172a25"
-        border.color: panel.hairline
+        color: "#ba172a25"
+        border.color: "#36584a"
 
         property Item contents: ColumnLayout {
             parent: surface
@@ -74,9 +73,9 @@ Window {
     component Action: Button {
         id: control
         onPressed: forceActiveFocus(Qt.MouseFocusReason)
-        padding: 12
-        topPadding: 8
-        bottomPadding: 8
+        padding: 9
+        topPadding: 7
+        bottomPadding: 7
         implicitHeight: 36
         font.pixelSize: 13
         font.weight: Font.DemiBold
@@ -94,9 +93,8 @@ Window {
             radius: 10
             color: control.emphasized && control.enabled
                 ? (control.down ? "#79c7a7" : control.hovered ? "#b0ead3" : panel.mint)
-                : (control.down ? "#314f43" : control.hovered ? "#2b493e" : control.flat ? "transparent" : "#213a31")
-            border.width: control.visualFocus ? 2 : control.flat || control.emphasized ? 0 : 1
-            border.color: !control.visualFocus ? panel.hairline : control.emphasized ? "#11261e" : panel.mint
+                : (control.down ? "#314f43" : control.hovered ? "#2b493e" : "#213a31")
+            border.color: control.visualFocus ? panel.mint : panel.line
         }
     }
 
@@ -135,8 +133,8 @@ Window {
         readonly property bool selected: panel.section === destination
         Layout.fillWidth: true
         implicitHeight: 40
-        leftPadding: 12
-        rightPadding: 12
+        leftPadding: 14
+        rightPadding: 9
         font.pixelSize: 14
         font.weight: selected ? Font.DemiBold : Font.Normal
         onClicked: panel.section = destination
@@ -151,7 +149,18 @@ Window {
         background: Rectangle {
             radius: 10
             color: link.selected ? "#29483c" : link.hovered ? "#243d34" : "transparent"
-            border.color: link.visualFocus ? panel.mint : "transparent"
+            border.color: link.visualFocus ? panel.mint : link.selected ? panel.line : "transparent"
+
+            Rectangle {
+                width: 3
+                height: 16
+                anchors.left: parent.left
+                anchors.leftMargin: 3
+                anchors.verticalCenter: parent.verticalCenter
+                radius: 2
+                color: panel.mint
+                visible: link.selected
+            }
         }
     }
 
@@ -159,7 +168,7 @@ Window {
         id: field
         required property var spec
         Layout.fillWidth: true
-        spacing: 4
+        spacing: 3
         enabled: panel.effectsAvailable && panel.glassEnabled
 
         RowLayout {
@@ -226,11 +235,23 @@ Window {
         radius: 24
         antialiasing: true
         color: "#12211c"
-        border.color: panel.hairline
+        border.color: "#628877"
+        gradient: Gradient {
+            GradientStop { position: 0; color: "#2a4337" }
+            GradientStop { position: 0.28; color: "#182b24" }
+            GradientStop { position: 1; color: "#101b18" }
+        }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 2
+            radius: shell.radius - 2
+            color: "transparent"
+            border.color: "#274a3d"
+        }
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 16
+            anchors.margins: 15
             spacing: 12
 
             Item {
@@ -244,7 +265,24 @@ Window {
 
                 RowLayout {
                     anchors.fill: parent
-                    spacing: 8
+                    anchors.leftMargin: 7
+                    spacing: 10
+
+                    Rectangle {
+                        width: 34
+                        height: 24
+                        radius: height / 2
+                        color: "#25483a"
+                        border.color: "#578673"
+
+                        Rectangle {
+                            width: 12
+                            height: 8
+                            radius: 4
+                            anchors.centerIn: parent
+                            color: panel.mint
+                        }
+                    }
 
                     Label {
                         text: "Настройки"
@@ -252,18 +290,23 @@ Window {
                         font.weight: Font.DemiBold
                         color: panel.ink
                     }
+                    Label {
+                        visible: panel.wide
+                        text: "Sekai Soundbar"
+                        color: panel.muted
+                        font.pixelSize: 13
+                    }
+
                     Item { Layout.fillWidth: true }
 
                     Action {
                         Layout.preferredWidth: 38
-                        flat: true
                         text: "−"
                         Accessible.name: "Свернуть настройки"
                         onClicked: panel.showMinimized()
                     }
                     Action {
                         Layout.preferredWidth: 38
-                        flat: true
                         text: "×"
                         Accessible.name: "Закрыть настройки"
                         onClicked: panel.close()
@@ -271,19 +314,19 @@ Window {
                 }
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: panel.hairline }
+            Rectangle { Layout.fillWidth: true; height: 1; color: panel.line }
 
             GridLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 columns: panel.wide ? 2 : 1
-                columnSpacing: 16
+                columnSpacing: 18
                 rowSpacing: 12
 
                 GridLayout {
                     columns: panel.wide ? 1 : 2
-                    rowSpacing: 4
-                    columnSpacing: 4
+                    rowSpacing: 5
+                    columnSpacing: 5
                     Layout.alignment: Qt.AlignTop
                     Layout.preferredWidth: panel.wide ? 156 : -1
                     Layout.fillWidth: !panel.wide
@@ -302,7 +345,7 @@ Window {
                     clip: true
                     contentWidth: availableWidth
                     contentHeight: page.height
-                    rightPadding: 8
+                    rightPadding: 10
                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                     ScrollBar.vertical: ScrollBar {
                         id: scrollBar
@@ -347,13 +390,18 @@ Window {
     Component {
         id: generalPage
         ColumnLayout {
-            spacing: 16
+            spacing: 14
 
             FieldLabel { text: "Общие"; font.pixelSize: 23 }
             Surface {
                 RowLayout {
                     Layout.fillWidth: true
-                    FieldLabel { text: "Запускать вместе с Windows" }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        FieldLabel { text: "Запускать вместе с Windows" }
+                        Copy { text: "Sekai Soundbar запустится при входе в вашу учётную запись." }
+                    }
                     Option {
                         objectName: "startupOption"
                         Accessible.name: "Запускать вместе с Windows"
@@ -375,9 +423,10 @@ Window {
     Component {
         id: displaysPage
         ColumnLayout {
-            spacing: 16
+            spacing: 12
 
             FieldLabel { text: "Мониторы"; font.pixelSize: 23 }
+            Copy { text: "Выберите экраны, на которых будет появляться док." }
 
             Repeater {
                 model: panel.displays
@@ -391,6 +440,25 @@ Window {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 12
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            width: 36
+                            height: 26
+                            radius: 6
+                            color: monitor.dockEnabled ? "#294a3c" : "#23372f"
+                            border.color: monitor.dockEnabled ? panel.mint : "#597468"
+
+                            Rectangle {
+                                width: 13
+                                height: 2
+                                radius: 1
+                                color: parent.border.color
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.top: parent.bottom
+                                anchors.topMargin: 3
+                            }
+                        }
+
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 4
@@ -415,7 +483,7 @@ Window {
     Component {
         id: appearancePage
         ColumnLayout {
-            spacing: 16
+            spacing: 14
 
             FieldLabel { text: "Оформление"; font.pixelSize: 23 }
             Surface {
@@ -468,9 +536,9 @@ Window {
                         spacing: 4
                         FieldLabel { text: "Преломлять фон рабочего стола" }
                         Copy {
-                            visible: text !== ""
                             text: !panel.desktopGlassAvailable ? "Для преломления фона нужен Direct3D 11."
-                                : (panel.appearance.values.desktopGlass && panel.previewDock?.captureBackdrop?.status) || ""
+                                : (panel.appearance.values.desktopGlass && panel.previewDock?.captureBackdrop?.status)
+                                    || "Использует изображение рабочего стола за доком."
                         }
                     }
                     Option {
@@ -519,7 +587,7 @@ Window {
         id: notificationsPage
         ColumnLayout {
             id: notifications
-            spacing: 16
+            spacing: 14
             readonly property var windowsSource: panel.appState.windowsNotifications
             readonly property string listenerStatus: windowsSource.status
 
@@ -529,7 +597,7 @@ Window {
                     return
                 }
                 panel.appState.postTestNotification(scenario)
-                notificationStatus.text = "Тестовая карточка отправлена."
+                notificationStatus.text = "Уведомление отправлено на включённые мониторы."
             }
 
             FieldLabel { text: "Уведомления"; font.pixelSize: 23 }
@@ -561,7 +629,7 @@ Window {
                         case "requesting": return "Ожидаем ответ на запрос Windows."
                         case "connecting": return "Читаем Центр уведомлений Windows."
                         case "denied": return "Доступ к уведомлениям приложений отключён в настройках Windows."
-                        case "active": return "Доступ включён. Отключите баннеры нужных приложений в Windows, чтобы видеть их только в доке. Оставьте показ в Центре уведомлений."
+                        case "active": return "Уведомления приложений подключены. Для показа только в доке отключите штатные баннеры нужных приложений, сохранив их уведомления в Центре уведомлений."
                         default: return "Источник уведомлений приложений Windows недоступен."
                         }
                     }
@@ -601,7 +669,7 @@ Window {
                 }
             }
             Surface {
-                Copy { text: "Карточка раскроется, если верх экрана свободен." }
+                Copy { text: "Тестовые карточки раскрываются, когда в верхней части экрана есть место." }
                 Action {
                     Layout.fillWidth: true
                     text: "Показать тестовую карточку дока"
@@ -620,7 +688,7 @@ Window {
                 }
             }
             Surface {
-                FieldLabel { text: "Тесты батареи" }
+                FieldLabel { text: "Батарея" }
                 GridLayout {
                     Layout.fillWidth: true
                     columns: width >= 465 ? 3 : 1
@@ -655,7 +723,7 @@ Window {
         ColumnLayout {
             id: lyrics
             property string proxyError: ""
-            spacing: 16
+            spacing: 14
 
             function saveProxy() {
                 proxyError = panel.lyricsSearch.configureProxy(proxy.text)
@@ -667,9 +735,14 @@ Window {
             Surface {
                 RowLayout {
                     Layout.fillWidth: true
-                    FieldLabel { id: autoSearchLabel; text: "Искать лирику при смене трека" }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        FieldLabel { text: "Искать лирику автоматически" }
+                        Copy { text: "Поиск запускается при смене трека." }
+                    }
                     Option {
-                        Accessible.name: autoSearchLabel.text
+                        Accessible.name: "Искать лирику автоматически"
                         checked: panel.lyricsSearch.automatic
                         onToggled: panel.lyricsSearch.automatic = checked
                     }
@@ -677,7 +750,7 @@ Window {
             }
             Surface {
                 FieldLabel { text: "Прокси поиска" }
-                Copy { text: "Локальный адрес HTTP или SOCKS5 с портом. Пустое поле возвращает подключение по умолчанию." }
+                Copy { text: "Укажите локальный адрес HTTP или SOCKS5. Пустое поле включает обычное подключение." }
                 TextField {
                     id: proxy
                     Layout.fillWidth: true
@@ -700,7 +773,7 @@ Window {
                 }
                 Flow {
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: 7
                     Action { text: "INCY SOCKS5"; onClicked: proxy.text = "socks5h://127.0.0.1:10808" }
                     Action { text: "INCY HTTP"; onClicked: proxy.text = "http://127.0.0.1:10809" }
                     Action { text: "Сохранить"; emphasized: true; onClicked: lyrics.saveProxy() }
