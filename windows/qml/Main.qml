@@ -107,17 +107,24 @@ Window {
     property bool smokeSawReleaseSpring: false
     property bool smokeSawStaggeredReturn: false
     readonly property var smokeReturnSprings: new Set()
+    property rect smokeCallHome: Qt.rect(0, 0, 0, 0)
+    property bool smokeSawCallExit: false
+    property bool smokeSawCallUnfold: false
+    property bool smokeSawCallSlide: false
+    property bool smokeSawCallNeck: false
 
     DockPresence {
         id: presence
         playing: window.playbackActive
         paused: window.playbackPaused
         dismissed: window.swipeDismissed || (noticeLayer.miniPauseExpired && !window.trayPreview)
+            || (callLayer.retiring && !window.media.player && !window.appState.dockNotification)
         fullscreen: window.desktop.fullscreenActive
         idleDelay: demoHost.settings.collapseDelay
         pauseDelay: window.smokeMode ? 1700 : 60000
         holdOpen: window.trayPreview
             || window.discordPreview.active
+            || (callLayer.retiring && !!window.appState.dockNotification)
             || noticeLayer.keepPausedMini
             || (window.smokeMode && window.smokeHoldOpen)
             || (menuLoader.item?.visible ?? false)
@@ -142,9 +149,7 @@ Window {
             return scaledRect(body.x - pad, body.y - pad, body.width + 2 * pad, body.height + 2 * pad)
         }
         const padding = 26
-        if (callLayer.mainVisible) {
-            if (!callLayer.interactive)
-                return Qt.rect(0, 0, 0, 0)
+        if (callLayer.presenting) {
             const body = wings.playerHousing
             return scaledRect(body.x - padding, body.y - padding,
                 body.width + 2 * padding, body.height + 2 * padding)
@@ -169,12 +174,17 @@ Window {
         const body = callLayer.sideBounds
         return scaledRect(body.x, body.y, body.width, body.height)
     }
+    readonly property rect sideCallNeckRegion: {
+        const body = callLayer.sideNeck
+        return scaledRect(body.x, body.y, body.width, body.height)
+    }
     readonly property real noticeGlowMargin: !noticeLayer.usesCallLayout && wings.shaderAvailable && wings.fusion > 0.001
         && wings.edgeLight > 0.025 && wings.material.light > 0 ? 22 : 0
     readonly property real regionRadius: (wings.noticeVisible ? wings.housingRadius + noticeGlowMargin
         : wings.radius + 26) * stage.scale
     readonly property rect expandedRegion: {
-        const size = discordPreview.connected ? Qt.size(callLayer.expandedWidth, callLayer.expandedHeight)
+        const size = callLayer.presenting && callLayer.conversation
+            ? Qt.size(callLayer.expandedWidth, callLayer.expandedHeight)
             : wings.lyricsView.expandedBodySize
         return scaledRect((stage.width - size.width) / 2, pill.y, size.width, size.height)
     }
@@ -188,6 +198,7 @@ Window {
     onMiniPlayerRegionChanged: Qt.callLater(updatePanelRegion)
     onMiniPlayerNeckRegionChanged: Qt.callLater(updatePanelRegion)
     onSideCallRegionChanged: Qt.callLater(updatePanelRegion)
+    onSideCallNeckRegionChanged: Qt.callLater(updatePanelRegion)
     onRegionRadiusChanged: Qt.callLater(updatePanelRegion)
     onHeightChanged: Qt.callLater(updatePanelRegion)
     onExpandedRegionChanged: Qt.callLater(updateExpandedRegion)
@@ -210,7 +221,7 @@ Window {
 
     function updatePanelRegion() {
         desktop.setPanelRegion(window, bodyRegion, regionRadius, leftRegion, rightRegion,
-                               miniPlayerRegion, miniPlayerNeckRegion, sideCallRegion)
+                               miniPlayerRegion, miniPlayerNeckRegion, sideCallRegion, sideCallNeckRegion)
     }
 
     function updateExpandedRegion() {
@@ -453,7 +464,7 @@ Window {
         id: stage
         width: Math.max(760, window.width)
         height: pill.y + Math.max(pill.height, wings.noticeVisible ? noticeLayer.maximumDetailsHeight : 0,
-            callLayer.mainVisible ? callLayer.panelHeight + 4 : 0)
+            callLayer.presenting ? callLayer.panelHeight + 4 : 0)
             + 32 + Math.max(0, wings.lyricsView.swipeY)
         scale: window.width / width
         transformOrigin: Item.TopLeft
@@ -485,6 +496,16 @@ Window {
             visible: solidHousing.visible && wings.noticeVisible && width > 0
         }
         Rectangle {
+            x: callLayer.sideNeck.x
+            y: callLayer.sideNeck.y
+            width: callLayer.sideNeck.width
+            height: callLayer.sideNeck.height
+            radius: height / 2
+            color: solidHousing.color
+            antialiasing: true
+            visible: solidHousing.visible && width > 0
+        }
+        Rectangle {
             x: callLayer.sideBounds.x
             y: callLayer.sideBounds.y
             width: callLayer.sideBounds.width
@@ -502,7 +523,7 @@ Window {
             y: pill.y + wings.lyricsView.swipeY
             width: pill.width
             height: pill.capHeight
-            enabled: presence.interactive && !wings.noticeVisible && !window.discordPreview.active && !!window.media.player
+            enabled: presence.interactive && !wings.noticeVisible && !callLayer.presenting && !!window.media.player
             cursorShape: Qt.PointingHandCursor
             onClicked: window.toggleLyricsLayout()
         }
@@ -514,10 +535,12 @@ Window {
             host: demoHost
             hideProgress: presence.hideProgress
             staggeredOpening: true
-            notification: window.discordPreview.ringing ? null : noticeLayer
-            playerOverride: callLayer.mainVisible ? callLayer.layoutBounds : Qt.rect(0, 0, 0, 0)
+            notification: noticeLayer
+            playerOverride: callLayer.layoutBounds
+            playerOverrideMix: callLayer.housingMix
             sideCallBounds: callLayer.sideBounds
-            lyricsSuppressed: window.discordPreview.active
+            sideCallBlend: callLayer.sideBlend
+            lyricsCover: callLayer.lyricsCover
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
             desktopLens: backdropEnabled && (backdropItem?.hasFrame === true)
@@ -550,9 +573,9 @@ Window {
             media: window.media
             allowed: !window.desktop.fullscreenActive
             clearForDetails: window.notificationSpaceReady
-            suspended: window.discordPreview.ringing
-            callSpan: window.discordPreview.connected ? callLayer.sideWidth + miniGap : 0
-            attached: !window.discordPreview.active && presence.showing && presence.hideProgress < 0.55
+            suspended: callLayer.ringOnTop
+            callSpan: callLayer.presenting && callLayer.conversation ? callLayer.sideWidth + miniGap : 0
+            attached: !callLayer.presenting && presence.showing && presence.hideProgress < 0.55
                 && (window.playbackActive || (!!window.media.player && !window.swipeDismissed))
             paused: window.playbackPaused
             trackKey: window.activeTrackKey
@@ -1416,39 +1439,57 @@ Window {
                 window.discordPreview.start()
                 window.smokePhase = 36
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 36 && callLayer.entry === 1) {
-                if (callLayer.mode !== "incoming" || wings.noticeVisible || !window.appState.dockNotification) {
+            } else if (window.smokePhase === 36 && callLayer.lifetime === 1) {
+                if (!callLayer.ringOnTop || wings.noticeVisible || !window.appState.dockNotification) {
                     window.failSmoke("an incoming call did not preserve the notification behind it")
                     return
                 }
                 window.discordPreview.decline()
-                if (!noticeLayer.active || window.discordPreview.active) {
-                    window.failSmoke("declining did not restore the notification")
-                    return
-                }
-                window.appState.dismissNotification()
-                demoMedia.togglePlaying()
-                window.smokeNoSession = true
-                window.smokeHoldOpen = false
                 window.smokePhase = 37
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 37 && !noticeLayer.presenting && presence.hideProgress === 1) {
+            } else if (window.smokePhase === 37) {
+                if (callLayer.retiring && callLayer.lifetime < 0.9 && callLayer.lifetime > 0.3
+                        && callLayer.housingMix > 0 && window.visible) {
+                    window.smokeSawCallExit = true
+                }
+                if (!callLayer.presenting) {
+                    if (!window.smokeSawCallExit || !noticeLayer.active || window.discordPreview.active) {
+                        window.failSmoke("declining did not animate out and restore the queued notification")
+                        return
+                    }
+                    window.appState.dismissNotification()
+                    demoMedia.togglePlaying()
+                    window.smokeNoSession = true
+                    window.smokeHoldOpen = false
+                    window.smokePhase = 38
+                    window.smokeStarted = Date.now()
+                }
+            } else if (window.smokePhase === 38 && !noticeLayer.presenting && presence.hideProgress === 1) {
                 window.discordPreview.start()
-                window.smokePhase = 38
+                window.smokePhase = 39
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 38 && presence.interactive) {
-                if (!window.visible || callLayer.mode !== "incoming" || callLayer.showMusic) {
+            } else if (window.smokePhase === 39 && presence.interactive) {
+                if (!window.visible || !callLayer.ringOnTop || callLayer.showMusic) {
                     window.failSmoke("a test call did not open the dock without a media session")
                     return
                 }
+                window.smokeCallHome = callLayer.identityBounds
                 window.discordPreview.accept()
-                window.smokePhase = 39
+                window.smokePhase = 40
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 39 && window.discordPreview.seconds > 0) {
+            } else if (window.smokePhase === 40) {
+                if (callLayer.expandProgress > 0.28 && callLayer.expandProgress < 0.8
+                        && callLayer.participantTravel - callLayer.controlTravel > 0.16
+                        && Math.abs(callLayer.identityBounds.x - window.smokeCallHome.x) < 55
+                        && window.visible && wings.playerHousing.height > 80) {
+                    window.smokeSawCallUnfold = true
+                }
+                if (window.discordPreview.seconds === 0 || callLayer.expandProgress < 1)
+                    return
                 const call = window.discordPreview
-                if (callLayer.mode !== "expanded" || call.participants.length !== 4
+                if (!window.smokeSawCallUnfold || !callLayer.expanded || call.participants.length !== 4
                         || Math.abs(wings.playerHousing.height - callLayer.expandedHeight) > 1) {
-                    window.failSmoke("accepting did not show the expanded call, timer and participants")
+                    window.failSmoke("the call did not unfold its participants and controls from the incoming card")
                     return
                 }
                 call.toggleMute()
@@ -1460,16 +1501,17 @@ Window {
                     return
                 }
                 call.toggleMute()
-                call.toggleExpanded()
+                window.smokeObstructed = true
                 window.smokeNoSession = false
                 demoMedia.togglePlaying()
-                window.smokePhase = 40
+                window.smokePhase = 41
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 40 && callLayer.entry === 1
+            } else if (window.smokePhase === 41 && callLayer.expandProgress === 0 && callLayer.musicMix === 1
                     && wings.wingSpan > 60 && wings.contentOpacity === 1) {
-                if (callLayer.mode !== "compact" || !callLayer.showMusic || window.discordPreview.microphoneOff
+                if (callLayer.expanded || !callLayer.showMusic || window.discordPreview.microphoneOff
+                        || wings.playerHousing.height > 74
                         || wings.leftWingBounds.x < 0 || wings.rightWingBounds.x + wings.wingSpan > stage.width) {
-                    window.failSmoke("compact music and voice did not share the dock and its spectrum")
+                    window.failSmoke("the occupied space did not fold voice and music into the compact dock")
                     return
                 }
                 demoMedia.togglePlaying()
@@ -1479,37 +1521,66 @@ Window {
                     return
                 }
                 demoMedia.togglePlaying()
-                window.discordPreview.toggleExpanded()
-                window.appState.postTestNotification("update")
-                window.smokePhase = 41
+                window.smokeObstructed = false
+                window.smokePhase = 42
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 41 && noticeLayer.reveal === 1 && noticeLayer.detailProgress === 1) {
+            } else if (window.smokePhase === 42 && callLayer.expandProgress === 1) {
+                window.smokeCallHome = callLayer.identityBounds
+                window.appState.postTestNotification("update")
+                window.smokePhase = 43
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 43) {
                 const body = noticeLayer.bodyBounds
                 const voice = callLayer.sideBounds
                 const music = noticeLayer.miniBounds
-                if (callLayer.mainVisible || voice.width < 165 || voice.x < 0 || voice.x + voice.width >= body.x
+                if (!window.visible || body.y < 0 || body.height < noticeLayer.compactHeight - 5) {
+                    window.failSmoke("the housing retracted instead of splitting in place for the notification")
+                    return
+                }
+                if (callLayer.split > 0.24 && callLayer.split < 0.87 && voice.width > 20
+                        && callLayer.identityBounds.x < window.smokeCallHome.x - 28) {
+                    window.smokeSawCallSlide = true
+                }
+                if (callLayer.sideNeck.width > 0 && voice.x + voice.width > body.x - 12)
+                    window.smokeSawCallNeck = true
+                if (noticeLayer.splitProgress !== 1 || noticeLayer.reveal !== 1 || noticeLayer.detailProgress !== 1)
+                    return
+                if (!window.smokeSawCallSlide || !window.smokeSawCallNeck
+                        || voice.width < 165 || voice.x < 0 || voice.x + voice.width >= body.x
                         || music.width < 60 || body.x + body.width >= music.x || music.x + music.width > stage.width
-                        || window.sideCallRegion.width <= 0 || window.discordPreview.seconds <= 0) {
-                    window.failSmoke("voice and music did not move to separate clickable capsules around a notification")
+                        || window.sideCallRegion.width <= 0 || window.discordPreview.seconds <= 0
+                        || Math.abs(callLayer.identityBounds.x - voice.x - 10) > 1) {
+                    window.failSmoke("the moving call identity and music did not separate from the notification")
                     return
                 }
                 window.appState.dismissNotification()
-                window.smokePhase = 42
+                window.smokePhase = 44
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 42 && !noticeLayer.presenting && callLayer.entry === 1) {
-                if (callLayer.mode !== "expanded" || !window.discordPreview.connected || callLayer.sideBounds.width > 0) {
+            } else if (window.smokePhase === 44 && !noticeLayer.presenting) {
+                if (!callLayer.expanded || callLayer.controlTravel !== 1 || !window.discordPreview.connected
+                        || callLayer.sideBounds.width > 0 || Math.abs(callLayer.identityBounds.x - window.smokeCallHome.x) > 1) {
                     window.failSmoke("dismissing the notification did not restore the expanded call")
                     return
                 }
                 window.discordPreview.hangUp()
-                if (window.discordPreview.active || !window.playbackActive || wings.lyricsSuppressed) {
-                    window.failSmoke("ending the test call affected media playback")
+                window.smokeSawCallExit = false
+                window.smokePhase = 45
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 45) {
+                if (callLayer.retiring && callLayer.lifetime < 0.8 && callLayer.lifetime > 0.2
+                        && callLayer.controlTravel < 1 && window.visible && wings.lyricsCover < 1) {
+                    window.smokeSawCallExit = true
+                }
+                if (callLayer.presenting)
+                    return
+                if (!window.smokeSawCallExit || window.discordPreview.active || !window.playbackActive || wings.lyricsCover > 0) {
+                    window.failSmoke("ending the call did not fold the controls and return to continuing music")
                     return
                 }
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
                 console.log("PASS desktop expansion, staggered player, notification sizing, progress styles and pause")
-                console.log("PASS Discord preview, mute and deafen, shared music layout and notification displacement")
+                console.log("PASS Discord preview, automatic folding, staggered entry and exit, connected notification split")
                 Qt.exit(0)
             }
         }

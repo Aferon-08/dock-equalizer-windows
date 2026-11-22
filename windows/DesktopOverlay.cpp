@@ -269,13 +269,14 @@ void DesktopOverlay::setExpandedRegions(QWindow *window, const QRectF &player, q
 
 void DesktopOverlay::setPanelRegion(QWindow *window, const QRectF &body, qreal radius,
                                     const QRectF &leftWing, const QRectF &rightWing,
-                                    const QRectF &miniPlayer, const QRectF &neck, const QRectF &sideCall)
+                                    const QRectF &miniPlayer, const QRectF &neck,
+                                    const QRectF &sideCall, const QRectF &sideCallNeck)
 {
     if (!window)
         return;
 
     QRegion shape = roundedRegion(body, radius);
-    for (const QRectF &capsule : {leftWing, rightWing, neck, sideCall})
+    for (const QRectF &capsule : {leftWing, rightWing, neck, sideCall, sideCallNeck})
         shape |= roundedRegion(capsule, capsule.height() / 2);
     if (!miniPlayer.isEmpty())
         shape |= QRegion(miniPlayer.toAlignedRect(), QRegion::Ellipse);

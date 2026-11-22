@@ -20,18 +20,22 @@ Item {
     property bool staggeredOpening: false
     property var notification: null
     property rect playerOverride: Qt.rect(0, 0, 0, 0)
+    property real playerOverrideMix: 0
     property rect sideCallBounds: Qt.rect(0, 0, 0, 0)
-    property bool lyricsSuppressed: false
-    readonly property bool customHousing: playerOverride.width > 0
-    readonly property bool noticeVisible: !vertical && !!notification?.presenting
+    property real sideCallBlend: 0
+    property real lyricsCover: 0
+    readonly property bool customHousing: playerOverrideMix > 0
+    readonly property bool noticeVisible: !vertical && !!notification?.presenting && !notification.suspended
     readonly property real noticeMix: noticeVisible ? notification.coverAmount : 0
     readonly property Item lyricsView: lyricLayer
     readonly property var material: Material.read(host.settings)
     FrameAnimation {running:!!root.host.service && !!root.host.service.profileFrames;onTriggered:root.host.service.collectFrame(root.host.dock.screenName,frameTime)}
     readonly property var dock: host.dock.item
     readonly property bool vertical: host.dock.vertical
-    readonly property real bodyWidth: customHousing ? playerOverride.width : dock.capWidth
-    readonly property real bodyHeight: customHousing ? playerOverride.height : dock.capHeight
+    readonly property rect restHousing: Geometry.mixRect(Qt.rect(dock.x, dock.y, dock.capWidth, dock.capHeight),
+        playerOverride, playerOverrideMix)
+    readonly property real bodyWidth: restHousing.width
+    readonly property real bodyHeight: restHousing.height
     readonly property real bodyAlong: vertical ? bodyHeight : bodyWidth
     readonly property real bodyAcross: vertical ? bodyWidth : bodyHeight
     readonly property real gap: Math.max(4, Math.min(64, host.settings.gap))
@@ -106,7 +110,7 @@ Item {
                 root.startClosing()
         }
     }
-    readonly property bool wantsFusion: !lyricsSuppressed && lyricLayer.wide && !vertical && host.dock.look !== "transparent"
+    readonly property bool wantsFusion: lyricsCover < 0.5 && lyricLayer.wide && !vertical && host.dock.look !== "transparent"
     property real fusion: 0
     property real outline: 0
     property real edgeLight: host.working && lyricLayer.playing ? 1 : 0
@@ -163,23 +167,25 @@ Item {
     readonly property real wingLength: noticeVisible ? Math.max(0, Math.min(host.settings.width,
         Math.min(housingRect.x, parent.width - housingRect.x - housingRect.width) - gap - 14)) : length
     readonly property real dropletLength: thickness + (wingLength - thickness) * phase
-    readonly property real radius: customHousing ? 36
-        : host.dock.radius + (40 - host.dock.radius) * lyricLayer.musicLayout
+    readonly property real radius: Geometry.mix(
+        host.dock.radius + (40 - host.dock.radius) * lyricLayer.musicLayout, 36, playerOverrideMix)
     readonly property real outward: -radius + (gap + wingLength / 2 + radius) * phase
-    readonly property real wingScale: noticeVisible && notification.usesCallLayout ? 0
-        : (1 - Motion.smooth((hideProgress - 0.05) / 0.44))
-        * (noticeVisible ? (1 - notification.splitProgress) * Motion.smooth(Geometry.phase(wingLength, 30, 64)) : 1)
+    readonly property real splitWingFade: noticeVisible
+        ? notification.usesCallLayout ? Motion.smooth(Geometry.phase(notification.splitProgress, 0.04, 0.52))
+            : notification.splitProgress
+        : 0
+    readonly property real wingScale: (1 - Motion.smooth((hideProgress - 0.05) / 0.44))
+        * (noticeVisible ? (1 - splitWingFade) * Motion.smooth(Geometry.phase(wingLength, 30, 64)) : 1)
     readonly property real wingSpan: Math.max(0, dropletLength * wingScale)
     readonly property real wingHeight: Math.min(thickness, Math.max(0, dropletLength)) * wingScale
     readonly property real contentOpacity: staggeredOpening ? Motion.smooth(Geometry.phase(1 - hideProgress, 0.26, 0.51))
         : 1 - Motion.smooth(hideProgress / 0.28)
     readonly property real playerTaper: Geometry.taper(hideProgress)
+    readonly property real playerOffsetX: lyricLayer.swipeX * (1 - playerOverrideMix)
+    readonly property real playerOffsetY: lyricLayer.swipeY * (1 - playerOverrideMix)
     readonly property rect playerHousing: {
-        if (customHousing)
-            return Geometry.playerFromEdge(playerOverride, hideProgress, 0, 0)
-        const rect = Qt.rect(dock.x, dock.y, bodyWidth, bodyHeight)
-        return staggeredOpening ? Geometry.playerFromEdge(rect, hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
-            : Geometry.pullToEdge(rect, hideProgress, lyricLayer.swipeX, lyricLayer.swipeY)
+        return staggeredOpening ? Geometry.playerFromEdge(restHousing, hideProgress, playerOffsetX, playerOffsetY)
+            : Geometry.pullToEdge(restHousing, hideProgress, playerOffsetX, playerOffsetY)
     }
     readonly property rect housingRect: noticeVisible ? notification.bodyBounds : playerHousing
     readonly property rect leftWingBounds: wingBounds(-1)
@@ -203,22 +209,20 @@ Item {
     readonly property bool suppressMediaKey: lyricLayer.wide
     readonly property real iconsOpacity: 1 - lyricLayer.lyricsOpacity
     readonly property real glassAmount: material.enabled && shaderAvailable
-        ? (previewGlass || noticeVisible || customHousing ? 1 : Math.min(1, Math.max(phase, lyricLayer.musicLayout))) : 0
+        ? (previewGlass || noticeVisible ? 1 : Math.min(1, Math.max(phase, lyricLayer.musicLayout, playerOverrideMix))) : 0
 
     visible: host.settings.enabled && (noticeVisible || (fits && !host.dock.asleep))
 
     Item {
         id: liquid
-        readonly property real centerX: root.customHousing ? root.playerOverride.x + root.bodyWidth / 2
-            : root.dock.x + root.bodyWidth / 2 + lyricLayer.swipeX
+        readonly property real centerX: root.restHousing.x + root.bodyWidth / 2 + root.playerOffsetX
         width: Math.max(root.bodyAlong + 2 * (root.length + root.gap + root.pad),
             root.noticeVisible ? 2 * (root.pad + Math.max(root.notification.surfaceWidth / 2,
                 centerX - root.leftWingBounds.x, root.rightWingBounds.x + root.wingSpan - centerX)) : 0)
         height: (root.noticeVisible ? Math.max(root.bodyAcross, root.notification.maximumDetailsHeight)
             : root.bodyAcross) + 2 * root.pad
         x: centerX - width / 2
-        y: root.customHousing ? root.playerOverride.y - root.pad
-            : root.dock.y + root.bodyHeight / 2 - root.bodyAcross / 2 - root.pad + lyricLayer.swipeY
+        y: root.restHousing.y + root.bodyHeight / 2 - root.bodyAcross / 2 - root.pad + root.playerOffsetY
         rotation: root.vertical ? 90 : 0
 
         Item {
@@ -270,6 +274,7 @@ Item {
                     rect.y + rect.height / 2 - liquid.y, rect.width, rect.height)
             }
             readonly property vector4d miniCall: inShader(root.sideCallBounds)
+            readonly property real miniCallBlend: root.sideCallBlend
             readonly property real miniBlend: root.noticeVisible ? root.notification.miniBlend : 0
             readonly property real noticeMix: root.noticeMix
             readonly property color noticeTint: root.noticeVisible ? root.notification.accent : "transparent"
@@ -291,7 +296,7 @@ Item {
                 root.colors.ringWidth, root.host.dock.look === "transparent" ? 0 : 1,
                 root.vertical ? 1 : 0)
             readonly property vector4d lightData: Qt.vector4d(Math.max(0, Math.min(1, root.fusion)), root.outline,
-                root.lyricsSuppressed ? 0 : lyricLayer.waitingLightAmount, root.edgeLight * root.material.light * root.contentOpacity)
+                lyricLayer.waitingLightAmount * (1 - root.lyricsCover), root.edgeLight * root.material.light * root.contentOpacity)
             readonly property real lightClock: root.lightClock
             readonly property real glassAmount: root.glassAmount
             readonly property real desktopLens: root.desktopLens ? 1 : 0
@@ -303,7 +308,8 @@ Item {
             readonly property color lightSecondary: root.lightSecondary
             readonly property color lightTertiary: root.lightTertiary
             readonly property real heartPulse: lyricLayer.heartPulse
-            readonly property vector2d glowBreath: root.lyricsSuppressed ? Qt.vector2d(1, 0) : lyricLayer.glowBreath
+            readonly property vector2d glowBreath: Qt.vector2d(lyricLayer.glowBreath.x,
+                lyricLayer.glowBreath.y * (1 - root.lyricsCover))
             readonly property vector4d wordLight: Qt.vector4d(lyricLayer.wordLight.x,
                 lyricLayer.wordLight.y, lyricLayer.wordLight.z * lyricLayer.lyricsOpacity, 0)
             readonly property vector4d wordLightTail: Qt.vector4d(lyricLayer.wordLightTail.x,
@@ -336,11 +342,11 @@ Item {
     }
     DockLyrics {
         id: lyricLayer
-        enabled: root.hideProgress === 0 && !root.noticeVisible && !root.lyricsSuppressed
-        opacity: root.lyricsSuppressed ? 0 : root.contentOpacity * (root.noticeVisible ? root.notification.playerOpacity : 1)
+        enabled: root.hideProgress === 0 && !root.noticeVisible && root.lyricsCover < 0.01
+        opacity: (1 - root.lyricsCover) * root.contentOpacity * (root.noticeVisible ? root.notification.playerOpacity : 1)
         gatheringParts: root.noticeVisible && root.notification.splittingPlayer
         staggeredOpening: root.staggeredOpening
-        openingProgress: root.staggeredOpening ? 1 - root.hideProgress : 1
+        openingProgress: root.staggeredOpening ? 1 - Math.max(root.hideProgress, root.lyricsCover) : 1
         openingBounds: Qt.rect(root.playerHousing.x - x - swipeX, root.playerHousing.y - y - swipeY,
             root.playerHousing.width, root.playerHousing.height)
         miniCenter: root.notification ? Qt.point(root.notification.miniCenter.x - x - swipeX,

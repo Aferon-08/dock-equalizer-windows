@@ -21,42 +21,85 @@ Item {
     readonly property real sideHeight: 50
     readonly property real expandedWidth: 504
     readonly property real expandedHeight: 224
-    readonly property bool mainVisible: preview.active && (preview.ringing || !notification.presenting)
-    readonly property bool interactive: mainVisible && opening > 0.78 && entry > 0.62
-    readonly property bool expanded: preview.connected && preview.expanded && expansionAllowed
-    readonly property bool showMusic: preview.connected && !expanded && !!media.player
-    readonly property string mode: !mainVisible ? "" : preview.ringing ? "incoming" : expanded ? "expanded" : "compact"
     readonly property color lavender: "#c6baff"
     readonly property color mutedInk: "#b5c8c1"
     readonly property color ink: "#eff8f5"
 
-    property real panelWidth: mode === "incoming" ? 476 : expanded ? expandedWidth : showMusic ? 548 : 336
-    property real panelHeight: mode === "expanded" ? expandedHeight : 72
-    Behavior on panelWidth { NumberAnimation { duration: 500; easing.type: Easing.OutCubic } }
-    Behavior on panelHeight { NumberAnimation { duration: 460; easing.type: Easing.OutBack; easing.overshoot: 0.6 } }
-    readonly property rect layoutBounds: Qt.rect((width - panelWidth) / 2, topInset, panelWidth, panelHeight)
-    readonly property real sideEntry: preview.connected && notification.presenting
-        ? Geometry.phase(notification.reveal, 0.17, 0.66) : 0
-    readonly property rect sideBounds: {
-        if (sideEntry <= 0)
-            return Qt.rect(0, 0, 0, 0)
-        const travel = Geometry.arrival(sideEntry, 0.16)
-        const span = sideWidth * Geometry.mix(0.48, 1, travel)
-        const height = sideHeight * Geometry.mix(0.44, 1, travel)
-        const centerY = notification.bodyBounds.y + 34 - 14 * (1 - travel)
-        return Qt.rect(notification.bodyBounds.x - notification.miniGap - span + 12 * (1 - travel),
-            centerY - height / 2, span, height)
-    }
-
-    property real entry: 1
-    onModeChanged: {
-        entryMotion.stop()
-        if (mode !== "") {
-            entry = 0
-            entryMotion.start()
+    // Keep the last layout through the exit. The call can end immediately
+    // while the parts fold into the housing or leave room for the player.
+    property int presentedPhase: DiscordCallPreview.Idle
+    Component.onCompleted: presentedPhase = preview.phase
+    Connections {
+        target: call.preview
+        function onPhaseChanged() {
+            if (call.preview.active)
+                call.presentedPhase = call.preview.phase
         }
     }
-    NumberAnimation { id: entryMotion; target: call; property: "entry"; to: 1; duration: 720 }
+
+    readonly property bool conversation: presentedPhase === DiscordCallPreview.Connected
+    readonly property bool presenting: preview.active || lifetime > 0
+    readonly property bool retiring: presenting && !preview.active
+    readonly property bool ringOnTop: presenting && (!conversation || joinProgress < 0.36)
+    readonly property bool expanded: conversation && expansionAllowed
+    readonly property bool showMusic: conversation && !expanded && !!media.player
+    readonly property real exposed: Math.min(lifetime, opening)
+    readonly property bool interactive: preview.active && exposed > 0.79 && !notification.active && split < 0.03
+
+    property real lifetime: preview.active ? 1 : 0
+    property real joinProgress: conversation ? 1 : 0
+    property real expandProgress: expanded ? 1 : 0
+    property real musicMix: media.player ? 1 : 0
+    Behavior on lifetime { NumberAnimation { duration: call.preview.active ? 880 : 680 } }
+    Behavior on joinProgress { NumberAnimation { duration: 780 } }
+    Behavior on expandProgress { NumberAnimation { duration: call.expanded ? 880 : 670 } }
+    Behavior on musicMix { NumberAnimation { duration: 400; easing.type: Easing.InOutCubic } }
+
+    readonly property real housingMix: Motion.travel(Geometry.phase(lifetime, 0.05, 0.94))
+    readonly property real lyricsCover: Motion.smooth(Geometry.phase(lifetime, 0.10, 0.74))
+    readonly property real spread: Geometry.arrival(Geometry.phase(expandProgress, 0.03, 1), 0.14)
+    readonly property real compactWidth: Geometry.mix(336, 548, musicMix)
+    readonly property real panelWidth: Geometry.mix(
+        Geometry.mix(476, compactWidth, Motion.travel(joinProgress)), expandedWidth, spread)
+    readonly property real panelHeight: Geometry.mix(72, expandedHeight, spread)
+    readonly property rect layoutBounds: Qt.rect((width - panelWidth) / 2, topInset, panelWidth, panelHeight)
+
+    readonly property real split: notification.usesCallLayout && !notification.suspended ? notification.splitProgress : 0
+    readonly property real sideBlend: split > 0 ? notification.miniBlend : 0
+    readonly property rect sideBounds: {
+        const growth = Motion.smooth(Geometry.phase(split, 0.09, 0.65))
+        if (growth <= 0)
+            return Qt.rect(0, 0, 0, 0)
+        const body = notification.bodyBounds
+        const travel = Motion.travel(Geometry.phase(split, 0.15, 0.94))
+        const stretch = notification.miniStretch
+        const recoil = notification.releaseRecoil
+        const span = sideWidth * growth * (1 + 0.12 * stretch + 0.035 * recoil)
+        const height = sideHeight * growth * (1 - 0.18 * stretch)
+        const edge = body.x + Geometry.mix(body.width * 0.52, -notification.miniGap, travel) - 10 * recoil
+        const centerY = body.y + 35 + 8 * stretch - 5 * recoil
+        return Qt.rect(edge - span,
+            centerY - height / 2, span, height)
+    }
+    readonly property rect sideNeck: notification.connectingNeck(sideBounds, sideBlend, true)
+
+    readonly property rect frame: split > 0 ? notification.bodyBounds : housing
+    readonly property real inset: Math.min(18, frame.width * 0.18)
+    readonly property real deckLeft: frame.x + inset
+    readonly property real deckRight: frame.x + frame.width - inset
+    readonly property real headerTop: frame.y + Math.min(18, frame.height * 0.25)
+    readonly property real compactContent: 1 - Geometry.phase(expandProgress, 0.12, 0.53)
+    readonly property real titleChange: Motion.smooth(Geometry.phase(joinProgress, 0.18, 0.62))
+    readonly property real identityTravel: Motion.travel(Geometry.phase(split, 0.22, 0.74))
+    readonly property real headerExpanded: Motion.smooth(expandProgress) * (1 - identityTravel)
+    readonly property real dockContent: 1 - Geometry.phase(split, 0.06, 0.61)
+    readonly property real musicWidth: 214
+    readonly property real compactKeysRight: deckRight - musicMix * musicWidth
+    readonly property point releasePoint: Qt.point(
+        Geometry.mix(deckLeft + frame.width * 0.27, sideBounds.x + sideBounds.width * 0.66, identityTravel),
+        Geometry.mix(headerTop + 23, sideBounds.y + sideBounds.height * 0.52, identityTravel))
+
+    visible: presenting
 
     component VoiceIcon: Shape {
         id: symbol
@@ -90,8 +133,7 @@ Item {
                     case "pause": return "M9 6v12 M15 6v12"
                     case "play": return "M9 5l10 7-10 7z"
                     case "music": return "M10 17V6l9-2v10 M10 17a3 2 0 1 1-6 0 3 2 0 1 1 6 0z M19 14a3 2 0 1 1-6 0 3 2 0 1 1 6 0z"
-                    case "collapse": return "M7 14l5-5 5 5"
-                    default: return "M7 10l5 5 5-5"
+                    default: return ""
                     }
                 }
             }
@@ -118,13 +160,27 @@ Item {
     component IconTile: Rectangle {
         id: tile
         required property string symbol
+        property string nextSymbol: ""
+        property real symbolMix: 0
         Layout.preferredWidth: 36
         Layout.preferredHeight: 36
         Layout.alignment: Qt.AlignVCenter
         radius: 11
         color: "#32b5a2ff"
         border.color: "#54c6baff"
-        VoiceIcon { anchors.centerIn: parent; name: tile.symbol; ink: call.lavender }
+        VoiceIcon {
+            anchors.centerIn: parent
+            name: tile.symbol
+            ink: call.lavender
+            opacity: 1 - tile.symbolMix
+        }
+        VoiceIcon {
+            anchors.centerIn: parent
+            name: tile.nextSymbol
+            ink: call.lavender
+            visible: opacity > 0
+            opacity: tile.symbolMix
+        }
     }
 
     component Action: Button {
@@ -185,289 +241,348 @@ Item {
         onClicked: call.preview.hangUp()
     }
 
-    component EnteringPart: Item {
+    component Foldout: Item {
         id: part
-        property real delay: 0.15
-        property real fromX: 0
-        property real fromY: -24
-        readonly property real travel: Geometry.arrival(Geometry.phase(Math.min(call.opening, call.entry), delay, 1), 0.25)
+        required property point source
+        required property rect targetBounds
+        required property real amount
+        property real spring: 0.23
+        readonly property real travel: Geometry.arrival(amount, spring)
 
-        opacity: Motion.smooth(Geometry.phase(Math.min(call.opening, call.entry), delay, delay + 0.35))
-        transform: [
-            Scale {
-                origin.x: part.width / 2
-                origin.y: part.height / 2
-                xScale: Geometry.mix(0.71, 1, part.travel)
-                yScale: Geometry.mix(0.54, 1, part.travel)
-            },
-            Translate { x: part.fromX * (1 - part.travel); y: part.fromY * (1 - part.travel) }
-        ]
-    }
-
-    Item {
-        id: deck
-        x: call.housing.x
-        y: call.housing.y
-        width: call.housing.width
-        height: call.housing.height
-        clip: true
-        visible: call.mainVisible
-        enabled: call.interactive
-
-        Item {
-            id: content
-            anchors.centerIn: parent
-            width: call.panelWidth
-            height: call.panelHeight
-
-            EnteringPart {
-                anchors.fill: parent
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
-                visible: call.mode === "incoming"
-
-                RowLayout {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width
-                    spacing: 9
-
-                    IconTile { symbol: "phone" }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        Title { text: call.preview.caller + " звонит"; font.pixelSize: 17 }
-                        Caption { text: "Discord · Тестовый звонок"; color: call.lavender }
-                    }
-                    Action {
-                        objectName: "acceptDiscordPreview"
-                        text: "Принять"
-                        actionName: "Принять звонок"
-                        symbol: "phone"
-                        tint: "#8ae4bb"
-                        transform: Translate { x: 13 * (1 - Geometry.arrival(Geometry.phase(call.entry, 0.34, 1), 0.2)) }
-                        onClicked: call.preview.accept()
-                    }
-                    Action {
-                        objectName: "declineDiscordPreview"
-                        text: "Отклонить"
-                        actionName: "Отклонить звонок"
-                        symbol: "hang"
-                        tint: "#ff7f8a"
-                        transform: Translate { x: 18 * (1 - Geometry.arrival(Geometry.phase(call.entry, 0.46, 1), 0.2)) }
-                        onClicked: call.preview.decline()
-                    }
-                }
-            }
-
-            Item {
-                anchors.fill: parent
-                anchors.margins: 18
-                visible: call.preview.connected && call.mainVisible
-
-                EnteringPart {
-                    id: header
-                    width: parent.width
-                    height: 36
-                    y: call.expanded ? 0 : (parent.height - height) / 2
-                    fromX: -20
-
-                    RowLayout {
-                        anchors.fill: parent
-                        spacing: 8
-
-                        IconTile { symbol: "headphones" }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Title { text: call.preview.room; font.pixelSize: call.expanded ? 18 : 15 }
-                            Caption {
-                                text: call.expanded ? "Discord · Тестовый войс" : call.preview.durationText
-                                color: call.lavender
-                            }
-                        }
-                        Title {
-                            visible: call.expanded
-                            Layout.fillWidth: false
-                            text: call.preview.durationText
-                            color: call.lavender
-                        }
-                        Action {
-                            objectName: "toggleDiscordPreviewLayout"
-                            symbol: call.expanded ? "collapse" : "expand"
-                            actionName: call.expanded ? "Свернуть панель звонка" : "Раскрыть панель звонка"
-                            visible: call.expansionAllowed
-                            onClicked: call.preview.toggleExpanded()
-                        }
-                        MicAction { objectName: "muteDiscordCompact"; visible: !call.expanded }
-                        HangUpAction { objectName: "hangUpDiscordCompact"; visible: !call.expanded }
-                        Rectangle {
-                            visible: call.showMusic
-                            Layout.preferredHeight: 28
-                            Layout.preferredWidth: 1
-                            Layout.leftMargin: 5
-                            Layout.rightMargin: 4
-                            color: "#4cb8dacd"
-                        }
-                        IconTile {
-                            visible: call.showMusic
-                            symbol: "music"
-                            color: "#26ddbc9e"
-                            border.color: "#47ddbc9e"
-                            clip: true
-                            Image {
-                                anchors.fill: parent
-                                anchors.margins: 3
-                                source: call.showMusic ? call.media.artUrl : ""
-                                sourceSize: Qt.size(72, 72)
-                                asynchronous: true
-                                fillMode: Image.PreserveAspectCrop
-                                visible: status === Image.Ready
-                            }
-                        }
-                        ColumnLayout {
-                            visible: call.showMusic
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Title { text: call.media.title ?? ""; font.pixelSize: 13 }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 2
-                                radius: 1
-                                color: "#4bb6d6c9"
-                                Rectangle {
-                                    width: parent.width * Motion.clamp(call.musicProgress, 0, 1)
-                                    height: parent.height
-                                    radius: parent.radius
-                                    color: "#a4e7cc"
-                                }
-                            }
-                        }
-                        Action {
-                            objectName: "playDiscordCompactMusic"
-                            visible: call.showMusic
-                            enabled: !!call.media.player?.canTogglePlaying
-                            symbol: call.media.playing ? "pause" : "play"
-                            actionName: call.media.playing ? "Приостановить музыку" : "Возобновить музыку"
-                            onClicked: call.media.togglePlaying()
-                        }
-                    }
-                }
-
-                EnteringPart {
-                    id: participantPanel
-                    y: 46
-                    width: parent.width
-                    height: 96
-                    visible: call.mode === "expanded"
-                    delay: 0.31
-                    fromY: -15
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 15
-                        color: "#20101919"
-                        border.color: "#32b8dacd"
-                    }
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 5
-                        Caption { text: "Участники · " + call.preview.participants.length }
-
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 2
-                            columnSpacing: 12
-                            rowSpacing: 4
-                            Repeater {
-                                model: call.preview.participants
-                                RowLayout {
-                                    id: person
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    spacing: 6
-                                    Rectangle {
-                                        Layout.preferredWidth: 22
-                                        Layout.preferredHeight: 22
-                                        radius: 11
-                                        color: "#3a9384bd"
-                                        border.color: person.modelData.speaking ? "#90dcb9" : "#449b8cbe"
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: person.modelData.name[0]
-                                            color: call.ink
-                                            font.pixelSize: 11
-                                            Accessible.ignored: true
-                                        }
-                                    }
-                                    Title { text: person.modelData.name; font.pixelSize: 12 }
-                                    Caption {
-                                        text: person.modelData.status
-                                        Layout.fillWidth: false
-                                        color: person.modelData.speaking ? "#a4e7cc" : call.mutedInk
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                EnteringPart {
-                    anchors.bottom: parent.bottom
-                    width: parent.width
-                    height: 36
-                    visible: call.mode === "expanded"
-                    delay: 0.46
-                    fromX: 18
-                    fromY: -12
-
-                    RowLayout {
-                        anchors.fill: parent
-                        spacing: 8
-                        MicAction {
-                            objectName: "muteDiscordExpanded"
-                            text: call.preview.microphoneOff ? "Микрофон выкл." : "Микрофон"
-                        }
-                        Action {
-                            objectName: "deafenDiscordPreview"
-                            text: call.preview.deafened ? "Включить звук" : "Отключить звук и микрофон"
-                            actionName: text
-                            symbol: call.preview.deafened ? "deaf" : "headphones"
-                            tint: call.preview.deafened ? "#e3b0b8" : "#b4d9cc"
-                            onClicked: call.preview.toggleDeafen()
-                        }
-                        Item { Layout.fillWidth: true }
-                        HangUpAction { objectName: "hangUpDiscordExpanded"; text: "Выйти" }
-                    }
-                }
-            }
+        x: Geometry.mix(source.x - width / 2, targetBounds.x, Math.min(1.04, travel))
+        y: Geometry.mix(source.y - height / 2, targetBounds.y, travel)
+        width: Math.max(1, targetBounds.width)
+        height: targetBounds.height
+        opacity: Motion.smooth(Geometry.phase(amount, 0.02, 0.41))
+        visible: opacity > 0.001
+        enabled: opacity > 0.99
+        transform: Scale {
+            origin.x: part.width / 2
+            origin.y: part.height / 2
+            xScale: Geometry.mix(0.30, 1, Math.min(1, part.travel))
+            yScale: Geometry.mix(0.16, 1, Math.min(1.05, part.travel))
         }
     }
 
-    Item {
-        id: sideCapsule
-        objectName: "discordSideCapsule"
-        x: call.sideBounds.x
-        y: call.sideBounds.y
-        width: call.sideBounds.width
-        height: call.sideBounds.height
-        opacity: Motion.smooth(Geometry.phase(call.sideEntry, 0.28, 0.88))
-        visible: width > 0 && opacity > 0
-        enabled: visible && call.sideEntry > 0.88
-        clip: true
+    readonly property real participantTravel: participants.travel
+    readonly property real controlTravel: callControls.travel
+    readonly property rect identityBounds: Qt.rect(identity.x, identity.y, identity.width, identity.height)
+
+    Foldout {
+        id: ringControls
+        source: Qt.point(call.deckRight - 19, call.headerTop + 17)
+        targetBounds: Qt.rect(call.deckRight - ringKeys.implicitWidth, call.headerTop, ringKeys.implicitWidth, 36)
+        amount: Math.min(Geometry.phase(call.exposed, 0.32, 1),
+            1 - Geometry.phase(call.joinProgress, 0.02, 0.43))
+        enabled: call.interactive && call.preview.ringing && amount > 0.8
 
         RowLayout {
-            width: call.sideWidth - 21
-            anchors.centerIn: parent
+            id: ringKeys
+            anchors.fill: parent
             spacing: 8
-            IconTile { symbol: "headphones"; Layout.preferredWidth: 29; Layout.preferredHeight: 29; radius: 10 }
+
+            Action {
+                objectName: "acceptDiscordPreview"
+                text: "Принять"
+                actionName: "Принять звонок"
+                symbol: "phone"
+                tint: "#8ae4bb"
+                transform: Translate { x: -9 * (1 - ringControls.travel) }
+                onClicked: call.preview.accept()
+            }
+            Action {
+                objectName: "declineDiscordPreview"
+                text: "Отклонить"
+                actionName: "Отклонить звонок"
+                symbol: "hang"
+                tint: "#ff7f8a"
+                transform: Translate { y: -11 * (1 - ringControls.travel) }
+                onClicked: call.preview.decline()
+            }
+        }
+    }
+
+    Item {
+        id: identity
+        objectName: "discordCallIdentity"
+        z: 2
+        readonly property real badgeSize: Geometry.mix(36, 30, call.identityTravel)
+        readonly property real keyReserve: Geometry.mix(ringKeys.implicitWidth + 12,
+            Geometry.mix(82 + call.musicMix * call.musicWidth, 64, Motion.smooth(call.expandProgress)),
+            call.titleChange)
+        readonly property real homeWidth: Math.max(44, call.deckRight - call.deckLeft - keyReserve)
+        readonly property real arrival: Geometry.phase(call.exposed, 0.29, 0.78)
+        x: Geometry.mix(call.deckLeft, call.sideBounds.x + 10, call.identityTravel)
+        y: Geometry.mix(call.headerTop, call.sideBounds.y + (call.sideBounds.height - height) / 2, call.identityTravel)
+        width: Geometry.mix(homeWidth, Math.max(44, call.sideBounds.width - 54), call.identityTravel)
+        height: Geometry.mix(36, 34, call.identityTravel)
+        opacity: Motion.smooth(Geometry.phase(call.exposed, 0.23, 0.63))
+        visible: opacity > 0.001
+        transform: Scale {
+            origin.x: 0
+            origin.y: identity.height / 2
+            xScale: Geometry.mix(0.55, 1, Geometry.arrival(identity.arrival, 0.16))
+            yScale: Geometry.mix(0.38, 1, Geometry.arrival(identity.arrival, 0.16))
+        }
+
+        RowLayout {
+            anchors.fill: parent
+            spacing: 8
+
+            IconTile {
+                symbol: "phone"
+                nextSymbol: "headphones"
+                symbolMix: call.titleChange
+                Layout.preferredWidth: identity.badgeSize
+                Layout.preferredHeight: identity.badgeSize
+            }
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 35
+
+                Item {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 21
+                    clip: true
+
+                    Title {
+                        width: parent.width
+                        y: -parent.height * call.titleChange
+                        opacity: 1 - call.titleChange
+                        visible: opacity > 0
+                        text: call.preview.caller + " звонит"
+                        font.pixelSize: 17
+                    }
+                    Title {
+                        width: parent.width
+                        y: parent.height * (1 - call.titleChange)
+                        opacity: call.titleChange
+                        visible: opacity > 0
+                        text: call.preview.room
+                        font.pixelSize: Math.round(Geometry.mix(15 + 3 * call.headerExpanded, 13, call.identityTravel))
+                    }
+                }
+                Caption {
+                    y: 21
+                    width: parent.width
+                    text: call.preview.deafened ? "Discord · Звук выключен" : "Discord · Тестовый войс"
+                    color: call.lavender
+                    opacity: call.titleChange * call.headerExpanded
+                    visible: opacity > 0.01
+                }
+                Caption {
+                    y: 21 - 9 * call.titleChange
+                    width: parent.width
+                    text: "Discord · Тестовый звонок"
+                    color: call.lavender
+                    opacity: 1 - call.titleChange
+                    visible: opacity > 0.01
+                }
+            }
+        }
+    }
+
+    Title {
+        id: elapsedClock
+        z: 2
+        x: Geometry.mix(identity.x + identity.badgeSize + 8, call.deckRight - width, call.headerExpanded)
+        y: Geometry.mix(identity.y + 20, call.headerTop + 8, call.headerExpanded)
+        text: call.preview.durationText
+        color: call.lavender
+        font.pixelSize: Math.round(12 + 3 * call.headerExpanded)
+        opacity: identity.opacity * call.titleChange
+        visible: opacity > 0.01
+    }
+
+    Foldout {
+        id: compactControls
+        source: Qt.point(call.compactKeysRight - 21, call.headerTop + 16)
+        targetBounds: Qt.rect(call.compactKeysRight - 80, call.headerTop, 80, 36)
+        amount: Math.min(call.compactContent, call.dockContent, Geometry.phase(call.joinProgress, 0.33, 1),
+            Geometry.phase(call.exposed, 0.56, 1))
+        enabled: call.interactive && call.preview.connected && amount > 0.88
+
+        RowLayout {
+            anchors.fill: parent
+            spacing: 8
+            MicAction { objectName: "muteDiscordCompact" }
+            HangUpAction { objectName: "hangUpDiscordCompact" }
+        }
+    }
+
+    Foldout {
+        id: compactMusic
+        source: Qt.point(call.deckRight - 22, call.headerTop + 18)
+        targetBounds: Qt.rect(call.deckRight - call.musicWidth + 11, call.headerTop, call.musicWidth - 11, 36)
+        amount: Math.min(call.compactContent, call.dockContent, call.musicMix,
+            Geometry.phase(call.joinProgress, 0.43, 1), Geometry.phase(call.exposed, 0.57, 1))
+        enabled: call.interactive && call.preview.connected && amount > 0.88
+
+        RowLayout {
+            anchors.fill: parent
+            spacing: 8
+
+            Rectangle {
+                Layout.preferredHeight: 28
+                Layout.preferredWidth: 1
+                Layout.rightMargin: 4
+                color: "#4cb8dacd"
+            }
+            IconTile {
+                symbol: "music"
+                color: "#26ddbc9e"
+                border.color: "#47ddbc9e"
+                clip: true
+                Image {
+                    anchors.fill: parent
+                    anchors.margins: 3
+                    source: call.media.artUrl
+                    sourceSize: Qt.size(72, 72)
+                    asynchronous: true
+                    fillMode: Image.PreserveAspectCrop
+                    visible: status === Image.Ready
+                }
+            }
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 1
-                Title { text: call.preview.room; font.pixelSize: 13 }
-                Caption { text: call.preview.durationText; color: call.lavender }
+                spacing: 6
+                Title { text: call.media.title ?? ""; font.pixelSize: 13 }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 2
+                    radius: 1
+                    color: "#4bb6d6c9"
+                    Rectangle {
+                        width: parent.width * Motion.clamp(call.musicProgress, 0, 1)
+                        height: parent.height
+                        radius: parent.radius
+                        color: "#a4e7cc"
+                    }
+                }
             }
-            MicAction { objectName: "muteDiscordSide"; implicitHeight: 32 }
+            Action {
+                objectName: "playDiscordCompactMusic"
+                enabled: !!call.media.player?.canTogglePlaying
+                symbol: call.media.playing ? "pause" : "play"
+                actionName: call.media.playing ? "Приостановить музыку" : "Возобновить музыку"
+                onClicked: call.media.togglePlaying()
+            }
         }
+    }
+
+    Item {
+        width: parent.width
+        y: call.headerTop + 38
+        height: Math.max(0, Math.min(106, call.frame.y + call.frame.height - y - 5))
+        clip: true
+
+        Foldout {
+            id: participants
+            objectName: "discordParticipants"
+            source: Qt.point(call.releasePoint.x, call.releasePoint.y - parent.y)
+            targetBounds: Qt.rect(call.deckLeft, 8, call.deckRight - call.deckLeft, 96)
+            amount: Math.min(Geometry.phase(call.expandProgress, 0.19, 0.92), call.dockContent,
+                Geometry.phase(call.exposed, 0.44, 0.96))
+            spring: 0.20
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 15
+                color: "#20101919"
+                border.color: "#32b8dacd"
+            }
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 5
+                Caption { text: "Участники · " + call.preview.participants.length }
+
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: 2
+                    columnSpacing: 12
+                    rowSpacing: 4
+                    Repeater {
+                        model: call.preview.participants
+                        RowLayout {
+                            id: person
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Rectangle {
+                                Layout.preferredWidth: 22
+                                Layout.preferredHeight: 22
+                                radius: 11
+                                color: "#3a9384bd"
+                                border.color: person.modelData.speaking ? "#90dcb9" : "#449b8cbe"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: person.modelData.name[0]
+                                    color: call.ink
+                                    font.pixelSize: 11
+                                    Accessible.ignored: true
+                                }
+                            }
+                            Title { text: person.modelData.name; font.pixelSize: 12 }
+                            Caption {
+                                text: person.modelData.status
+                                Layout.fillWidth: false
+                                color: person.modelData.speaking ? "#a4e7cc" : call.mutedInk
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Item {
+        width: parent.width
+        y: call.headerTop + 145
+        height: Math.max(0, Math.min(48, call.frame.y + call.frame.height - y - 5))
+        clip: true
+
+        Foldout {
+            id: callControls
+            objectName: "discordExpandedControls"
+            source: Qt.point(Geometry.mix(call.deckRight - 38, call.releasePoint.x, call.identityTravel),
+                -12)
+            targetBounds: Qt.rect(call.deckLeft, 7, call.deckRight - call.deckLeft, 36)
+            amount: Math.min(Geometry.phase(call.expandProgress, 0.39, 1),
+                1 - Geometry.phase(call.split, 0.02, 0.48), Geometry.phase(call.exposed, 0.58, 1))
+            enabled: call.interactive && call.preview.connected && amount > 0.9
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 8
+                MicAction {
+                    objectName: "muteDiscordExpanded"
+                    text: call.preview.microphoneOff ? "Микрофон выкл." : "Микрофон"
+                }
+                Action {
+                    objectName: "deafenDiscordPreview"
+                    text: call.preview.deafened ? "Включить звук" : "Отключить звук и микрофон"
+                    actionName: text
+                    symbol: call.preview.deafened ? "deaf" : "headphones"
+                    tint: call.preview.deafened ? "#e3b0b8" : "#b4d9cc"
+                    onClicked: call.preview.toggleDeafen()
+                }
+                Item { Layout.fillWidth: true }
+                HangUpAction { objectName: "hangUpDiscordExpanded"; text: "Выйти" }
+            }
+        }
+    }
+
+    Foldout {
+        objectName: "discordSideCapsule"
+        source: Qt.point(call.sideBounds.x + call.sideBounds.width * 0.67,
+            call.sideBounds.y + call.sideBounds.height / 2)
+        targetBounds: Qt.rect(call.sideBounds.x + call.sideBounds.width - 42,
+            call.sideBounds.y + (call.sideBounds.height - 32) / 2, 32, 32)
+        amount: Math.min(call.exposed, Geometry.phase(call.split, 0.55, 0.96))
+        enabled: call.preview.connected && call.split > 0.92
+
+        MicAction { objectName: "muteDiscordSide"; anchors.fill: parent; implicitHeight: 32 }
     }
 }

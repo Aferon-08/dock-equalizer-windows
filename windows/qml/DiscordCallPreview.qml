@@ -17,7 +17,6 @@ QtObject {
     ]
 
     property int phase: DiscordCallPreview.Idle
-    property bool expanded: false
     property bool muted: false
     property bool deafened: false
     readonly property bool microphoneOff: muted || deafened
@@ -39,7 +38,6 @@ QtObject {
     function accept() {
         if (!ringing)
             return
-        expanded = true
         muted = false
         deafened = false
         seconds = 0
@@ -65,11 +63,6 @@ QtObject {
     function toggleDeafen() {
         if (connected)
             deafened = !deafened
-    }
-
-    function toggleExpanded() {
-        if (connected)
-            expanded = !expanded
     }
 
     property Timer ringTimeout: Timer {

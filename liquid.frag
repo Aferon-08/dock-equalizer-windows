@@ -33,6 +33,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 miniCall;
     vec4 noticeTint;
     float miniBlend;
+    float miniCallBlend;
     float noticeMix;
 };
 layout(binding = 1) uniform sampler2D backdrop;
@@ -75,7 +76,7 @@ float body(vec2 p) {
     if (miniPlayer.z > 0.001)
         mainBody = liquidUnion(mainBody, miniPlayerDistance(p), miniBlend);
     if (miniCall.z > 0.001)
-        mainBody = min(mainBody, miniCallDistance(p));
+        mainBody = liquidUnion(mainBody, miniCallDistance(p), miniCallBlend);
     if (params.x < 0.1)
         return mainBody;
     vec2 wingSize = vec2(wingData.w, params.x);

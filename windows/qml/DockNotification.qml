@@ -28,15 +28,14 @@ Item {
     readonly property bool presenting: active || reveal > 0 || splitProgress > 0 || retiringMini
     readonly property bool usesCallLayout: callSpan > 0
     readonly property bool hasSideMusic: usesCallLayout && !!media.player
-    readonly property real musicArrival: hasSideMusic ? Geometry.phase(reveal, 0.22, 0.72) : 0
     readonly property bool widePlayer: attached && renderer.lyricsView.wide
     readonly property bool keepPausedMini: !usesCallLayout && !suspended && paused && pauseHold.running
     readonly property bool canHoldPausedMini: !usesCallLayout && !suspended
         && allowed && paused && splitProgress > 0.92 && !miniPauseExpired
     readonly property bool retiringMini: miniPauseExpired && miniRetreat < 1 && retiringBounds.width > 0
     readonly property bool splittingPlayer: allowed && !miniPauseExpired
-        && (keepPausedMini || (active && clearForDetails && widePlayer))
-    readonly property bool movingPlayer: !usesCallLayout && (splittingPlayer || (!active && splitProgress > 0))
+        && (keepPausedMini || (active && (usesCallLayout || (clearForDetails && widePlayer))))
+    readonly property bool movingPlayer: splittingPlayer || (!active && splitProgress > 0)
     readonly property real compactHeight: 76
     readonly property real miniDiameter: 66
     readonly property real miniGap: 16
@@ -159,22 +158,24 @@ Item {
     readonly property real extraPlayerWidth: Math.max(0, expandedWidth + miniSpan - renderer.playerHousing.width) * extruded
     readonly property real releaseRecoil: Geometry.recoil((splitProgress - 0.76) / 0.24)
     readonly property real mergeRecoil: mergeWeight * Geometry.recoil((0.39 - splitProgress) / 0.39)
-    readonly property real bodyTaper: usesCallLayout ? Geometry.taper(1 - reveal)
+    readonly property real bodyTaper: usesCallLayout ? renderer.playerTaper * (1 - coverAmount)
         : Math.max(Geometry.taper(cardRetraction),
             Geometry.mix(Geometry.taper(1 - reveal), renderer.playerTaper, attachment))
     readonly property real bodyRadius: {
         const radius = Geometry.mix(compactHeight / 2, 36, detailAmount)
-        return usesCallLayout ? radius
+        return usesCallLayout ? Geometry.mix(renderer.radius, radius, coverAmount)
             : Geometry.mix(radius, Geometry.mix(renderer.radius, radius, coverAmount), attachment)
     }
     readonly property rect bodyBounds: {
         const height = Geometry.mix(compactHeight, expandedHeight, detailAmount) + 9 * detailSpring
         const cardWidth = (usesCallLayout ? Math.min(expandedWidth, maxCardWidth) : expandedWidth) + 14 * detailSpring
-        const solo = Geometry.settleHousing(Geometry.pullToEdge(
-            Qt.rect(cardLeft(cardWidth), topInset, cardWidth, height), 1 - reveal, 0, 0), reveal)
-        if (usesCallLayout)
-            return solo
+        const cardBounds = Qt.rect(cardLeft(cardWidth), topInset, cardWidth, height)
         const body = retiringMini ? retiringDeckBounds : renderer.playerHousing
+        if (usesCallLayout) {
+            const morph = Geometry.arrival(Geometry.phase(splitProgress, 0.04, 1), 0.08)
+            return Geometry.mixRect(body, cardBounds, morph)
+        }
+        const solo = Geometry.settleHousing(Geometry.pullToEdge(cardBounds, 1 - reveal, 0, 0), reveal)
         const widthTaken = miniSpan * Motion.smooth((splitProgress - 0.1) / 0.78)
         const extra = extraPlayerWidth
             + (widePlayer ? 0 : Math.max(0, cardWidth - body.width) * coverAmount) + 14 * detailSpring * extruded
@@ -189,9 +190,10 @@ Item {
         * (1 - Motion.smooth((splitProgress - 0.72) / 0.26))
     readonly property point miniCenter: {
         if (usesCallLayout) {
-            const travel = Geometry.arrival(musicArrival, 0.18)
-            return Qt.point(bodyBounds.x + bodyBounds.width + miniGap + miniDiameter / 2 - 11 * (1 - travel),
-                bodyBounds.y + 34 - 14 * (1 - travel))
+            const travel = Motion.travel(Geometry.phase(splitProgress, 0.14, 0.94))
+            return Qt.point(bodyBounds.x + bodyBounds.width
+                + Geometry.mix(-miniDiameter * 0.62, miniGap + miniDiameter / 2, travel) + 10 * releaseRecoil,
+                bodyBounds.y + 35 + 7 * miniStretch - 4 * releaseRecoil)
         }
         const body = renderer.playerHousing
         const right = body.x + body.width + extraPlayerWidth / 2
@@ -200,10 +202,8 @@ Item {
             body.y + 47 + 6 * miniStretch - 4 * releaseRecoil)
     }
     readonly property rect miniBounds: {
-        if (usesCallLayout) {
-            const span = miniDiameter * Geometry.arrival(musicArrival, 0.18)
-            return Qt.rect(miniCenter.x - span / 2, miniCenter.y - span / 2, span, span)
-        }
+        if (usesCallLayout && !hasSideMusic)
+            return Qt.rect(0, 0, 0, 0)
         if (miniPauseExpired)
             return retiringMini ? Geometry.pullToEdge(retiringBounds, miniRetreat, 0, 0) : Qt.rect(0, 0, 0, 0)
         const growth = Motion.smooth((splitProgress - 0.08) / 0.55)
@@ -214,21 +214,26 @@ Item {
         const vertical = span * (1 - 0.12 * miniStretch - 0.065 * releaseRecoil)
         return Qt.rect(miniCenter.x - horizontal / 2, miniCenter.y - vertical / 2, horizontal, vertical)
     }
-    readonly property real miniBlend: usesCallLayout || miniPauseExpired ? 0 : 48 * Motion.smooth((splitProgress - 0.16) / 0.27)
+    readonly property real miniBlend: miniPauseExpired ? 0 : 48 * Motion.smooth((splitProgress - 0.16) / 0.27)
         * (1 - Motion.smooth((splitProgress - 0.70) / 0.23)) * (1 - cardRetraction)
-    readonly property rect neckBounds: {
-        const edge = bodyBounds.x + bodyBounds.width
-        const gap = miniBounds.x - edge
-        if (miniBounds.width <= 0 || miniBlend <= 0 || gap > miniBlend / 2)
+    readonly property rect neckBounds: connectingNeck(miniBounds, miniBlend, false)
+
+    function connectingNeck(capsule, blend, left) {
+        const edge = left ? bodyBounds.x : bodyBounds.x + bodyBounds.width
+        const gap = left ? edge - capsule.x - capsule.width : capsule.x - edge
+        if (capsule.width <= 0 || blend <= 0 || gap > blend / 2)
             return Qt.rect(0, 0, 0, 0)
-        const span = Math.max(0, gap) + 14
-        const height = 2 * Math.max(3, miniBlend * 0.46 - Math.max(0, gap) * 0.7)
-        return Qt.rect(edge - 7, miniBounds.y + (miniBounds.height - height) / 2, span, height)
+        const distance = Math.max(0, gap)
+        const height = 2 * Math.max(3, blend * 0.46 - distance * 0.7)
+        return Qt.rect(edge - 7 - (left ? distance : 0), capsule.y + (capsule.height - height) / 2,
+            distance + 14, height)
     }
 
     readonly property real playerOpacity: miniPauseExpired ? 0 : (1 - cardRetraction) * (movingPlayer
         ? 1 : 1 - coverAmount)
-    readonly property real cardEntrance: movingPlayer ? Math.min(reveal, splitProgress) : reveal
+    readonly property real cardEntrance: usesCallLayout
+        ? Math.min(reveal, Geometry.phase(splitProgress, 0.31, 0.97))
+        : movingPlayer ? Math.min(reveal, splitProgress) : reveal
 
     function textLayout() {
         return card.textLayout()
@@ -265,12 +270,10 @@ Item {
         x: notice.miniBounds.x + (notice.miniBounds.width - width) / 2
         y: notice.miniBounds.y + (notice.miniBounds.height - height) / 2
         scale: Math.min(notice.miniBounds.width, notice.miniBounds.height) / width
-        opacity: notice.usesCallLayout ? Motion.smooth(Geometry.phase(notice.musicArrival, 0.26, 0.8))
-            : notice.miniPauseExpired ? 1 - Motion.smooth((notice.miniRetreat - 0.12) / 0.68)
-                : Motion.smooth((notice.splitProgress - 0.25) / 0.33)
-        visible: opacity > 0.001
-        enabled: notice.usesCallLayout ? notice.musicArrival > 0.9
-            : notice.splitProgress > 0.92 && !notice.miniPauseExpired
+        opacity: notice.miniPauseExpired ? 1 - Motion.smooth((notice.miniRetreat - 0.12) / 0.68)
+            : Motion.smooth((notice.splitProgress - 0.25) / 0.33)
+        visible: opacity > 0.001 && scale > 0
+        enabled: notice.splitProgress > 0.92 && !notice.miniPauseExpired
         player: notice.media.player
         artwork: notice.media.artUrl
         artworkOpacity: notice.usesCallLayout || notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.coverAlpha
