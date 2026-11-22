@@ -14,6 +14,7 @@ class DiscordVoice : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool available READ available CONSTANT)
+    Q_PROPERTY(QString proxyMode READ proxyMode WRITE setProxyMode NOTIFY proxyModeChanged)
     Q_PROPERTY(bool linked READ linked NOTIFY changed)
     Q_PROPERTY(bool signingIn READ signingIn NOTIFY changed)
     Q_PROPERTY(bool authorized READ authorized NOTIFY changed)
@@ -33,6 +34,8 @@ public:
                  QObject *parent = nullptr);
 
     bool available() const { return m_available; }
+    QString proxyMode() const { return m_proxyMode; }
+    void setProxyMode(const QString &mode);
     bool linked() const { return m_linked; }
     bool signingIn() const { return m_authenticating || m_oauth.busy(); }
     bool authorized() const { return m_authorized; }
@@ -56,6 +59,7 @@ public:
 signals:
     void changed();
     void durationChanged();
+    void proxyModeChanged();
 
 private:
     friend struct DiscordVoiceTest;
@@ -77,6 +81,7 @@ private:
     QSettings &m_settings;
     const bool m_available;
     const QString m_clientId;
+    QString m_proxyMode;
     DiscordRpc m_rpc;
     DiscordOAuth m_oauth;
     QTimer m_poll;

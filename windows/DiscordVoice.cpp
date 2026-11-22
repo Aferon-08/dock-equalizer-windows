@@ -1,5 +1,6 @@
 #include "DiscordVoice.h"
 
+#include <QNetworkProxy>
 #include <QSettings>
 #include <algorithm>
 #include <utility>
@@ -9,6 +10,10 @@ using namespace Qt::StringLiterals;
 namespace {
 
 const auto linkedKey = u"discord/linked"_s;
+const auto proxyModeKey = u"discord/proxyMode"_s;
+const auto systemProxy = u"system"_s;
+const auto incySocks5 = u"incy-socks5"_s;
+const auto incyHttp = u"incy-http"_s;
 const auto readyStatus = u"Discord подключён. Войдите в голосовой канал."_s;
 const auto inCallStatus = u"Discord подключён. Голосовая сессия отображается в доке."_s;
 const auto clientRequired = u"Запустите настольный Discord. Док подключится автоматически."_s;
@@ -19,6 +24,20 @@ bool validId(const QString &id)
 {
     return id.size() >= 16 && id.size() <= 20
         && std::all_of(id.cbegin(), id.cend(), [](QChar digit) { return digit >= u'0' && digit <= u'9'; });
+}
+
+bool validProxyMode(const QString &mode)
+{
+    return mode == systemProxy || mode == incySocks5 || mode == incyHttp;
+}
+
+QNetworkProxy discordProxy(const QString &mode)
+{
+    if (mode == incySocks5)
+        return QNetworkProxy(QNetworkProxy::Socks5Proxy, u"127.0.0.1"_s, 10808);
+    if (mode == incyHttp)
+        return QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s, 10809);
+    return QNetworkProxy(QNetworkProxy::DefaultProxy);
 }
 
 QString memberId(const QJsonObject &member)
@@ -59,8 +78,12 @@ QJsonObject updatedMember(QJsonObject current, const QJsonObject &update)
 DiscordVoice::DiscordVoice(QSettings &settings, bool available, QString applicationId, QStringList endpoints,
                            QObject *parent)
     : QObject(parent), m_settings(settings), m_available(available && validId(applicationId)),
-      m_clientId(std::move(applicationId)), m_rpc(std::move(endpoints)), m_oauth(settings)
+      m_clientId(std::move(applicationId)), m_proxyMode(settings.value(proxyModeKey, systemProxy).toString()),
+      m_rpc(std::move(endpoints)), m_oauth(settings)
 {
+    if (!validProxyMode(m_proxyMode))
+        m_proxyMode = systemProxy;
+    m_oauth.setProxy(discordProxy(m_proxyMode));
     m_status = u"Discord отключён."_s;
     m_poll.setInterval(5000);
     m_clock.setInterval(1000);
@@ -105,6 +128,18 @@ DiscordVoice::DiscordVoice(QSettings &settings, bool available, QString applicat
         m_rpc.start(m_clientId);
         m_status = u"Ищем настольный Discord…"_s;
     }
+}
+
+void DiscordVoice::setProxyMode(const QString &mode)
+{
+    if (signingIn() || !validProxyMode(mode))
+        return;
+    m_settings.setValue(proxyModeKey, mode);
+    if (m_proxyMode == mode)
+        return;
+    m_proxyMode = mode;
+    m_oauth.setProxy(discordProxy(mode));
+    emit proxyModeChanged();
 }
 
 void DiscordVoice::connectDiscord()

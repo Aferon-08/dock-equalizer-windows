@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QNetworkProxy>
 #include <QPointer>
 #include <QSettings>
 #include <QTcpSocket>
@@ -209,6 +210,43 @@ public slots:
     void open(const QUrl &value) { url = value; }
 };
 
+class MockTokenEndpoint
+{
+public:
+    MockTokenEndpoint()
+    {
+        QObject::connect(&server, &QTcpServer::newConnection, &server, [this] {
+            auto *socket = server.nextPendingConnection();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [this, socket, buffer = QByteArray{}]() mutable {
+                buffer += socket->readAll();
+                const auto headerEnd = buffer.indexOf("\r\n\r\n");
+                if (headerEnd < 0)
+                    return;
+                qsizetype length = 0;
+                for (const auto &line : buffer.left(headerEnd).split('\n')) {
+                    if (line.toLower().startsWith("content-length:"))
+                        length = line.mid(15).trimmed().toLongLong();
+                }
+                if (buffer.size() < headerEnd + 4 + length)
+                    return;
+
+                requestHeaders = buffer.left(headerEnd);
+                form.setQuery(QString::fromUtf8(buffer.mid(headerEnd + 4, length)));
+                socket->write("HTTP/1.1 " + status + "\r\nContent-Type: application/json\r\nConnection: close\r\n"
+                    "Content-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body);
+                socket->disconnectFromHost();
+            });
+        });
+    }
+
+    QTcpServer server;
+    QByteArray status = "403 Forbidden";
+    QByteArray body = "{}";
+    QByteArray requestHeaders;
+    QUrlQuery form;
+};
+
 QByteArray callback(const QUrl &redirect, const QByteArray &query)
 {
     QTcpSocket socket;
@@ -257,6 +295,95 @@ struct DiscordVoiceTest
             && check(callback(redirect, "error=access_denied&state=" + state).startsWith("HTTP/1.1 200")
                 && !oauth.busy() && !failure.isEmpty() && !oauth.usable(),
                 "A valid cancellation must close the OAuth attempt without exchanging a code");
+    }
+
+    static bool tokenExchange(QSettings &settings)
+    {
+        MockTokenEndpoint endpoint;
+        if (!check(endpoint.server.listen(QHostAddress::LocalHost), "Could not listen on the mock token proxy"))
+            return false;
+        DiscordOAuth oauth(settings);
+        oauth.setClientId(applicationId);
+        oauth.m_tokenEndpoint = QUrl(u"http://discord.invalid/api/v10/oauth2/token"_s);
+        oauth.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s, endpoint.server.serverPort()));
+
+        BrowserCapture browser;
+        QString failure;
+        QString verifier;
+        bool granted = false;
+        QObject::connect(&oauth, &DiscordOAuth::failed, &browser, [&](const QString &value) { failure = value; });
+        QObject::connect(&oauth, &DiscordOAuth::granted, &browser, [&] { granted = true; });
+        const auto confirm = [&] {
+            QDesktopServices::setUrlHandler(u"https"_s, &browser, "open");
+            oauth.authorize();
+            QDesktopServices::unsetUrlHandler(u"https"_s);
+            verifier = oauth.m_verifier;
+            const QUrlQuery query(browser.url);
+            const auto state = query.queryItemValue(u"state"_s).toLatin1();
+            return callback(QUrl(DiscordOAuth::redirectUri()), "code=test-code&state=" + state)
+                .startsWith("HTTP/1.1 200");
+        };
+        if (!check(confirm() && waitFor([&] { return failure.contains(u"HTTP 403"_s); }),
+                "The loopback callback must work with a proxy and expose a rejected HTTP status")
+            || !check(endpoint.requestHeaders.startsWith("POST http://discord.invalid/api/v10/oauth2/token")
+                    && endpoint.requestHeaders.toLower().contains("\r\nuser-agent: discordbot (https://github.com/"
+                        "aferon-08/sekaipop-dock-equalizer-windows, 1.0)\r\n"),
+                "The token request must send Discord's User-Agent through the selected proxy")
+            || !check(endpoint.form.queryItemValue(u"grant_type"_s) == u"authorization_code"_s
+                    && endpoint.form.queryItemValue(u"client_id"_s) == applicationId
+                    && endpoint.form.queryItemValue(u"code"_s) == u"test-code"_s
+                    && endpoint.form.queryItemValue(u"code_verifier"_s) == verifier
+                    && endpoint.form.queryItemValue(u"redirect_uri"_s, QUrl::FullyDecoded) == DiscordOAuth::redirectUri(),
+                "The token request must include the original redirect URI and PKCE verifier"))
+            return false;
+
+        endpoint.status = "200 OK";
+        endpoint.body = R"({"access_token":"test-access","refresh_token":"test-refresh","expires_in":3600,
+            "scope":"identify rpc rpc.voice.read rpc.voice.write"})";
+        failure.clear();
+        if (!check(confirm() && waitFor([&] { return granted; }) && oauth.usable() && oauth.renewable(),
+                "A successful exchange through the proxy must authorize Discord"))
+            return false;
+
+        endpoint.status = "400 Bad Request";
+        endpoint.body = R"({"error":"invalid_grant"})";
+        oauth.refresh();
+        return check(waitFor([&] { return !failure.isEmpty(); }) && !oauth.renewable()
+                && failure.contains(u"Срок сохранённого разрешения"_s)
+                && !settings.contains(u"discord/grant"_s)
+                && endpoint.form.queryItemValue(u"grant_type"_s) == u"refresh_token"_s,
+            "An expired grant must be cleared and explained in settings after a proxied refresh");
+    }
+
+    static bool proxyPreference(QSettings &settings)
+    {
+        DiscordVoice voice(settings, true, applicationId);
+        if (!check(voice.proxyMode() == u"system"_s
+                && voice.m_oauth.m_network.proxy().type() == QNetworkProxy::DefaultProxy,
+                "Discord must start with the system proxy unless a preset was selected"))
+            return false;
+        voice.setProxyMode(u"incy-http"_s);
+        const auto http = voice.m_oauth.m_network.proxy();
+        if (!check(http.type() == QNetworkProxy::HttpProxy && http.hostName() == u"127.0.0.1"_s && http.port() == 10809,
+                "The INCY HTTP preset must use the local HTTP proxy"))
+            return false;
+
+        voice.setProxyMode(u"incy-socks5"_s);
+        DiscordVoice restarted(settings, true, applicationId);
+        const auto remembered = restarted.m_oauth.m_network.proxy();
+        if (!check(restarted.proxyMode() == u"incy-socks5"_s && remembered.type() == QNetworkProxy::Socks5Proxy
+                && remembered.hostName() == u"127.0.0.1"_s && remembered.port() == 10808,
+                "Discord must remember the selected proxy across restarts"))
+            return false;
+
+        restarted.setProxyMode(u"system"_s);
+        restarted.setProxyMode(u"invalid"_s);
+        DiscordVoice system(settings, true, applicationId);
+        const bool valid = check(system.proxyMode() == u"system"_s
+                && system.m_oauth.m_network.proxy().type() == QNetworkProxy::DefaultProxy,
+            "Switching back to the system route must clear the proxy override");
+        settings.remove(u"discord/proxyMode"_s);
+        return valid;
     }
 
     static bool storedGrant(QSettings &settings)
@@ -403,11 +530,13 @@ struct DiscordVoiceTest
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
+    app.setApplicationVersion(u"1.0"_s);
     QTemporaryDir data;
     if (!data.isValid())
         return 1;
     QSettings settings(data.filePath(u"test.ini"_s), QSettings::IniFormat);
-    return DiscordVoiceTest::oauth(settings) && DiscordVoiceTest::storedGrant(settings)
+    return DiscordVoiceTest::oauth(settings) && DiscordVoiceTest::tokenExchange(settings)
+        && DiscordVoiceTest::proxyPreference(settings) && DiscordVoiceTest::storedGrant(settings)
         && DiscordVoiceTest::voice(settings) ? 0 : 1;
 }
 

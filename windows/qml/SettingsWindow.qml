@@ -801,6 +801,31 @@ Window {
                     onClicked: connection.discord.disconnectDiscord()
                 }
             }
+            Surface {
+                FieldLabel { text: "Соединение для входа" }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 7
+                    enabled: !connection.discord.signingIn
+                    ButtonGroup { id: discordRoutes }
+                    Repeater {
+                        model: [
+                            { mode: "system", label: "Системное" },
+                            { mode: "incy-socks5", label: "INCY SOCKS5" },
+                            { mode: "incy-http", label: "INCY HTTP" }
+                        ]
+                        Action {
+                            required property var modelData
+                            text: modelData.label
+                            checkable: true
+                            ButtonGroup.group: discordRoutes
+                            checked: connection.discord.proxyMode === modelData.mode
+                            emphasized: checked
+                            onClicked: connection.discord.proxyMode = modelData.mode
+                        }
+                    }
+                }
+            }
         }
     }
 

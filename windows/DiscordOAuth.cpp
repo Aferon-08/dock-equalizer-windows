@@ -1,10 +1,12 @@
 #include "DiscordOAuth.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QRandomGenerator>
 #include <QSettings>
@@ -46,6 +48,40 @@ QByteArray formBody(const QUrlQuery &parameters)
         body.append(QUrl::toPercentEncoding(key) + '=' + QUrl::toPercentEncoding(value));
     }
     return body;
+}
+
+QString exchangeFailure(int status, QNetworkReply::NetworkError networkError, const QString &error, bool refreshing)
+{
+    if (error == u"invalid_grant"_s) {
+        return refreshing ? u"Срок сохранённого разрешения истёк. Нажмите «Подключить Discord»."_s
+                          : u"Discord отклонил код входа. Подключитесь снова и подтвердите доступ в новой вкладке."_s;
+    }
+    if (error == u"invalid_scope"_s)
+        return u"Discord отклонил запрос на доступ к голосовым каналам (invalid_scope)."_s;
+    if (error == u"invalid_client"_s || error == u"unauthorized_client"_s || error == u"invalid_request"_s)
+        return u"Discord отклонил запрос Sekai Soundbar (%1)."_s.arg(error);
+    if (status == 429)
+        return u"Discord ограничил частоту запросов (HTTP 429). Попробуйте подключиться чуть позже."_s;
+    if (status && status != 200)
+        return u"Запрос на вход в Discord завершился с ошибкой HTTP %1."_s.arg(status);
+
+    switch (networkError) {
+    case QNetworkReply::SslHandshakeFailedError:
+        return u"Док не смог установить защищённое соединение с Discord (TLS)."_s;
+    case QNetworkReply::ProxyConnectionRefusedError:
+    case QNetworkReply::ProxyConnectionClosedError:
+    case QNetworkReply::ProxyNotFoundError:
+    case QNetworkReply::ProxyTimeoutError:
+    case QNetworkReply::ProxyAuthenticationRequiredError:
+        return u"Прокси не открыл соединение с Discord (сеть %1)."_s.arg(int(networkError));
+    case QNetworkReply::TimeoutError:
+    case QNetworkReply::OperationCanceledError:
+        return u"Истекло время ожидания ответа Discord (сеть %1)."_s.arg(int(networkError));
+    case QNetworkReply::NoError:
+        return u"Discord вернул некорректный ответ при входе (HTTP %1)."_s.arg(status);
+    default:
+        return u"Док не смог связаться с Discord (сеть %1)."_s.arg(int(networkError));
+    }
 }
 
 void sendPage(QTcpSocket &socket, bool received)
@@ -91,6 +127,7 @@ QByteArray protectGrant(QByteArray bytes, bool encrypt)
 DiscordOAuth::DiscordOAuth(QSettings &settings, QObject *parent)
     : QObject(parent), m_settings(settings)
 {
+    m_callback.setProxy(QNetworkProxy::NoProxy);
     m_callback.setMaxPendingConnections(8);
     m_consentTimeout.setSingleShot(true);
     connect(&m_callback, &QTcpServer::newConnection, this, &DiscordOAuth::acceptCallbacks);
@@ -113,6 +150,12 @@ QString DiscordOAuth::redirectUri()
 QStringList DiscordOAuth::scopes()
 {
     return {u"identify"_s, u"rpc"_s, u"rpc.voice.read"_s, u"rpc.voice.write"_s};
+}
+
+void DiscordOAuth::setProxy(const QNetworkProxy &proxy)
+{
+    m_network.setProxy(proxy);
+    m_network.clearConnectionCache();
 }
 
 void DiscordOAuth::setClientId(const QString &clientId)
@@ -228,9 +271,13 @@ void DiscordOAuth::refresh()
 void DiscordOAuth::exchange(QUrlQuery parameters, bool refreshing)
 {
     parameters.addQueryItem(u"client_id"_s, m_clientId);
-    QNetworkRequest request{QUrl(u"https://discord.com/api/v10/oauth2/token"_s)};
+    QNetworkRequest request(m_tokenEndpoint);
+    request.setRawHeader("User-Agent", "DiscordBot (https://github.com/Aferon-08/sekaipop-dock-equalizer-windows, "
+        + QCoreApplication::applicationVersion().toUtf8() + ')');
+    request.setRawHeader("Accept", "application/json");
     request.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     request.setTransferTimeout(15000);
     auto *reply = m_network.post(request, formBody(parameters));
     m_reply = reply;
@@ -254,11 +301,7 @@ void DiscordOAuth::exchange(QUrlQuery parameters, bool refreshing)
             || access.size() > 4096 || refresh.size() > 4096 || lifetime <= 60) {
             if (refreshing && (error == u"invalid_grant"_s || error == u"invalid_client"_s))
                 forget();
-            const bool configured = error == u"invalid_client"_s || error == u"unauthorized_client"_s
-                || error == u"invalid_scope"_s;
-            emit failed(configured
-                ? u"Discord отклонил запрос Sekai Soundbar на доступ к голосовым каналам."_s
-                : u"Не удалось получить разрешение Discord. Подключите Discord ещё раз."_s);
+            emit failed(exchangeFailure(httpStatus, reply->error(), error, refreshing));
             return;
         }
         if (!grantedScopes.contains(u"rpc"_s) || !grantedScopes.contains(u"rpc.voice.read"_s)) {

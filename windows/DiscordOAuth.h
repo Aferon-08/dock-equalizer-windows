@@ -6,6 +6,7 @@
 #include <QTimer>
 
 class QNetworkReply;
+class QNetworkProxy;
 class QSettings;
 class QTcpSocket;
 class QUrlQuery;
@@ -20,6 +21,7 @@ public:
 
     static QString redirectUri();
     static QStringList scopes();
+    void setProxy(const QNetworkProxy &proxy);
     void setClientId(const QString &clientId);
     void authorize();
     void refresh();
@@ -51,6 +53,7 @@ private:
     QTcpServer m_callback;
     QTimer m_consentTimeout;
     QNetworkReply *m_reply = nullptr;
+    QUrl m_tokenEndpoint{QStringLiteral("https://discord.com/api/v10/oauth2/token")};
     QString m_clientId;
     QString m_state;
     QString m_verifier;
