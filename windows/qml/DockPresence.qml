@@ -7,6 +7,7 @@ QtObject {
     required property bool dismissed
     required property bool holdOpen
     required property bool fullscreen
+    required property var motionCurve
     property int idleDelay: 600
     property int pauseDelay: 60000
 
@@ -48,9 +49,10 @@ QtObject {
         interval: root.paused ? root.pauseDelay : root.idleDelay
         onTriggered: root.animateTo(1)
     }
-    property NumberAnimation motion: NumberAnimation {
+    property DockTransition motion: DockTransition {
         target: root
         property: "hideProgress"
+        curve: root.motionCurve
     }
     onWantedChanged: update()
     onPausedChanged: update()

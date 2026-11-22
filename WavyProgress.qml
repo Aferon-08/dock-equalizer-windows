@@ -12,8 +12,9 @@ Item {
     property bool indeterminate: false
     property bool playing: true
     property bool circular: false
+    property var motionCurve: []
     property real waveAmount: playing ? 1 : 0
-    Behavior on waveAmount { NumberAnimation { duration: 280; easing.type: Easing.InOutCubic } }
+    Behavior on waveAmount { DockTransition { duration: 280; curve: root.motionCurve; standardEasing: Easing.InOutCubic } }
     property real phase: 0
     property bool seekable: false
     property color ink: "white"

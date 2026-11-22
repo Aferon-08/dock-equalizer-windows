@@ -34,13 +34,14 @@ Item {
             fade.start()
         }
     }
-    NumberAnimation {
+    DockTransition {
         id: fade
         target: root
         property: "level"
         to: 0
         duration: Math.min(root.host.settings.spectrumFade ?? 450, Math.max(120, (root.host.settings.collapseDelay || 600) - 100))
-        easing.type: Easing.OutCubic
+        curve: root.host.settings.motionCurve ?? []
+        standardEasing: Easing.OutCubic
         onFinished: root.heldValues = []
     }
 

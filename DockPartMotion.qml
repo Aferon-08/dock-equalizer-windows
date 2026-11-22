@@ -18,6 +18,8 @@ Matrix4x4 {
     property int returnDelay: 130
     property int returnDuration: 620
     property real spring: 1.1
+    property var motionCurve: []
+    property bool springMotion: true
     property real entrance: 1
     property rect entranceBounds: Qt.rect(0, 0, 1, 1)
     property size entranceSurface: Qt.size(1, 1)
@@ -32,7 +34,7 @@ Matrix4x4 {
     readonly property real alpha: 1 - Motion.smooth((progress - 0.68) / 0.30)
     readonly property real entrancePhase: Geometry.phase(entrance, entranceDelay, entranceEnd)
     readonly property real entranceOpacity: Motion.smooth(entrancePhase / 0.43) * Motion.smooth(unfold / 0.65)
-    readonly property real entranceTravel: Geometry.arrival(entrancePhase, 0.23)
+    readonly property real entranceTravel: Geometry.arrival(entrancePhase, springMotion ? 0.23 : 0)
     readonly property size edgeScale: {
         if (entrance === 1)
             return Qt.size(1, 1)
@@ -64,7 +66,8 @@ Matrix4x4 {
             return
         delay.duration = tucking ? tuckDelay : returnDelay
         movement.duration = tucking ? tuckDuration : returnDuration
-        movement.easing.type = tucking ? tuckEasing : Easing.OutBack
+        movement.standardEasing = tucking ? tuckEasing : Easing.OutCubic
+        movement.spring = !tucking && springMotion ? spring : 0
         movement.from = current
         movement.to = target
         flight.start()
@@ -76,11 +79,11 @@ Matrix4x4 {
     property SequentialAnimation flightAnimation: SequentialAnimation {
         id: flight
         PauseAnimation { id: delay }
-        NumberAnimation {
+        DockTransition {
             id: movement
             target: motion
             property: "progress"
-            easing.overshoot: motion.spring
+            curve: motion.motionCurve
         }
     }
 
@@ -88,7 +91,7 @@ Matrix4x4 {
         // Negative progress on return carries the travelling part past its rest point.
         const arch = Math.sin(Math.PI * progress)
         const angle = arch * tilt * Math.PI / 180
-        const release = Geometry.arrival(unfold, 0.24)
+        const release = Geometry.arrival(unfold, springMotion ? 0.24 : 0)
         const sx = Geometry.mix(1, tuckedScale.width, progress) * edgeScale.width * Geometry.mix(0.82, 1, release)
         const sy = Geometry.mix(1, tuckedScale.height, progress) * edgeScale.height * Geometry.mix(0.79, 1, release)
         const a = Math.cos(angle) * sx

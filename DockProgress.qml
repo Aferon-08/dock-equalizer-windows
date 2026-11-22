@@ -42,6 +42,7 @@ Item {
             playing: root.playing
             phase: root.phase
             indeterminate: root.indeterminate && !root.circular
+            motionCurve: root.settings.motionCurve ?? []
             ink: root.palette.ink
             accent: root.palette.accent
         }
@@ -72,6 +73,7 @@ Item {
                 mirrored: root.settings.mirrorLeft !== false
                 clock: root.phase * 1.8
                 fadeDuration: root.settings.spectrumFade ?? 450
+                motionCurve: root.settings.motionCurve ?? []
             }
         }
     }

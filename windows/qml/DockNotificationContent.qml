@@ -16,6 +16,8 @@ Item {
     required property real expansion
     required property real detailProgress
     required property bool dismissible
+    required property var motionCurve
+    required property bool springMotion
     signal dismissed()
 
     readonly property string kind: event?.kind ?? "regular"
@@ -112,7 +114,7 @@ Item {
         required property real progress
         required property point offset
         readonly property real alpha: Motion.smooth(progress / 0.72)
-        readonly property real remaining: 1 - Geometry.arrival(progress, 0.22)
+        readonly property real remaining: 1 - Geometry.arrival(progress, card.springMotion ? 0.22 : 0)
         x: offset.x * remaining
         y: offset.y * remaining
     }
@@ -284,14 +286,14 @@ Item {
             id: marquee
             loops: Animation.Infinite
             PauseAnimation { duration: 700 }
-            NumberAnimation {
+            DockTransition {
                 target: headlineFrame; property: "scroll"; from: 0; to: 1
-                duration: headlineFrame.scrollDuration; easing.type: Easing.InOutSine
+                duration: headlineFrame.scrollDuration; curve: card.motionCurve; standardEasing: Easing.InOutSine
             }
             PauseAnimation { duration: 850 }
-            NumberAnimation {
+            DockTransition {
                 target: headlineFrame; property: "scroll"; from: 1; to: 0
-                duration: headlineFrame.scrollDuration; easing.type: Easing.InOutSine
+                duration: headlineFrame.scrollDuration; curve: card.motionCurve; standardEasing: Easing.InOutSine
             }
         }
     }
@@ -418,7 +420,7 @@ Item {
                 height: parent.height
                 radius: height / 2
                 color: Qt.alpha(card.accent, 0.90)
-                Behavior on width { NumberAnimation { duration: 360; easing.type: Easing.OutCubic } }
+                Behavior on width { DockTransition { duration: 360; curve: card.motionCurve; standardEasing: Easing.OutCubic } }
             }
         }
     }

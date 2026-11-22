@@ -14,7 +14,9 @@ function taper(progress) {
     return Motion.smooth((progress - 0.42) / 0.26)
 }
 
-function recoil(progress) {
+function recoil(progress, springMotion = true) {
+    if (!springMotion)
+        return 0
     const phase = Motion.clamp(progress, 0, 1)
     return Math.sin(2.85 * Math.PI * phase) * Math.pow(1 - phase, 1.8)
 }
@@ -27,19 +29,19 @@ function arrival(progress, spring) {
     return Motion.travel(progress / 0.79) + spring * recoil(phase(progress, 0.67, 1))
 }
 
-function settleHousing(rect, progress) {
-    const bounce = recoil(phase(progress, 0.86, 1))
+function settleHousing(rect, progress, springMotion) {
+    const bounce = recoil(phase(progress, 0.86, 1), springMotion)
     return Qt.rect(rect.x - 8 * bounce, rect.y + 5 * bounce,
         rect.width + 16 * bounce, rect.height + 4 * bounce)
 }
 
-function playerFromEdge(rect, hidden, offsetX, offsetY) {
+function playerFromEdge(rect, hidden, offsetX, offsetY, springMotion) {
     const drop = pullToEdge(rect, hidden, offsetX, offsetY)
     const opening = 1 - hidden
     const contact = Motion.smooth(phase(opening, 0.26, 0.42))
         * (1 - Motion.smooth(phase(opening, 0.66, 0.92)))
     const roof = mix(drop.y, Math.min(-6, drop.y), contact)
-    return settleHousing(Qt.rect(drop.x, roof, drop.width, drop.height + drop.y - roof), opening)
+    return settleHousing(Qt.rect(drop.x, roof, drop.width, drop.height + drop.y - roof), opening, springMotion)
 }
 
 function pullToEdge(rect, progress, offsetX, offsetY) {

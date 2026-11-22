@@ -17,6 +17,7 @@ Item {
     property real glowStrength: 0
     property real clock: 0
     property int fadeDuration: 280
+    property var motionCurve: []
     property real circleRadius: 0
     property real circleBandHeight: 4
     property real circleFraction: 0
@@ -59,13 +60,14 @@ Item {
     onInputBandsChanged: sync()
     onVisibleChanged: sync()
     Component.onCompleted: sync()
-    NumberAnimation {
+    DockTransition {
         id: fade
         target: root
         property: "level"
         to: 0
         duration: root.fadeDuration
-        easing.type: Easing.OutCubic
+        curve: root.motionCurve
+        standardEasing: Easing.OutCubic
         onFinished: root.heldBands = []
     }
 

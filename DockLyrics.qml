@@ -31,8 +31,12 @@ Item {
     readonly property var partProgress: [coverMotion.progress, titleMotion.progress, artistMotion.progress,
         progressMotion.progress, sheetMotion.progress]
     required property var host
+    readonly property var motionCurve: host.settings.motionCurve ?? []
+    readonly property bool springMotion: host.settings.springMotion !== false
 
     component PlayerPart: DockPartMotion {
+        motionCurve: root.motionCurve
+        springMotion: root.springMotion
         destination: root.miniCenter
         tucking: root.gatheringParts
         entrance: root.openingProgress
@@ -185,8 +189,9 @@ Item {
     property real wideReveal: 0
     property bool ready: false
     readonly property real layout: Math.max(0, Math.min(staggeredOpening || host.settings.limitPlayerOvershoot ? 1 : 1.08,
-        staggeredOpening ? Geometry.arrival(wideReveal, 0.055) : wideReveal))
-    readonly property real layoutSpring: staggeredOpening ? Geometry.recoil(Geometry.phase(wideReveal, 0.72, 1)) : 0
+        staggeredOpening ? Geometry.arrival(wideReveal, springMotion ? 0.055 : 0) : wideReveal))
+    readonly property real layoutSpring: staggeredOpening
+        ? Geometry.recoil(Geometry.phase(wideReveal, 0.72, 1), springMotion) : 0
     readonly property real headerUnfold: staggeredOpening && !compactTrackHeader ? wideReveal : 1
     readonly property real baseWidth: host.dock.baseWidth || host.dock.item.width
     readonly property real baseHeight: host.dock.baseCapHeight || 69
@@ -194,10 +199,10 @@ Item {
         (host.dock.stageWidth || 1100) - 2 * (Math.min(host.settings.width || 200, 200) + (host.settings.gap || 12) + 26))
     readonly property bool showMusic: wantsMusic && (!host.dock.hovered || wide)
     property real musicReveal: showMusic ? 1 : 0
-    Behavior on musicReveal { NumberAnimation { duration: 320; easing.type: Easing.InOutCubic } }
+    Behavior on musicReveal { DockTransition { duration: 320; curve: root.motionCurve; standardEasing: Easing.InOutCubic } }
     readonly property real musicLayout: Math.max(0, Math.min(1, musicReveal))
     property real voiceExpansion: multiVoiceAvailable ? 1 : 0
-    Behavior on voiceExpansion { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
+    Behavior on voiceExpansion { DockTransition { duration: 480; curve: root.motionCurve; standardEasing: Easing.OutCubic } }
     function expandedWidthFor(voices) {
         return Math.min((host.settings.lyricsWidth || 560) + (host.settings.voiceWidth ?? 80) * voices, maxBody)
     }
@@ -217,7 +222,9 @@ Item {
     readonly property real iconsScale: 1 - (1 - Math.min(1,
         Math.max(1, dock.capWidth - 48) / Math.max(1, baseWidth - 36))) * Math.min(1, layout)
     property real lyricsOpacity: wantsMusic && !host.dock.hovered ? 1 : 0
-    Behavior on lyricsOpacity { NumberAnimation { duration: root.host.settings.lyricFade ?? 240; easing.type: Easing.InOutCubic } }
+    Behavior on lyricsOpacity {
+        DockTransition { duration: root.host.settings.lyricFade ?? 240; curve: root.motionCurve; standardEasing: Easing.InOutCubic }
+    }
 
     function animateLayout() {
         if (!ready) return
@@ -228,13 +235,18 @@ Item {
         animation.start()
     }
     onWideChanged: animateLayout()
-    NumberAnimation {
+    DockTransition {
         id: widen; target: root; property: "wideReveal"; to: 1
         duration: root.host.settings.expandDuration ?? 850
-        easing.type: root.staggeredOpening ? Easing.Linear : Easing.OutBack
-        easing.overshoot: root.host.settings.playerSpring ?? 1.2
+        curve: root.motionCurve
+        standardEasing: root.staggeredOpening ? Easing.Linear : Easing.OutCubic
+        spring: !root.staggeredOpening && root.springMotion ? (root.host.settings.playerSpring ?? 1.2) : 0
     }
-    NumberAnimation { id: narrow; target: root; property: "wideReveal"; to: 0; duration: 600; easing.type: Easing.InOutCubic }
+    DockTransition {
+        id: narrow; target: root; property: "wideReveal"; to: 0; duration: 600
+        curve: root.motionCurve
+        standardEasing: Easing.InOutCubic
+    }
 
     property var clock: LM.clockReset(0, Date.now())
     property real now: Date.now()
@@ -331,7 +343,7 @@ Item {
         Math.max(0, lyricTime - (reel.current.t || 0))) * Math.PI * 2 / 1.8
     readonly property bool ambientLight: wantsMusic && wide && (!playing || !available || lyricsEnded)
     property real ambientBlend: ambientLight ? 1 : 0
-    Behavior on ambientBlend { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+    Behavior on ambientBlend { DockTransition { duration: 650; curve: root.motionCurve; standardEasing: Easing.InOutCubic } }
     readonly property real fishTime: LightMotion.motionTime(ambientTime)
     readonly property real audioPulse: playing && host.service ? (host.service.beatPulse || 0) : 0
     property real beatGlow: audioPulse
@@ -447,8 +459,18 @@ Item {
     }
     ParallelAnimation {
         id: swipeReturn
-        NumberAnimation { id: swipeBackX; target: root; property: "swipeX"; to: 0; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
-        NumberAnimation { id: swipeBackY; target: root; property: "swipeY"; to: 0; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
+        DockTransition {
+            id: swipeBackX; target: root; property: "swipeX"; to: 0; duration: 650
+            curve: root.motionCurve
+            standardEasing: Easing.OutCubic
+            spring: root.springMotion ? 0.9 : 0
+        }
+        DockTransition {
+            id: swipeBackY; target: root; property: "swipeY"; to: 0; duration: 650
+            curve: root.motionCurve
+            standardEasing: Easing.OutCubic
+            spring: root.springMotion ? 0.9 : 0
+        }
     }
     transform: Translate { x: root.swipeX; y: root.swipeY }
     x: dock.x
@@ -867,7 +889,7 @@ Item {
             phase: root.finaleState.phase
             opacity: root.lyricsEnded && !root.multiVoiceActive ? root.lyricsOpacity : 0
             visible: opacity>.001
-            Behavior on opacity {NumberAnimation{duration:350}}
+            Behavior on opacity { DockTransition { duration: 350; curve: root.motionCurve } }
         }
         Item {
             x: reel.x; y: reel.y; width: reel.width; height: reel.height
@@ -906,7 +928,7 @@ Item {
             width: 14; height: 14
             opacity: root.wide && !!root.wordtimeStore && !!root.player && !root.hasTimingDocument && !root.processingForLyrics ? Math.min(1, root.layout) * root.musicLayout : 0
             visible: opacity > 0.001
-            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.InOutCubic } }
+            Behavior on opacity { DockTransition { duration: 180; curve: root.motionCurve; standardEasing: Easing.InOutCubic } }
             Accessible.name: "Обработать лирику"
             Controls.ToolTip.visible: analysisClick.containsMouse
             readonly property bool requested: !!root.wordtimeStore
@@ -933,8 +955,8 @@ Item {
             SequentialAnimation on pulse {
                 running: recordingIndicator.pulsing
                 loops: Animation.Infinite
-                NumberAnimation { from: 1; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
-                NumberAnimation { from: 0.4; to: 1; duration: 800; easing.type: Easing.InOutSine }
+                DockTransition { from: 1; to: 0.4; duration: 800; curve: root.motionCurve; standardEasing: Easing.InOutSine }
+                DockTransition { from: 0.4; to: 1; duration: 800; curve: root.motionCurve; standardEasing: Easing.InOutSine }
             }
             Rectangle {
                 anchors.fill: parent; radius: width / 2

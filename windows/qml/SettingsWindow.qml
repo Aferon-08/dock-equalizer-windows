@@ -489,6 +489,70 @@ Window {
 
             FieldLabel { text: "Оформление"; font.pixelSize: 23 }
             Surface {
+                FieldLabel { text: "Анимации дока" }
+                Copy { text: "Перетащите точки, чтобы настроить темп переходов." }
+                MotionCurveEditor {
+                    objectName: "motionCurveEditor"
+                    Layout.fillWidth: true
+                    curve: panel.appearance.values.motionCurve
+                    accent: panel.mint
+                    mutedInk: panel.muted
+                    lineColor: panel.line
+                    onEdited: points => panel.appearance.setMotionCurve(points)
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    FieldLabel { text: "Пружинность интерфейса" }
+                    Option {
+                        objectName: "springMotionSwitch"
+                        Accessible.name: "Пружинность интерфейса"
+                        checked: panel.appearance.values.springMotion
+                        onToggled: panel.appearance.setSpringMotion(checked)
+                    }
+                }
+                Rectangle {
+                    id: motionPreview
+                    property real progress: 0
+                    Layout.fillWidth: true
+                    implicitHeight: 34
+                    radius: 9
+                    color: "#101f1b"
+                    border.color: panel.line
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 24 + Math.max(1, Math.min(176, motionPreview.width - 52)) * motionPreview.progress
+                        height: 13 + 5 * motionPreview.progress
+                        radius: height / 2
+                        color: "#294b3e"
+                        border.color: panel.mint
+                    }
+                    DockTransition {
+                        id: previewMotion
+                        target: motionPreview
+                        property: "progress"
+                        from: 0
+                        to: 1
+                        duration: 850
+                        curve: panel.appearance.values.motionCurve
+                        spring: panel.appearance.values.springMotion ? 1.2 : 0
+                    }
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Action {
+                        text: "Предпросмотр"
+                        onClicked: previewMotion.restart()
+                    }
+                    Action {
+                        text: "Сбросить кривую"
+                        enabled: panel.appearance.values.motionCurve.length === 4
+                        onClicked: panel.appearance.setMotionCurve([])
+                    }
+                }
+            }
+            Surface {
                 FieldLabel { text: "Стиль прогресса" }
                 RowLayout {
                     Layout.fillWidth: true

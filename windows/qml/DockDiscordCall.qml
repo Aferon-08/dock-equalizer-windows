@@ -11,6 +11,8 @@ Item {
     required property DiscordCall session
     required property var media
     required property var notification
+    required property var motionCurve
+    required property bool springMotion
     required property rect housing
     required property real opening
     required property real topInset
@@ -50,14 +52,14 @@ Item {
     property real joinProgress: conversation ? 1 : 0
     property real expandProgress: expanded ? 1 : 0
     property real musicMix: media.player ? 1 : 0
-    Behavior on lifetime { NumberAnimation { duration: call.session.active ? 880 : 680 } }
-    Behavior on joinProgress { NumberAnimation { duration: 780 } }
-    Behavior on expandProgress { NumberAnimation { duration: call.expanded ? 880 : 670 } }
-    Behavior on musicMix { NumberAnimation { duration: 400; easing.type: Easing.InOutCubic } }
+    Behavior on lifetime { DockTransition { duration: call.session.active ? 880 : 680; curve: call.motionCurve } }
+    Behavior on joinProgress { DockTransition { duration: 780; curve: call.motionCurve } }
+    Behavior on expandProgress { DockTransition { duration: call.expanded ? 880 : 670; curve: call.motionCurve } }
+    Behavior on musicMix { DockTransition { duration: 400; curve: call.motionCurve; standardEasing: Easing.InOutCubic } }
 
     readonly property real housingMix: Motion.travel(Geometry.phase(lifetime, 0.05, 0.94))
     readonly property real lyricsCover: Motion.smooth(Geometry.phase(lifetime, 0.10, 0.74))
-    readonly property real spread: Geometry.arrival(Geometry.phase(expandProgress, 0.03, 1), 0.14)
+    readonly property real spread: Geometry.arrival(Geometry.phase(expandProgress, 0.03, 1), springMotion ? 0.14 : 0)
     readonly property real compactWidth: Geometry.mix(336, 548, musicMix)
     readonly property real panelWidth: Geometry.mix(
         Geometry.mix(476, compactWidth, Motion.travel(joinProgress)), expandedWidth, spread)
@@ -232,7 +234,7 @@ Item {
             color: Qt.alpha(button.tint, button.down ? 0.35 : button.hovered ? 0.29 : 0.17)
             border.color: Qt.alpha(button.tint, button.hovered || button.visualFocus ? 0.66 : 0.31)
             antialiasing: true
-            Behavior on color { ColorAnimation { duration: 135 } }
+            Behavior on color { DockTransition { duration: 135; curve: call.motionCurve } }
         }
         HoverHandler { enabled: button.enabled; cursorShape: Qt.PointingHandCursor }
     }
@@ -260,7 +262,7 @@ Item {
         required property rect targetBounds
         required property real amount
         property real spring: 0.23
-        readonly property real travel: Geometry.arrival(amount, spring)
+        readonly property real travel: Geometry.arrival(amount, call.springMotion ? spring : 0)
 
         x: Geometry.mix(source.x - width / 2, targetBounds.x, Math.min(1.04, travel))
         y: Geometry.mix(source.y - height / 2, targetBounds.y, travel)
@@ -334,8 +336,9 @@ Item {
         transform: Scale {
             origin.x: 0
             origin.y: identity.height / 2
-            xScale: Geometry.mix(0.55, 1, Geometry.arrival(identity.arrival, 0.16))
-            yScale: Geometry.mix(0.38, 1, Geometry.arrival(identity.arrival, 0.16))
+            readonly property real travel: Geometry.arrival(identity.arrival, call.springMotion ? 0.16 : 0)
+            xScale: Geometry.mix(0.55, 1, travel)
+            yScale: Geometry.mix(0.38, 1, travel)
         }
 
         RowLayout {

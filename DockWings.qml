@@ -30,6 +30,8 @@ Item {
     readonly property real noticeMix: noticeVisible ? notification.coverAmount : 0
     readonly property Item lyricsView: lyricLayer
     readonly property var material: Material.read(host.settings)
+    readonly property var motionCurve: host.settings.motionCurve ?? []
+    readonly property bool springMotion: host.settings.springMotion !== false
     FrameAnimation {running:!!root.host.service && !!root.host.service.profileFrames;onTriggered:root.host.service.collectFrame(root.host.dock.screenName,frameTime)}
     readonly property var dock: host.dock.item
     readonly property bool vertical: host.dock.vertical
@@ -59,8 +61,7 @@ Item {
         closing.start()
     }
 
-    // Keep the curves fixed. Switching easing.type on a reused Behavior can
-    // start the next job with the previous direction's curve in Qt.
+    // Separate jobs retain the opening and closing defaults when reversed.
     function animateReveal() {
         if (!motionReady)
             return
@@ -86,22 +87,24 @@ Item {
             animateReveal()
         if (wantsFusion) animateFusion()
     }
-    NumberAnimation {
+    DockTransition {
         id: opening
         target: root
         property: "reveal"
         to: 1
         duration: root.host.settings.openDuration ?? 900
-        easing.type: root.staggeredOpening ? Easing.Linear : Easing.OutBack
-        easing.overshoot: root.host.settings.spring ?? 1.6
+        curve: root.motionCurve
+        standardEasing: root.staggeredOpening ? Easing.Linear : Easing.OutCubic
+        spring: !root.staggeredOpening && root.springMotion ? (root.host.settings.spring ?? 1.6) : 0
     }
-    NumberAnimation {
+    DockTransition {
         id: closing
         target: root
         property: "reveal"
         to: 0
         duration: root.host.settings.closeDuration ?? 620
-        easing.type: Easing.InOutCubic
+        curve: root.motionCurve
+        standardEasing: Easing.InOutCubic
     }
     Timer {
         id: closeWait
@@ -121,7 +124,9 @@ Item {
         running: root.visible && root.edgeLight > 0.001 && (root.phase > 0.01 || root.fusion > 0.001)
         onTriggered: root.lightClock += Math.min(frameTime, 0.05)
     }
-    Behavior on edgeLight { NumberAnimation { duration: root.host.settings.lightFade ?? 450; easing.type: Easing.OutCubic } }
+    Behavior on edgeLight {
+        DockTransition { duration: root.host.settings.lightFade ?? 450; curve: root.motionCurve; standardEasing: Easing.OutCubic }
+    }
     function animateFusion() {
         fuseOpen.stop(); fuseClose.stop(); traceDraw.stop(); traceFade.stop(); contact.stop()
         if (wantsFusion) {
@@ -132,11 +137,30 @@ Item {
         }
     }
     onWantsFusionChanged: if (motionReady) animateFusion()
-    NumberAnimation { id: fuseOpen; target: root; property: "fusion"; to: 1; duration: root.host.settings.fusionDuration ?? 850; easing.type: Easing.InOutCubic }
-    NumberAnimation { id: fuseClose; target: root; property: "fusion"; to: 0; duration: 800; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+    DockTransition {
+        id: fuseOpen; target: root; property: "fusion"; to: 1
+        duration: root.host.settings.fusionDuration ?? 850
+        curve: root.motionCurve
+        standardEasing: Easing.InOutCubic
+    }
+    DockTransition {
+        id: fuseClose; target: root; property: "fusion"; to: 0; duration: 800
+        curve: root.motionCurve
+        standardEasing: Easing.OutCubic
+        spring: root.springMotion ? 1.2 : 0
+    }
     Timer { id: contact; interval: 350; onTriggered: { traceDraw.from = root.outline; traceDraw.start() } }
-    NumberAnimation { id: traceDraw; target: root; property: "outline"; to: 1; duration: root.host.settings.outlineDuration ?? 1050; easing.type: Easing.OutCubic }
-    NumberAnimation { id: traceFade; target: root; property: "outline"; to: 0; duration: 260; easing.type: Easing.InOutCubic }
+    DockTransition {
+        id: traceDraw; target: root; property: "outline"; to: 1
+        duration: root.host.settings.outlineDuration ?? 1050
+        curve: root.motionCurve
+        standardEasing: Easing.OutCubic
+    }
+    DockTransition {
+        id: traceFade; target: root; property: "outline"; to: 0; duration: 260
+        curve: root.motionCurve
+        standardEasing: Easing.InOutCubic
+    }
     function levels(offset) {
         const a = host.working && host.service && host.service.playing ? host.service.bands : []
         const gain = Math.max(0.1, Math.min(5, host.settings.sensitivity || 1))
@@ -164,7 +188,7 @@ Item {
     // Leave room for the opening overshoot, so the spring never hits a clamp.
     // Compact capsules flow into the player; their expanded counterpart is light.
     readonly property real phase: Math.max(0, Math.min(1.1,
-        (staggeredOpening ? Geometry.arrival(reveal, 0.11) : reveal) * (1 - fusion)))
+        (staggeredOpening ? Geometry.arrival(reveal, springMotion ? 0.11 : 0) : reveal) * (1 - fusion)))
         * (1 - Motion.smooth(hideProgress / 0.44))
     readonly property real wingLength: noticeVisible ? Math.max(0, Math.min(host.settings.width,
         Math.min(housingRect.x, parent.width - housingRect.x - housingRect.width) - gap - 14)) : length
@@ -186,7 +210,7 @@ Item {
     readonly property real playerOffsetX: lyricLayer.swipeX * (1 - playerOverrideMix)
     readonly property real playerOffsetY: lyricLayer.swipeY * (1 - playerOverrideMix)
     readonly property rect playerHousing: {
-        return staggeredOpening ? Geometry.playerFromEdge(restHousing, hideProgress, playerOffsetX, playerOffsetY)
+        return staggeredOpening ? Geometry.playerFromEdge(restHousing, hideProgress, playerOffsetX, playerOffsetY, springMotion)
             : Geometry.pullToEdge(restHousing, hideProgress, playerOffsetX, playerOffsetY)
     }
     readonly property rect housingRect: noticeVisible ? notification.bodyBounds : playerHousing

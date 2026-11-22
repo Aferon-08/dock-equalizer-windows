@@ -15,6 +15,8 @@ Window {
     required property var lyricsAlignment
     required property var appearance
     required property var appState
+    readonly property var motionCurve: appearance.values.motionCurve
+    readonly property bool springMotion: appearance.values.springMotion
     flags: Qt.Tool | Qt.FramelessWindowHint
         | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
     title: "Sekai Soundbar"
@@ -115,9 +117,11 @@ Window {
     property bool smokeSawCallNeck: false
     property bool smokeSawCallMusicPeel: false
     property bool smokeSawCallMusicReturn: false
+    property bool smokeSawCustomCurve: false
 
     DockPresence {
         id: presence
+        motionCurve: window.motionCurve
         playing: window.playbackActive
         paused: window.playbackPaused
         dismissed: window.swipeDismissed || (noticeLayer.miniPauseExpired && !window.trayPreview)
@@ -386,6 +390,8 @@ Window {
             property real glassBlur: window.appearance.values.glassBlur
             property real glassDarkening: window.appearance.values.glassDarkening
             property real glassLight: window.appearance.values.glassLight
+            readonly property var motionCurve: window.motionCurve
+            readonly property bool springMotion: window.springMotion
             property int collapseDelay: 600
             property bool lyrics: true
             readonly property bool estimateWordMotion: true
@@ -456,9 +462,9 @@ Window {
                 readonly property real border: 3
                 readonly property real ringWidth: 3
 
-                Behavior on fill { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
-                Behavior on rim { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
-                Behavior on accent { ColorAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                Behavior on fill { DockTransition { duration: 260; curve: window.motionCurve; standardEasing: Easing.OutCubic } }
+                Behavior on rim { DockTransition { duration: 260; curve: window.motionCurve; standardEasing: Easing.OutCubic } }
+                Behavior on accent { DockTransition { duration: 260; curve: window.motionCurve; standardEasing: Easing.OutCubic } }
             }
         }
     }
@@ -580,6 +586,8 @@ Window {
         DockNotification {
             id: noticeLayer
             anchors.fill: parent
+            motionCurve: window.motionCurve
+            springMotion: window.springMotion
             event: window.appState.dockNotification
             wifi: window.appState.wifiStatus.snapshot
             battery: window.appState.batteryStatus.snapshot
@@ -614,6 +622,8 @@ Window {
         DockDiscordCall {
             id: callLayer
             anchors.fill: parent
+            motionCurve: window.motionCurve
+            springMotion: window.springMotion
             session: window.discordCall
             media: window.media
             notification: noticeLayer
@@ -628,9 +638,14 @@ Window {
 
     Connections {
         target: wings.lyricsView
-        enabled: window.smokeMode && (window.smokePhase === 22 || window.smokePhase === 23)
+        enabled: window.smokeMode && (window.smokePhase === 22 || window.smokePhase === 23 || window.smokePhase === 49)
         function onPartProgressChanged() {
             const parts = wings.lyricsView.partProgress
+            if (window.smokePhase === 49) {
+                if (parts.some(part => part < -0.001))
+                    window.failSmoke("a player part overshot with springs disabled")
+                return
+            }
             const staggered = Math.max(...parts) - Math.min(...parts) > 0.3
             if (window.smokePhase === 22) {
                 if (staggered && wings.lyricsView.coverAlpha > 0.2)
@@ -1640,10 +1655,39 @@ Window {
                     window.failSmoke("ending the call did not fold the controls and return to continuing music")
                     return
                 }
+                window.appearance.setMotionCurve([0.14, 0.95, 0.30, 1])
+                window.appearance.setSpringMotion(false)
+                window.appState.postTestNotification()
+                window.smokePhase = 48
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 48) {
+                if (noticeLayer.reveal > 0.62 && wait < 500)
+                    window.smokeSawCustomCurve = true
+                if (noticeLayer.releaseRecoil || noticeLayer.detailSpring || noticeLayer.miniRecoil
+                        || wings.lyricsView.layoutSpring) {
+                    window.failSmoke("a housing or mini-player bounced with springs disabled")
+                    return
+                }
+                if (noticeLayer.reveal !== 1 || noticeLayer.detailProgress !== 1 || noticeLayer.splitProgress !== 1
+                        || wings.lyricsView.partProgress.some(part => part !== 1))
+                    return
+                if (!window.smokeSawCustomCurve) {
+                    window.failSmoke("the edited curve did not accelerate the notification entrance")
+                    return
+                }
+                window.appState.dismissNotification()
+                window.smokePhase = 49
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 49) {
+                if (noticeLayer.presenting || wings.lyricsView.partProgress.some(part => part !== 0))
+                    return
+                window.appearance.setMotionCurve([])
+                window.appearance.setSpringMotion(true)
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
                 console.log("PASS desktop expansion, staggered player, notification sizing, progress styles and pause")
                 console.log("PASS Discord preview, automatic folding, music detachment and return, connected notification split")
+                console.log("PASS custom transition curve and spring-free notification and player motion")
                 Qt.exit(0)
             }
         }

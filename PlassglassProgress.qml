@@ -17,6 +17,7 @@ Item {
     property string style: "wave"
     property real clock: 0
     property int fadeDuration: 450
+    property var motionCurve: []
     readonly property real peak: circular ? arcSpectrum.peak : spectrum.peak
 
     Rectangle {
@@ -77,6 +78,7 @@ Item {
             clock: root.clock
             glowStrength: root.glowStrength
             fadeDuration: root.fadeDuration
+            motionCurve: root.motionCurve
         }
     }
 
@@ -157,6 +159,7 @@ Item {
             clock: root.clock
             glowStrength: root.glowStrength
             fadeDuration: root.fadeDuration
+            motionCurve: root.motionCurve
         }
 
         Item {

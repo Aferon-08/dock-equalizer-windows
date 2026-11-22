@@ -9,6 +9,8 @@ Item {
     required property var battery
     required property var renderer
     required property var media
+    required property var motionCurve
+    required property bool springMotion
     required property bool allowed
     required property bool clearForDetails
     required property bool attached
@@ -86,16 +88,28 @@ Item {
     property rect retiringDeckBounds: Qt.rect(0, 0, 0, 0)
     property real cardRetraction: !active && (keepPausedMini || miniPauseExpired) ? 1 : 0
     property real miniRetreat: miniPauseExpired ? 1 : 0
-    Behavior on reveal { NumberAnimation { duration: notice.active ? 1020 : 560 } }
+    Behavior on reveal { DockTransition { duration: notice.active ? 1020 : 560; curve: notice.motionCurve } }
     Behavior on detailProgress {
-        NumberAnimation { duration: notice.clearForDetails ? 840 : 500 }
+        DockTransition { duration: notice.clearForDetails ? 840 : 500; curve: notice.motionCurve }
     }
-    Behavior on expandedWidth { NumberAnimation { duration: 420; easing.type: Easing.InOutCubic } }
-    Behavior on expandedHeight { NumberAnimation { duration: 380; easing.type: Easing.InOutCubic } }
-    Behavior on mergeWeight { NumberAnimation { duration: 180; easing.type: Easing.InOutSine } }
-    Behavior on attachment { NumberAnimation { duration: 360; easing.type: Easing.InOutCubic } }
-    Behavior on cardRetraction { NumberAnimation { duration: 490; easing.type: Easing.InOutCubic } }
-    Behavior on miniRetreat { NumberAnimation { duration: 450; easing.type: Easing.InOutSine } }
+    Behavior on expandedWidth {
+        DockTransition { duration: 420; curve: notice.motionCurve; standardEasing: Easing.InOutCubic }
+    }
+    Behavior on expandedHeight {
+        DockTransition { duration: 380; curve: notice.motionCurve; standardEasing: Easing.InOutCubic }
+    }
+    Behavior on mergeWeight {
+        DockTransition { duration: 180; curve: notice.motionCurve; standardEasing: Easing.InOutSine }
+    }
+    Behavior on attachment {
+        DockTransition { duration: 360; curve: notice.motionCurve; standardEasing: Easing.InOutCubic }
+    }
+    Behavior on cardRetraction {
+        DockTransition { duration: 490; curve: notice.motionCurve; standardEasing: Easing.InOutCubic }
+    }
+    Behavior on miniRetreat {
+        DockTransition { duration: 450; curve: notice.motionCurve; standardEasing: Easing.InOutSine }
+    }
 
     onSplittingPlayerChanged: {
         const current = splitProgress
@@ -105,10 +119,13 @@ Item {
             return
         split.from = current
         split.to = target
-        split.easing.type = splittingPlayer ? Easing.InOutSine : Easing.OutQuad
+        split.standardEasing = splittingPlayer ? Easing.InOutSine : Easing.OutQuad
         split.start()
     }
-    NumberAnimation { id: split; target: notice; property: "splitProgress"; duration: 1060 }
+    DockTransition {
+        id: split; target: notice; property: "splitProgress"; duration: 1060
+        curve: notice.motionCurve
+    }
 
     function beginPauseHold() {
         if (canHoldPausedMini && !pauseHold.running)
@@ -143,25 +160,41 @@ Item {
         if (!event)
             return
         lastEvent = event
-        if (active && attached && !widePlayer)
+        if (springMotion && active && attached && !widePlayer)
             attention.restart()
+    }
+    onSpringMotionChanged: if (!springMotion) {
+        attention.stop()
+        nudge = 0
     }
     SequentialAnimation {
         id: attention
-        NumberAnimation { target: notice; property: "nudge"; to: 4; duration: 90; easing.type: Easing.OutCubic }
-        NumberAnimation { target: notice; property: "nudge"; to: -2.5; duration: 120; easing.type: Easing.InOutSine }
-        NumberAnimation { target: notice; property: "nudge"; to: 1.2; duration: 95; easing.type: Easing.InOutSine }
-        NumberAnimation { target: notice; property: "nudge"; to: 0; duration: 115; easing.type: Easing.OutCubic }
+        DockTransition {
+            target: notice; property: "nudge"; to: 4; duration: 90
+            curve: notice.motionCurve; standardEasing: Easing.OutCubic
+        }
+        DockTransition {
+            target: notice; property: "nudge"; to: -2.5; duration: 120
+            curve: notice.motionCurve; standardEasing: Easing.InOutSine
+        }
+        DockTransition {
+            target: notice; property: "nudge"; to: 1.2; duration: 95
+            curve: notice.motionCurve; standardEasing: Easing.InOutSine
+        }
+        DockTransition {
+            target: notice; property: "nudge"; to: 0; duration: 115
+            curve: notice.motionCurve; standardEasing: Easing.OutCubic
+        }
     }
 
     readonly property real coverAmount: movingPlayer
         ? Motion.smooth((splitProgress - 0.04) / 0.65) : Motion.smooth((reveal - 0.06) / 0.52)
     readonly property real detailAmount: Motion.travel(detailProgress / 0.86)
-    readonly property real detailSpring: Geometry.recoil(Geometry.phase(detailProgress, 0.70, 1))
+    readonly property real detailSpring: Geometry.recoil(Geometry.phase(detailProgress, 0.70, 1), springMotion)
     readonly property real extruded: Motion.smooth((splitProgress - 0.10) / 0.68)
     readonly property real extraPlayerWidth: Math.max(0, expandedWidth + miniSpan - renderer.playerHousing.width) * extruded
-    readonly property real releaseRecoil: Geometry.recoil((splitProgress - 0.76) / 0.24)
-    readonly property real mergeRecoil: mergeWeight * Geometry.recoil((0.39 - splitProgress) / 0.39)
+    readonly property real releaseRecoil: Geometry.recoil((splitProgress - 0.76) / 0.24, springMotion)
+    readonly property real mergeRecoil: mergeWeight * Geometry.recoil((0.39 - splitProgress) / 0.39, springMotion)
     readonly property real bodyTaper: usesCallLayout ? renderer.playerTaper * (1 - coverAmount)
         : Math.max(Geometry.taper(cardRetraction),
             Geometry.mix(Geometry.taper(1 - reveal), renderer.playerTaper, attachment))
@@ -176,10 +209,10 @@ Item {
         const cardBounds = Qt.rect(cardLeft(cardWidth), topInset, cardWidth, height)
         const body = retiringMini ? retiringDeckBounds : renderer.playerHousing
         if (usesCallLayout) {
-            const morph = Geometry.arrival(Geometry.phase(splitProgress, 0.04, 1), 0.08)
+            const morph = Geometry.arrival(Geometry.phase(splitProgress, 0.04, 1), springMotion ? 0.08 : 0)
             return Geometry.mixRect(body, cardBounds, morph)
         }
-        const solo = Geometry.settleHousing(Geometry.pullToEdge(cardBounds, 1 - reveal, 0, 0), reveal)
+        const solo = Geometry.settleHousing(Geometry.pullToEdge(cardBounds, 1 - reveal, 0, 0), reveal, springMotion)
         const widthTaken = miniSpan * Motion.smooth((splitProgress - 0.1) / 0.78)
         const extra = extraPlayerWidth
             + (widePlayer ? 0 : Math.max(0, cardWidth - body.width) * coverAmount) + 14 * detailSpring * extruded
@@ -204,7 +237,7 @@ Item {
     readonly property real splitBlend: blendAt(splitProgress)
     readonly property real miniAmount: usesCallLayout ? callMusicSeparation : splitProgress
     readonly property real miniStretch: stretchAt(miniAmount)
-    readonly property real miniRecoil: Geometry.recoil(Geometry.phase(miniAmount, 0.76, 1))
+    readonly property real miniRecoil: Geometry.recoil(Geometry.phase(miniAmount, 0.76, 1), springMotion)
     readonly property real callArtworkRoundness: Motion.smooth(Geometry.phase(miniAmount, 0.04, 0.78))
     readonly property point miniCenter: {
         if (usesCallLayout) {
@@ -262,6 +295,8 @@ Item {
 
     DockNotificationContent {
         id: card
+        motionCurve: notice.motionCurve
+        springMotion: notice.springMotion
         x: notice.bodyBounds.x
         y: notice.bodyBounds.y
         width: notice.bodyBounds.width

@@ -109,7 +109,9 @@ Item {
         background: null
         contentItem: Item {
             opacity: playback.enabled && (playback.hovered || playback.visualFocus) ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            Behavior on opacity {
+                DockTransition { duration: 140; curve: mini.host.settings.motionCurve; standardEasing: Easing.OutCubic }
+            }
 
             Rectangle {
                 anchors.centerIn: parent
