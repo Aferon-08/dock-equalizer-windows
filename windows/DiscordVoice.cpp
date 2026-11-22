@@ -8,7 +8,6 @@ using namespace Qt::StringLiterals;
 
 namespace {
 
-const auto idKey = u"discord/clientId"_s;
 const auto linkedKey = u"discord/linked"_s;
 const auto readyStatus = u"Discord подключён. Войдите в голосовой канал."_s;
 const auto inCallStatus = u"Discord подключён. Голосовая сессия отображается в доке."_s;
@@ -57,10 +56,11 @@ QJsonObject updatedMember(QJsonObject current, const QJsonObject &update)
 
 }
 
-DiscordVoice::DiscordVoice(QSettings &settings, bool available, QStringList endpoints, QObject *parent)
-    : QObject(parent), m_settings(settings), m_available(available), m_rpc(std::move(endpoints)), m_oauth(settings)
+DiscordVoice::DiscordVoice(QSettings &settings, bool available, QString applicationId, QStringList endpoints,
+                           QObject *parent)
+    : QObject(parent), m_settings(settings), m_available(available && validId(applicationId)),
+      m_clientId(std::move(applicationId)), m_rpc(std::move(endpoints)), m_oauth(settings)
 {
-    m_clientId = m_settings.value(idKey).toString();
     m_status = u"Discord отключён."_s;
     m_poll.setInterval(5000);
     m_clock.setInterval(1000);
@@ -99,7 +99,7 @@ DiscordVoice::DiscordVoice(QSettings &settings, bool available, QStringList endp
         }
     });
 
-    if (m_available && validId(m_clientId) && m_settings.value(linkedKey).toBool()) {
+    if (m_available && m_settings.value(linkedKey).toBool()) {
         m_linked = true;
         m_oauth.setClientId(m_clientId);
         m_rpc.start(m_clientId);
@@ -107,29 +107,19 @@ DiscordVoice::DiscordVoice(QSettings &settings, bool available, QStringList endp
     }
 }
 
-void DiscordVoice::connectDiscord(const QString &applicationId)
+void DiscordVoice::connectDiscord()
 {
-    if (!m_available)
+    if (!m_available || signingIn() || authorized())
         return;
-    const auto id = applicationId.trimmed();
-    if (!validId(id)) {
-        setStatus(u"Введите числовой Application ID из Discord Developer Portal."_s);
-        return;
-    }
 
-    if (m_clientId != id) {
-        m_clientId = id;
-        m_settings.setValue(idKey, id);
-        emit clientIdChanged();
-    }
     m_rpc.stop();
     m_oauth.cancel();
-    m_oauth.setClientId(id);
+    m_oauth.setClientId(m_clientId);
     clearSession();
     m_linked = true;
     m_settings.setValue(linkedKey, true);
     m_consentRequested = true;
-    m_rpc.start(id);
+    m_rpc.start(m_clientId);
     setStatus(u"Ищем настольный Discord…"_s);
 }
 
@@ -201,7 +191,7 @@ void DiscordVoice::authenticate()
                 || userId.isEmpty() || !scopes.contains(u"rpc"_s) || !scopes.contains(u"rpc.voice.read"_s)) {
                 if (error >= 0)
                     m_oauth.forget();
-                setStatus(u"Discord отклонил голосовой RPC. Проверьте разрешения приложения и подключитесь снова."_s);
+                setStatus(u"Discord не подтвердил доступ к голосовым каналам. Попробуйте подключиться снова."_s);
                 return;
             }
             if (!m_rpc.userId().isEmpty() && m_rpc.userId() != userId) {

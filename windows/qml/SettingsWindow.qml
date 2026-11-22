@@ -781,66 +781,24 @@ Window {
             Surface {
                 FieldLabel { text: "Подключение голосовых сессий" }
                 Copy { text: connection.discord.statusText }
-                TextField {
-                    id: applicationId
-                    objectName: "discordApplicationId"
-                    Layout.fillWidth: true
-                    implicitHeight: 38
-                    maximumLength: 22
-                    selectByMouse: true
-                    enabled: !connection.discord.signingIn
-                    color: panel.ink
-                    placeholderTextColor: panel.muted
-                    placeholderText: "Application ID"
-                    text: connection.discord.clientId
-                    Accessible.name: placeholderText
-                    onAccepted: if (connectDiscord.enabled) connectDiscord.clicked()
-                    background: Rectangle {
-                        radius: 9
-                        color: "#13241d"
-                        border.color: applicationId.activeFocus ? panel.mint : panel.line
-                    }
+                Copy {
+                    visible: !connection.discord.linked
+                    text: "Запустите настольный Discord и подтвердите доступ в браузере."
                 }
                 Action {
-                    id: connectDiscord
                     objectName: "connectDiscord"
                     Layout.fillWidth: true
                     text: "Подключить Discord"
                     emphasized: true
-                    enabled: !connection.discord.signingIn && applicationId.text.trim().length > 0
-                        && (!connection.discord.authorized || applicationId.text.trim() !== connection.discord.clientId)
-                    onClicked: connection.discord.connectDiscord(applicationId.text)
+                    visible: !connection.discord.authorized
+                    enabled: !connection.discord.signingIn
+                    onClicked: connection.discord.connectDiscord()
                 }
                 Action {
                     Layout.fillWidth: true
                     visible: connection.discord.linked
-                    text: "Отключить Discord"
+                    text: connection.discord.signingIn ? "Отменить вход" : "Отключить Discord"
                     onClicked: connection.discord.disconnectDiscord()
-                }
-            }
-            Surface {
-                FieldLabel { text: "Настройка Discord Developer Portal" }
-                Copy {
-                    text: "Включите Public Client у приложения с разрешениями rpc, rpc.voice.read и rpc.voice.write. Добавьте этот адрес в OAuth2 Redirects."
-                }
-                TextField {
-                    Layout.fillWidth: true
-                    implicitHeight: 36
-                    readOnly: true
-                    selectByMouse: true
-                    text: connection.discord.redirectUri
-                    color: panel.ink
-                    Accessible.name: "OAuth2 Redirect URI"
-                    background: Rectangle {
-                        radius: 9
-                        color: "#13241d"
-                        border.color: panel.line
-                    }
-                }
-                Action {
-                    Layout.fillWidth: true
-                    text: "Открыть Discord Developer Portal"
-                    onClicked: Qt.openUrlExternally("https://discord.com/developers/applications")
                 }
             }
         }

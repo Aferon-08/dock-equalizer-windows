@@ -14,8 +14,6 @@ class DiscordVoice : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool available READ available CONSTANT)
-    Q_PROPERTY(QString redirectUri READ redirectUri CONSTANT)
-    Q_PROPERTY(QString clientId READ clientId NOTIFY clientIdChanged)
     Q_PROPERTY(bool linked READ linked NOTIFY changed)
     Q_PROPERTY(bool signingIn READ signingIn NOTIFY changed)
     Q_PROPERTY(bool authorized READ authorized NOTIFY changed)
@@ -31,11 +29,10 @@ class DiscordVoice : public QObject
     Q_PROPERTY(QString durationText READ durationText NOTIFY durationChanged)
 
 public:
-    DiscordVoice(QSettings &settings, bool available, QStringList endpoints = {}, QObject *parent = nullptr);
+    DiscordVoice(QSettings &settings, bool available, QString applicationId, QStringList endpoints = {},
+                 QObject *parent = nullptr);
 
     bool available() const { return m_available; }
-    QString redirectUri() const { return DiscordOAuth::redirectUri(); }
-    QString clientId() const { return m_clientId; }
     bool linked() const { return m_linked; }
     bool signingIn() const { return m_authenticating || m_oauth.busy(); }
     bool authorized() const { return m_authorized; }
@@ -50,14 +47,13 @@ public:
     bool canHangUp() const;
     QString durationText() const;
 
-    Q_INVOKABLE void connectDiscord(const QString &clientId);
+    Q_INVOKABLE void connectDiscord();
     Q_INVOKABLE void disconnectDiscord();
     Q_INVOKABLE void toggleMute();
     Q_INVOKABLE void toggleDeafen();
     Q_INVOKABLE void hangUp();
 
 signals:
-    void clientIdChanged();
     void changed();
     void durationChanged();
 
@@ -80,13 +76,13 @@ private:
 
     QSettings &m_settings;
     const bool m_available;
+    const QString m_clientId;
     DiscordRpc m_rpc;
     DiscordOAuth m_oauth;
     QTimer m_poll;
     QTimer m_clock;
     QElapsedTimer m_callStarted;
     QElapsedTimer m_ipcLostAt;
-    QString m_clientId;
     QString m_status;
     QString m_selfId;
     QString m_channelId;

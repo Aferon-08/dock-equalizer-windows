@@ -280,6 +280,22 @@ struct DiscordVoiceTest
         restored.setClientId(voiceId);
         if (!check(!restored.usable() && !restored.renewable(), "A grant must be bound to its Application ID"))
             return false;
+
+        MockDiscord discord;
+        const auto endpoint = u"sekai-discord-upgrade-"_s + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        if (!check(discord.server.listen(endpoint), "Could not listen on the mock migration endpoint"))
+            return false;
+        settings.setValue(u"discord/clientId"_s, applicationId);
+        settings.setValue(u"discord/linked"_s, true);
+        {
+            DiscordVoice upgraded(settings, true, applicationId, {endpoint});
+            if (!check(waitFor([&] { return upgraded.canChangeVoice() && discord.authCount == 1; })
+                    && !discord.wrongHandshake && !discord.wrongToken,
+                    "Updating must reconnect with the same protected grant without opening sign-in"))
+                return false;
+        }
+        settings.remove(u"discord/linked"_s);
+        settings.remove(u"discord/clientId"_s);
 #endif
         oauth.forget();
         return check(!settings.contains(u"discord/grant"_s), "Disconnect must remove the cached grant");
@@ -292,19 +308,23 @@ struct DiscordVoiceTest
         if (!check(discord.server.listen(endpoint), "Could not listen on the mock Discord IPC endpoint"))
             return false;
 
-        DiscordVoice voice(settings, true, {endpoint + u"-missing"_s, endpoint});
-        voice.connectDiscord(u"invalid"_s);
-        if (!check(!voice.linked(), "An invalid Application ID must not open a connection"))
+        DiscordVoice invalid(settings, true, u"invalid"_s, {endpoint});
+        invalid.connectDiscord();
+        if (!check(!invalid.available() && !invalid.linked(), "An invalid build Application ID must not connect"))
             return false;
+
+        settings.setValue(u"discord/clientId"_s, voiceId);
+        DiscordVoice voice(settings, true, applicationId, {endpoint + u"-missing"_s, endpoint});
         voice.m_oauth.setClientId(applicationId);
         voice.m_oauth.m_accessToken = mockAccess;
         voice.m_oauth.m_expiresAt = QDateTime::currentMSecsSinceEpoch() + 3600000;
-        voice.connectDiscord(applicationId);
+        voice.connectDiscord();
         if (!check(waitFor([&] { return voice.canChangeVoice() && discord.pongReceived
                 && voice.m_subscribed.contains(u"SPEAKING_START"_s); }),
                 "The handshake, fragmented READY, ping and authenticated subscriptions must work")
             || !check(!discord.wrongHandshake && !discord.wrongToken && voice.room() == u"Ночной эфир"_s
-                && voice.participants().size() == 2, "The authorized RPC snapshot should expose the room and both users"))
+                && voice.participants().size() == 2,
+                "Connect must use the configured app and expose the room and both users"))
             return false;
 
         discord.sendEvent(u"SPEAKING_START"_s, {{u"user_id"_s, peerId}});
@@ -365,8 +385,8 @@ struct DiscordVoiceTest
 
         discord.writeScope = false;
         discord.channel = {{u"id"_s, voiceId}, {u"name"_s, u"Просмотр"_s}, {u"type"_s, 2}};
-        voice.connectDiscord(applicationId);
-        if (!check(waitFor([&] { return voice.connected() && discord.authCount == 3; })
+        discord.socket->disconnectFromServer();
+        if (!check(waitFor([&] { return voice.connected() && discord.authCount == 3; }, 4500)
                 && !voice.canHangUp() && !voice.canChangeVoice(), "Read-only grants must show voice without write controls"))
             return false;
 

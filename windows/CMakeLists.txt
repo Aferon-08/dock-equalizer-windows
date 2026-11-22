@@ -9,7 +9,8 @@ target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.
     MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
 target_include_directories(SekaiSoundbar PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
-target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}"
+    SOUNDBAR_DISCORD_APPLICATION_ID="${SOUNDBAR_DISCORD_APPLICATION_ID}")
 if(WIN32 AND SOUNDBAR_NOTIFICATION_PUBLISHER)
     string(REPLACE "&" "&amp;" notification_publisher "${SOUNDBAR_NOTIFICATION_PUBLISHER}")
     string(REPLACE "\"" "&quot;" notification_publisher "${notification_publisher}")

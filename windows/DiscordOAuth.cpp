@@ -201,7 +201,9 @@ void DiscordOAuth::handleCallback(QTcpSocket &socket, const QByteArray &request)
     cancel();
     sendPage(socket, true);
     if (codes.size() != 1 || codes.front().isEmpty() || codes.front().size() > 1024) {
-        emit failed(u"Discord не выдал разрешение. Проверьте настройки приложения и доступ к голосовому RPC."_s);
+        const bool denied = query.queryItemValue(u"error"_s) == u"access_denied"_s;
+        emit failed(denied ? u"Доступ не был подтверждён. Нажмите «Подключить Discord», чтобы повторить."_s
+                           : u"Discord не выдал Sekai Soundbar разрешение на подключение."_s);
         return;
     }
 
@@ -255,7 +257,7 @@ void DiscordOAuth::exchange(QUrlQuery parameters, bool refreshing)
             const bool configured = error == u"invalid_client"_s || error == u"unauthorized_client"_s
                 || error == u"invalid_scope"_s;
             emit failed(configured
-                ? u"Discord отклонил OAuth. Проверьте Public Client, Redirect URI и доступ приложения к RPC."_s
+                ? u"Discord отклонил запрос Sekai Soundbar на доступ к голосовым каналам."_s
                 : u"Не удалось получить разрешение Discord. Подключите Discord ещё раз."_s);
             return;
         }

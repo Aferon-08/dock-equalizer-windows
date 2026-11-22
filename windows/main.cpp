@@ -161,7 +161,7 @@ int main(int argc, char *argv[])
     BatteryStatus batteryStatus(liveInputs);
     WifiStatus wifiStatus(!liveInputs);
     QSettings settings(QStringLiteral("SekaiSoundbar"), QStringLiteral("Settings"));
-    DiscordVoice discord(settings, liveInputs && !trayExitTest);
+    DiscordVoice discord(settings, liveInputs && !trayExitTest, QStringLiteral(SOUNDBAR_DISCORD_APPLICATION_ID));
     WindowsNotifications windowsNotifications(liveInputs, settings);
     LyricsImport lyrics;
     LyricsSearch search;
