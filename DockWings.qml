@@ -24,6 +24,7 @@ Item {
     property rect sideCallBounds: Qt.rect(0, 0, 0, 0)
     property real sideCallBlend: 0
     property real lyricsCover: 0
+    property bool foldWings: false
     readonly property bool customHousing: playerOverrideMix > 0
     readonly property bool noticeVisible: !vertical && !!notification?.presenting && !notification.suspended
     readonly property real noticeMix: noticeVisible ? notification.coverAmount : 0
@@ -110,7 +111,8 @@ Item {
                 root.startClosing()
         }
     }
-    readonly property bool wantsFusion: lyricsCover < 0.5 && lyricLayer.wide && !vertical && host.dock.look !== "transparent"
+    readonly property bool wantsFusion: !vertical && host.dock.look !== "transparent"
+        && (foldWings || (lyricsCover < 0.5 && lyricLayer.wide))
     property real fusion: 0
     property real outline: 0
     property real edgeLight: host.working && lyricLayer.playing ? 1 : 0
@@ -267,7 +269,7 @@ Item {
                 : inShader(root.playerHousing)
             readonly property vector4d dockRect: root.noticeVisible ? inShader(root.housingRect) : playerRect
             readonly property vector4d miniPlayer: {
-                if (!root.noticeVisible)
+                if (!root.notification)
                     return Qt.vector4d(0, 0, 0, 0)
                 const rect = root.notification.miniBounds
                 return Qt.vector4d(rect.x + rect.width / 2 - liquid.x,
@@ -275,7 +277,7 @@ Item {
             }
             readonly property vector4d miniCall: inShader(root.sideCallBounds)
             readonly property real miniCallBlend: root.sideCallBlend
-            readonly property real miniBlend: root.noticeVisible ? root.notification.miniBlend : 0
+            readonly property real miniBlend: root.notification?.miniBlend ?? 0
             readonly property real noticeMix: root.noticeMix
             readonly property color noticeTint: root.noticeVisible ? root.notification.accent : "transparent"
             function inShader(rect) {

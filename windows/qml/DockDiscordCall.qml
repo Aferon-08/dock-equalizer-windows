@@ -65,14 +65,14 @@ Item {
     readonly property rect layoutBounds: Qt.rect((width - panelWidth) / 2, topInset, panelWidth, panelHeight)
 
     readonly property real split: notification.usesCallLayout && !notification.suspended ? notification.splitProgress : 0
-    readonly property real sideBlend: split > 0 ? notification.miniBlend : 0
+    readonly property real sideBlend: split > 0 ? notification.splitBlend : 0
     readonly property rect sideBounds: {
         const growth = Motion.smooth(Geometry.phase(split, 0.09, 0.65))
         if (growth <= 0)
             return Qt.rect(0, 0, 0, 0)
         const body = notification.bodyBounds
         const travel = Motion.travel(Geometry.phase(split, 0.15, 0.94))
-        const stretch = notification.miniStretch
+        const stretch = notification.splitStretch
         const recoil = notification.releaseRecoil
         const span = sideWidth * growth * (1 + 0.12 * stretch + 0.035 * recoil)
         const height = sideHeight * growth * (1 - 0.18 * stretch)
@@ -95,6 +95,19 @@ Item {
     readonly property real dockContent: 1 - Geometry.phase(split, 0.06, 0.61)
     readonly property real musicWidth: 214
     readonly property real compactKeysRight: deckRight - musicMix * musicWidth
+    readonly property real artworkSize: 36
+    readonly property real musicLeft: deckRight - musicWidth + 11
+    readonly property real musicDividerWidth: 1
+    readonly property real musicDividerMargin: 4
+    readonly property real musicSpacing: 8
+    readonly property point artworkCenter: Qt.point(musicLeft + musicDividerWidth + musicDividerMargin
+        + musicSpacing + artworkSize / 2, headerTop + artworkSize / 2)
+    readonly property real artworkAmount: Math.min(musicMix, Geometry.phase(joinProgress, 0.42, 1),
+        Geometry.phase(exposed, 0.50, 0.98))
+    readonly property real musicSeparation: Math.max(Geometry.phase(expandProgress, 0.06, 0.99), split)
+        * Geometry.phase(joinProgress, 0.36, 0.86) * Geometry.phase(lifetime, 0.12, 0.86) * musicMix
+    readonly property real inlineMusicAmount: Math.min(artworkAmount,
+        1 - Geometry.phase(musicSeparation, 0.04, 0.58))
     readonly property point releasePoint: Qt.point(
         Geometry.mix(deckLeft + frame.width * 0.27, sideBounds.x + sideBounds.width * 0.66, identityTravel),
         Geometry.mix(headerTop + 23, sideBounds.y + sideBounds.height * 0.52, identityTravel))
@@ -132,7 +145,6 @@ Item {
                         return "M3 14a2 2 0 0 1 0-3 15 15 0 0 1 18 0 2 2 0 0 1 0 3l-1 2-5-2v-3a11 11 0 0 0-6 0v3l-5 2z"
                     case "pause": return "M9 6v12 M15 6v12"
                     case "play": return "M9 5l10 7-10 7z"
-                    case "music": return "M10 17V6l9-2v10 M10 17a3 2 0 1 1-6 0 3 2 0 1 1 6 0z M19 14a3 2 0 1 1-6 0 3 2 0 1 1 6 0z"
                     default: return ""
                     }
                 }
@@ -413,36 +425,25 @@ Item {
 
     Foldout {
         id: compactMusic
-        source: Qt.point(call.deckRight - 22, call.headerTop + 18)
-        targetBounds: Qt.rect(call.deckRight - call.musicWidth + 11, call.headerTop, call.musicWidth - 11, 36)
-        amount: Math.min(call.compactContent, call.dockContent, call.musicMix,
-            Geometry.phase(call.joinProgress, 0.43, 1), Geometry.phase(call.exposed, 0.57, 1))
+        source: call.artworkCenter
+        targetBounds: Qt.rect(call.musicLeft, call.headerTop, call.deckRight - call.musicLeft, call.artworkSize)
+        amount: call.inlineMusicAmount
         enabled: call.interactive && call.preview.connected && amount > 0.88
 
         RowLayout {
             anchors.fill: parent
-            spacing: 8
+            spacing: call.musicSpacing
 
             Rectangle {
                 Layout.preferredHeight: 28
-                Layout.preferredWidth: 1
-                Layout.rightMargin: 4
+                Layout.preferredWidth: call.musicDividerWidth
+                Layout.rightMargin: call.musicDividerMargin
                 color: "#4cb8dacd"
             }
-            IconTile {
-                symbol: "music"
-                color: "#26ddbc9e"
-                border.color: "#47ddbc9e"
-                clip: true
-                Image {
-                    anchors.fill: parent
-                    anchors.margins: 3
-                    source: call.media.artUrl
-                    sourceSize: Qt.size(72, 72)
-                    asynchronous: true
-                    fillMode: Image.PreserveAspectCrop
-                    visible: status === Image.Ready
-                }
+            // The cover travels in DockMiniPlayer and occupies this space when docked.
+            Item {
+                Layout.preferredWidth: call.artworkSize
+                Layout.preferredHeight: call.artworkSize
             }
             ColumnLayout {
                 Layout.fillWidth: true

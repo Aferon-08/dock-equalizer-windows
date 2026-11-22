@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
+import "DockGeometry.js" as Geometry
 
 Item {
     id: mini
@@ -14,6 +15,8 @@ Item {
     required property var host
     required property real progress
     required property real progressPhase
+    readonly property real coverSize: 42
+    property real artworkRoundness: 1
     readonly property string progressRenderer: ringProgress.rendererName
     readonly property real progressSpectrum: ringProgress.spectrumPeak
 
@@ -40,9 +43,9 @@ Item {
     Rectangle {
         id: cover
         anchors.centerIn: parent
-        width: 42
+        width: mini.coverSize
         height: width
-        radius: width / 2
+        radius: Geometry.mix(9, width / 2, mini.artworkRoundness)
         opacity: mini.artworkOpacity
         color: "#a22c4f43"
         antialiasing: true
@@ -54,7 +57,7 @@ Item {
         Rectangle {
             id: roundMask
             anchors.fill: parent
-            radius: width / 2
+            radius: cover.radius
             color: "white"
             visible: false
             layer.enabled: true
@@ -62,7 +65,8 @@ Item {
         Image {
             id: image
             anchors.centerIn: parent
-            width: mini.roundArtwork ? parent.width : Math.floor(parent.width / Math.SQRT2)
+            width: mini.roundArtwork ? parent.width
+                : Math.floor(Geometry.mix(parent.width, parent.width / Math.SQRT2, mini.artworkRoundness))
             height: width
             source: mini.artwork
             sourceSize.width: 112

@@ -17,6 +17,10 @@ Item {
     required property int miniPauseDelay
     required property real topInset
     required property real availableHeight
+    required property point callArtworkCenter
+    required property real callArtworkSize
+    required property real callArtworkAmount
+    required property real callMusicSeparation
     property real callSpan: 0
     property bool suspended: false
 
@@ -186,14 +190,30 @@ Item {
         return cardRetraction > 0 ? Geometry.pullToEdge(housing, cardRetraction, 0, 0) : housing
     }
 
-    readonly property real miniStretch: Motion.smooth((splitProgress - 0.34) / 0.24)
-        * (1 - Motion.smooth((splitProgress - 0.72) / 0.26))
+    function stretchAt(progress) {
+        return Motion.smooth(Geometry.phase(progress, 0.34, 0.58))
+            * (1 - Motion.smooth(Geometry.phase(progress, 0.72, 0.98)))
+    }
+
+    function blendAt(progress) {
+        return 48 * Motion.smooth(Geometry.phase(progress, 0.16, 0.43))
+            * (1 - Motion.smooth(Geometry.phase(progress, 0.70, 0.93)))
+    }
+
+    readonly property real splitStretch: stretchAt(splitProgress)
+    readonly property real splitBlend: blendAt(splitProgress)
+    readonly property real miniAmount: usesCallLayout ? callMusicSeparation : splitProgress
+    readonly property real miniStretch: stretchAt(miniAmount)
+    readonly property real miniRecoil: Geometry.recoil(Geometry.phase(miniAmount, 0.76, 1))
+    readonly property real callArtworkRoundness: Motion.smooth(Geometry.phase(miniAmount, 0.04, 0.78))
     readonly property point miniCenter: {
         if (usesCallLayout) {
-            const travel = Motion.travel(Geometry.phase(splitProgress, 0.14, 0.94))
-            return Qt.point(bodyBounds.x + bodyBounds.width
-                + Geometry.mix(-miniDiameter * 0.62, miniGap + miniDiameter / 2, travel) + 10 * releaseRecoil,
-                bodyBounds.y + 35 + 7 * miniStretch - 4 * releaseRecoil)
+            // The cover starts in the compact track row and stays with the
+            // same capsule when an expanded call makes room for a notice.
+            const travel = Motion.travel(Geometry.phase(miniAmount, 0.12, 0.94))
+            const edge = bodyBounds.x + bodyBounds.width + miniGap + miniDiameter / 2
+            return Qt.point(Geometry.mix(callArtworkCenter.x, edge, travel) + 10 * miniRecoil,
+                Geometry.mix(callArtworkCenter.y, bodyBounds.y + 35, travel) + 7 * miniStretch - 4 * miniRecoil)
         }
         const body = renderer.playerHousing
         const right = body.x + body.width + extraPlayerWidth / 2
@@ -202,20 +222,19 @@ Item {
             body.y + 47 + 6 * miniStretch - 4 * releaseRecoil)
     }
     readonly property rect miniBounds: {
-        if (usesCallLayout && !hasSideMusic)
+        if (suspended)
             return Qt.rect(0, 0, 0, 0)
         if (miniPauseExpired)
             return retiringMini ? Geometry.pullToEdge(retiringBounds, miniRetreat, 0, 0) : Qt.rect(0, 0, 0, 0)
-        const growth = Motion.smooth((splitProgress - 0.08) / 0.55)
+        const growth = Motion.smooth(Geometry.phase(miniAmount, 0.08, 0.63))
         if (growth < 0.001)
             return Qt.rect(0, 0, 0, 0)
         const span = miniDiameter * growth
-        const horizontal = span * (1 + 0.17 * miniStretch + 0.095 * releaseRecoil)
-        const vertical = span * (1 - 0.12 * miniStretch - 0.065 * releaseRecoil)
+        const horizontal = span * (1 + 0.17 * miniStretch + 0.095 * miniRecoil)
+        const vertical = span * (1 - 0.12 * miniStretch - 0.065 * miniRecoil)
         return Qt.rect(miniCenter.x - horizontal / 2, miniCenter.y - vertical / 2, horizontal, vertical)
     }
-    readonly property real miniBlend: miniPauseExpired ? 0 : 48 * Motion.smooth((splitProgress - 0.16) / 0.27)
-        * (1 - Motion.smooth((splitProgress - 0.70) / 0.23)) * (1 - cardRetraction)
+    readonly property real miniBlend: miniPauseExpired ? 0 : blendAt(miniAmount) * (1 - cardRetraction)
     readonly property rect neckBounds: connectingNeck(miniBounds, miniBlend, false)
 
     function connectingNeck(capsule, blend, left) {
@@ -239,7 +258,7 @@ Item {
         return card.textLayout()
     }
 
-    visible: presenting && !suspended
+    visible: !suspended && (presenting || (usesCallLayout && callArtworkAmount > 0))
 
     DockNotificationContent {
         id: card
@@ -267,19 +286,23 @@ Item {
 
     DockMiniPlayer {
         id: miniPlayer
-        x: notice.miniBounds.x + (notice.miniBounds.width - width) / 2
-        y: notice.miniBounds.y + (notice.miniBounds.height - height) / 2
-        scale: Math.min(notice.miniBounds.width, notice.miniBounds.height) / width
-        opacity: notice.miniPauseExpired ? 1 - Motion.smooth((notice.miniRetreat - 0.12) / 0.68)
-            : Motion.smooth((notice.splitProgress - 0.25) / 0.33)
+        x: (notice.usesCallLayout ? notice.miniCenter.x : notice.miniBounds.x + notice.miniBounds.width / 2) - width / 2
+        y: (notice.usesCallLayout ? notice.miniCenter.y : notice.miniBounds.y + notice.miniBounds.height / 2) - height / 2
+        scale: notice.usesCallLayout ? Geometry.mix(notice.callArtworkSize / coverSize, 1, notice.callArtworkRoundness)
+            : Math.min(notice.miniBounds.width, notice.miniBounds.height) / width
+        opacity: notice.usesCallLayout ? Motion.smooth(notice.callArtworkAmount)
+            : notice.miniPauseExpired ? 1 - Motion.smooth((notice.miniRetreat - 0.12) / 0.68)
+                : Motion.smooth((notice.splitProgress - 0.25) / 0.33)
         visible: opacity > 0.001 && scale > 0
-        enabled: notice.splitProgress > 0.92 && !notice.miniPauseExpired
+        enabled: notice.miniAmount > 0.92 && !notice.miniPauseExpired
         player: notice.media.player
         artwork: notice.media.artUrl
         artworkOpacity: notice.usesCallLayout || notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.coverAlpha
-        progressOpacity: notice.usesCallLayout || notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.progressAlpha
+        progressOpacity: notice.usesCallLayout ? Motion.smooth(Geometry.phase(notice.miniAmount, 0.30, 0.80))
+            : notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.progressAlpha
         playing: notice.media.playing
         roundArtwork: notice.renderer.shaderAvailable
+        artworkRoundness: notice.usesCallLayout ? notice.callArtworkRoundness : 1
         host: notice.renderer.host
         progress: notice.renderer.lyricsView.duration > 0
             ? notice.renderer.lyricsView.position / notice.renderer.lyricsView.duration : 0
