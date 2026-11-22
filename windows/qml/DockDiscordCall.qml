@@ -8,7 +8,7 @@ import "MarkerMotion.js" as Motion
 
 Item {
     id: call
-    required property DiscordCallPreview preview
+    required property DiscordCall session
     required property var media
     required property var notification
     required property rect housing
@@ -28,29 +28,29 @@ Item {
     // Keep the last layout through the exit. The call can end immediately
     // while the parts fold into the housing or leave room for the player.
     property int presentedPhase: DiscordCallPreview.Idle
-    Component.onCompleted: presentedPhase = preview.phase
+    Component.onCompleted: presentedPhase = session.phase
     Connections {
-        target: call.preview
+        target: call.session
         function onPhaseChanged() {
-            if (call.preview.active)
-                call.presentedPhase = call.preview.phase
+            if (call.session.active)
+                call.presentedPhase = call.session.phase
         }
     }
 
     readonly property bool conversation: presentedPhase === DiscordCallPreview.Connected
-    readonly property bool presenting: preview.active || lifetime > 0
-    readonly property bool retiring: presenting && !preview.active
+    readonly property bool presenting: session.active || lifetime > 0
+    readonly property bool retiring: presenting && !session.active
     readonly property bool ringOnTop: presenting && (!conversation || joinProgress < 0.36)
     readonly property bool expanded: conversation && expansionAllowed
     readonly property bool showMusic: conversation && !expanded && !!media.player
     readonly property real exposed: Math.min(lifetime, opening)
-    readonly property bool interactive: preview.active && exposed > 0.79 && !notification.active && split < 0.03
+    readonly property bool interactive: session.active && exposed > 0.79 && !notification.active && split < 0.03
 
-    property real lifetime: preview.active ? 1 : 0
+    property real lifetime: session.active ? 1 : 0
     property real joinProgress: conversation ? 1 : 0
     property real expandProgress: expanded ? 1 : 0
     property real musicMix: media.player ? 1 : 0
-    Behavior on lifetime { NumberAnimation { duration: call.preview.active ? 880 : 680 } }
+    Behavior on lifetime { NumberAnimation { duration: call.session.active ? 880 : 680 } }
     Behavior on joinProgress { NumberAnimation { duration: 780 } }
     Behavior on expandProgress { NumberAnimation { duration: call.expanded ? 880 : 670 } }
     Behavior on musicMix { NumberAnimation { duration: 400; easing.type: Easing.InOutCubic } }
@@ -238,19 +238,20 @@ Item {
     }
 
     component MicAction: Action {
-        symbol: call.preview.microphoneOff ? "mic-off" : "mic"
-        actionName: call.preview.deafened ? "Микрофон выключен вместе со звуком"
-            : call.preview.muted ? "Включить микрофон" : "Выключить микрофон"
-        enabled: !call.preview.deafened
-        tint: call.preview.microphoneOff ? "#e3b0b8" : "#b4d9cc"
-        onClicked: call.preview.toggleMute()
+        symbol: call.session.microphoneOff ? "mic-off" : "mic"
+        actionName: call.session.deafened ? "Микрофон выключен вместе со звуком"
+            : call.session.muted ? "Включить микрофон" : "Выключить микрофон"
+        enabled: call.session.canChangeVoice && !call.session.deafened
+        tint: call.session.microphoneOff ? "#e3b0b8" : "#b4d9cc"
+        onClicked: call.session.toggleMute()
     }
 
     component HangUpAction: Action {
         symbol: "hang"
         actionName: "Завершить звонок"
+        enabled: call.session.canHangUp
         tint: "#ff7f8a"
-        onClicked: call.preview.hangUp()
+        onClicked: call.session.hangUp()
     }
 
     component Foldout: Item {
@@ -286,7 +287,7 @@ Item {
         targetBounds: Qt.rect(call.deckRight - ringKeys.implicitWidth, call.headerTop, ringKeys.implicitWidth, 36)
         amount: Math.min(Geometry.phase(call.exposed, 0.32, 1),
             1 - Geometry.phase(call.joinProgress, 0.02, 0.43))
-        enabled: call.interactive && call.preview.ringing && amount > 0.8
+        enabled: call.interactive && call.session.ringing && amount > 0.8
 
         RowLayout {
             id: ringKeys
@@ -300,7 +301,7 @@ Item {
                 symbol: "phone"
                 tint: "#8ae4bb"
                 transform: Translate { x: -9 * (1 - ringControls.travel) }
-                onClicked: call.preview.accept()
+                onClicked: call.session.accept()
             }
             Action {
                 objectName: "declineDiscordPreview"
@@ -309,7 +310,7 @@ Item {
                 symbol: "hang"
                 tint: "#ff7f8a"
                 transform: Translate { y: -11 * (1 - ringControls.travel) }
-                onClicked: call.preview.decline()
+                onClicked: call.session.decline()
             }
         }
     }
@@ -363,7 +364,7 @@ Item {
                         y: -parent.height * call.titleChange
                         opacity: 1 - call.titleChange
                         visible: opacity > 0
-                        text: call.preview.caller + " звонит"
+                        text: call.session.caller + " звонит"
                         font.pixelSize: 17
                     }
                     Title {
@@ -371,14 +372,14 @@ Item {
                         y: parent.height * (1 - call.titleChange)
                         opacity: call.titleChange
                         visible: opacity > 0
-                        text: call.preview.room
+                        text: call.session.room
                         font.pixelSize: Math.round(Geometry.mix(15 + 3 * call.headerExpanded, 13, call.identityTravel))
                     }
                 }
                 Caption {
                     y: 21
                     width: parent.width
-                    text: call.preview.deafened ? "Discord · Звук выключен" : "Discord · Тестовый войс"
+                    text: call.session.deafened ? "Discord · Звук выключен" : call.session.context
                     color: call.lavender
                     opacity: call.titleChange * call.headerExpanded
                     visible: opacity > 0.01
@@ -400,7 +401,7 @@ Item {
         z: 2
         x: Geometry.mix(identity.x + identity.badgeSize + 8, call.deckRight - width, call.headerExpanded)
         y: Geometry.mix(identity.y + 20, call.headerTop + 8, call.headerExpanded)
-        text: call.preview.durationText
+        text: call.session.durationText
         color: call.lavender
         font.pixelSize: Math.round(12 + 3 * call.headerExpanded)
         opacity: identity.opacity * call.titleChange
@@ -413,7 +414,7 @@ Item {
         targetBounds: Qt.rect(call.compactKeysRight - 80, call.headerTop, 80, 36)
         amount: Math.min(call.compactContent, call.dockContent, Geometry.phase(call.joinProgress, 0.33, 1),
             Geometry.phase(call.exposed, 0.56, 1))
-        enabled: call.interactive && call.preview.connected && amount > 0.88
+        enabled: call.interactive && call.session.connected && amount > 0.88
 
         RowLayout {
             anchors.fill: parent
@@ -428,7 +429,7 @@ Item {
         source: call.artworkCenter
         targetBounds: Qt.rect(call.musicLeft, call.headerTop, call.deckRight - call.musicLeft, call.artworkSize)
         amount: call.inlineMusicAmount
-        enabled: call.interactive && call.preview.connected && amount > 0.88
+        enabled: call.interactive && call.session.connected && amount > 0.88
 
         RowLayout {
             anchors.fill: parent
@@ -497,39 +498,52 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 10
                 spacing: 5
-                Caption { text: "Участники · " + call.preview.participants.length }
+                Caption { text: "Участники · " + call.session.participants.length }
 
-                GridLayout {
+                Flickable {
+                    id: participantScroll
                     Layout.fillWidth: true
-                    columns: 2
-                    columnSpacing: 12
-                    rowSpacing: 4
-                    Repeater {
-                        model: call.preview.participants
-                        RowLayout {
-                            id: person
-                            required property var modelData
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Rectangle {
-                                Layout.preferredWidth: 22
-                                Layout.preferredHeight: 22
-                                radius: 11
-                                color: "#3a9384bd"
-                                border.color: person.modelData.speaking ? "#90dcb9" : "#449b8cbe"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: person.modelData.name[0]
-                                    color: call.ink
-                                    font.pixelSize: 11
-                                    Accessible.ignored: true
+                    Layout.fillHeight: true
+                    clip: true
+                    contentWidth: width
+                    contentHeight: roster.implicitHeight
+                    flickableDirection: Flickable.VerticalFlick
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    GridLayout {
+                        id: roster
+                        width: participantScroll.width
+                        columns: 2
+                        columnSpacing: 12
+                        rowSpacing: 4
+                        Repeater {
+                            model: call.session.participants
+                            RowLayout {
+                                id: person
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Rectangle {
+                                    Layout.preferredWidth: 22
+                                    Layout.preferredHeight: 22
+                                    radius: 11
+                                    color: "#3a9384bd"
+                                    border.color: person.modelData.speaking ? "#90dcb9" : "#449b8cbe"
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: Array.from(person.modelData.name)[0] ?? ""
+                                        color: call.ink
+                                        font.pixelSize: 11
+                                        Accessible.ignored: true
+                                    }
                                 }
-                            }
-                            Title { text: person.modelData.name; font.pixelSize: 12 }
-                            Caption {
-                                text: person.modelData.status
-                                Layout.fillWidth: false
-                                color: person.modelData.speaking ? "#a4e7cc" : call.mutedInk
+                                Title { text: person.modelData.name; font.pixelSize: 12 }
+                                Caption {
+                                    text: person.modelData.status
+                                    Layout.fillWidth: false
+                                    color: person.modelData.speaking ? "#a4e7cc" : call.mutedInk
+                                }
                             }
                         }
                     }
@@ -552,22 +566,23 @@ Item {
             targetBounds: Qt.rect(call.deckLeft, 7, call.deckRight - call.deckLeft, 36)
             amount: Math.min(Geometry.phase(call.expandProgress, 0.39, 1),
                 1 - Geometry.phase(call.split, 0.02, 0.48), Geometry.phase(call.exposed, 0.58, 1))
-            enabled: call.interactive && call.preview.connected && amount > 0.9
+            enabled: call.interactive && call.session.connected && amount > 0.9
 
             RowLayout {
                 anchors.fill: parent
                 spacing: 8
                 MicAction {
                     objectName: "muteDiscordExpanded"
-                    text: call.preview.microphoneOff ? "Микрофон выкл." : "Микрофон"
+                    text: call.session.microphoneOff ? "Микрофон выкл." : "Микрофон"
                 }
                 Action {
                     objectName: "deafenDiscordPreview"
-                    text: call.preview.deafened ? "Включить звук" : "Отключить звук и микрофон"
+                    enabled: call.session.canChangeVoice
+                    text: call.session.deafened ? "Включить звук" : "Отключить звук и микрофон"
                     actionName: text
-                    symbol: call.preview.deafened ? "deaf" : "headphones"
-                    tint: call.preview.deafened ? "#e3b0b8" : "#b4d9cc"
-                    onClicked: call.preview.toggleDeafen()
+                    symbol: call.session.deafened ? "deaf" : "headphones"
+                    tint: call.session.deafened ? "#e3b0b8" : "#b4d9cc"
+                    onClicked: call.session.toggleDeafen()
                 }
                 Item { Layout.fillWidth: true }
                 HangUpAction { objectName: "hangUpDiscordExpanded"; text: "Выйти" }
@@ -582,7 +597,7 @@ Item {
         targetBounds: Qt.rect(call.sideBounds.x + call.sideBounds.width - 42,
             call.sideBounds.y + (call.sideBounds.height - 32) / 2, 32, 32)
         amount: Math.min(call.exposed, Geometry.phase(call.split, 0.55, 0.96))
-        enabled: call.preview.connected && call.split > 0.92
+        enabled: call.session.connected && call.split > 0.92
 
         MicAction { objectName: "muteDiscordSide"; anchors.fill: parent; implicitHeight: 32 }
     }

@@ -8,11 +8,15 @@ QtObject {
     required property var batteryStatus
     required property var wifiStatus
     required property var windowsNotifications
+    required property var discordVoice
     property var localLyrics: null
     property var dockNotification: null
     readonly property var pendingNotifications: []
     readonly property string trackKey: mediaSessions.trackKey
-    readonly property DiscordCallPreview discordPreview: DiscordCallPreview {
+    readonly property DiscordCallPreview discordPreview: DiscordCallPreview {}
+    readonly property DiscordCall discordCall: DiscordCall {
+        live: app.discordVoice
+        testCall: app.discordPreview
         onRingingChanged: app.updateNotificationExpiry()
     }
 
@@ -82,7 +86,7 @@ QtObject {
     }
 
     function updateNotificationExpiry() {
-        if (dockNotification && !discordPreview.ringing)
+        if (dockNotification && !discordCall.ringing)
             notificationExpiry.restart()
         else
             notificationExpiry.stop()

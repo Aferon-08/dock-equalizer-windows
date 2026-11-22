@@ -5,6 +5,7 @@ target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h
     BatteryStatus.cpp BatteryStatus.h WifiStatus.cpp WifiStatus.h WindowsNotifications.cpp WindowsNotifications.h
+    DiscordOAuth.cpp DiscordOAuth.h DiscordRpc.cpp DiscordRpc.h DiscordVoice.cpp DiscordVoice.h
     MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
 target_include_directories(SekaiSoundbar PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
@@ -29,7 +30,7 @@ if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
         WinCaptureAbi.h WinNotificationAbi.h NotificationFeed.h BackdropTextureNode.h
         WindowsNotificationBanners.cpp WindowsNotificationBanners.h)
-    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi powrprof advapi32)
+    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi powrprof advapi32 crypt32)
 endif()
 
 if(WIN32)
@@ -59,6 +60,15 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(soundbar_discord_voice_test tests/DiscordVoiceTest.cpp
+        DiscordOAuth.cpp DiscordOAuth.h DiscordRpc.cpp DiscordRpc.h DiscordVoice.cpp DiscordVoice.h)
+    target_include_directories(soundbar_discord_voice_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(soundbar_discord_voice_test PRIVATE Qt6::Core Qt6::Gui Qt6::Network)
+    if(WIN32)
+        target_link_libraries(soundbar_discord_voice_test PRIVATE crypt32)
+    endif()
+    add_test(NAME soundbar.discord-voice COMMAND soundbar_discord_voice_test)
+    set_tests_properties(soundbar.discord-voice PROPERTIES TIMEOUT 20)
     add_executable(soundbar_notification_feed_test tests/NotificationFeedTest.cpp NotificationFeed.h)
     target_include_directories(soundbar_notification_feed_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(soundbar_notification_feed_test PRIVATE Qt6::Core)

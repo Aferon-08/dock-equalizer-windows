@@ -1,5 +1,6 @@
 #include "BatteryStatus.h"
 #include "DesktopOverlay.h"
+#include "DiscordVoice.h"
 #include "DisplaySettings.h"
 #include "DockAppearance.h"
 #include "LyricsAlignment.h"
@@ -160,6 +161,7 @@ int main(int argc, char *argv[])
     BatteryStatus batteryStatus(liveInputs);
     WifiStatus wifiStatus(!liveInputs);
     QSettings settings(QStringLiteral("SekaiSoundbar"), QStringLiteral("Settings"));
+    DiscordVoice discord(settings, liveInputs && !trayExitTest);
     WindowsNotifications windowsNotifications(liveInputs, settings);
     LyricsImport lyrics;
     LyricsSearch search;
@@ -201,6 +203,7 @@ int main(int argc, char *argv[])
         {QStringLiteral("lyricsAlignment"), QVariant::fromValue(&alignment)},
         {QStringLiteral("batteryStatus"), QVariant::fromValue(&batteryStatus)},
         {QStringLiteral("wifiStatus"), QVariant::fromValue(&wifiStatus)},
+        {QStringLiteral("discordVoice"), QVariant::fromValue(&discord)},
         {QStringLiteral("windowsNotifications"), QVariant::fromValue(&windowsNotifications)}
     }));
     if (!appState) {

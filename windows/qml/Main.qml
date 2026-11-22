@@ -70,6 +70,7 @@ Window {
         && stage.GraphicsInfo.api === GraphicsInfo.Direct3D11
     readonly property var media: demoMode ? demoMedia : mediaSessions
     readonly property DiscordCallPreview discordPreview: appState.discordPreview
+    readonly property DiscordCall discordCall: appState.discordCall
     readonly property string activeTrackKey: media.player ? media.player.trackKey : ""
     readonly property var localLyrics: appState.localLyrics
     readonly property var onlineLyrics: !demoMode && lyricsSearch.trackKey === activeTrackKey
@@ -125,7 +126,7 @@ Window {
         idleDelay: demoHost.settings.collapseDelay
         pauseDelay: window.smokeMode ? 1700 : 60000
         holdOpen: window.trayPreview
-            || window.discordPreview.active
+            || window.discordCall.active
             || (callLayer.retiring && !!window.appState.dockNotification)
             || noticeLayer.keepPausedMini
             || (window.smokeMode && window.smokeHoldOpen)
@@ -613,7 +614,7 @@ Window {
         DockDiscordCall {
             id: callLayer
             anchors.fill: parent
-            preview: window.discordPreview
+            session: window.discordCall
             media: window.media
             notification: noticeLayer
             housing: wings.playerHousing
