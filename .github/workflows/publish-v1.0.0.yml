@@ -1,0 +1,35 @@
+name: Publish Sekai Soundbar v1.0.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-v1.0.0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'Aferon-08/dock-equalizer-windows'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify packaged installer
+        run: |
+          test -f SekaiSoundbar-Windows11-x64-Setup.exe
+          test "$(git hash-object SekaiSoundbar-Windows11-x64-Setup.exe)" = "7eee486849b9523f127117980baff40e95fe780e"
+      - name: Publish first stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v1.0.0 already exists; nothing to do."
+            exit 0
+          fi
+          gh release create v1.0.0 SekaiSoundbar-Windows11-x64-Setup.exe \
+            --repo "$GITHUB_REPOSITORY" \
+            --target aa991b05aab8ef1f744ffb936a0dbaeb5f8de802 \
+            --title "Sekai Soundbar 1.0" \
+            --notes "First public stable GitHub release for Windows 11 x64.\n\nDownload **SekaiSoundbar-Windows11-x64-Setup.exe** and run the installer. If Sekai Soundbar is already running, exit it from the notification area before installation.\n\nThis release republishes the existing 0.22.0 installer from main as v1.0.0; the executable was not rebuilt, so its internal version may still display 0.22.0.\n\nSource reference: https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/tree/383479e0a2691b270e0c7ba8f1e1d37c4b6f5996" \
+            --latest
