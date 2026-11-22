@@ -30,6 +30,7 @@ layout(std140, binding = 0) uniform buf {
     float desktopLens;
     float dropTaper;
     vec4 miniPlayer;
+    vec4 miniCall;
     vec4 noticeTint;
     float miniBlend;
     float noticeMix;
@@ -64,10 +65,17 @@ float miniPlayerDistance(vec2 p) {
     return (length((p - miniPlayer.xy) / radius) - 1.0) * min(radius.x, radius.y);
 }
 
+float miniCallDistance(vec2 p) {
+    vec2 size = miniCall.zw;
+    return roundedBox(p, miniCall.xy + size * 0.5, size, size.y * 0.5);
+}
+
 float body(vec2 p) {
     float mainBody = housingDistance(p);
     if (miniPlayer.z > 0.001)
         mainBody = liquidUnion(mainBody, miniPlayerDistance(p), miniBlend);
+    if (miniCall.z > 0.001)
+        mainBody = min(mainBody, miniCallDistance(p));
     if (params.x < 0.1)
         return mainBody;
     vec2 wingSize = vec2(wingData.w, params.x);
@@ -170,6 +178,11 @@ void main() {
             float miniD = miniPlayerDistance(p);
             miniMask = (1.0 - smoothstep(-3.0, 3.0, miniD - mainD)) * (1.0 - smoothstep(-1.0, 1.0, miniD));
         }
+        float callMask = 0.0;
+        if (miniCall.z > 0.001) {
+            float callD = miniCallDistance(p);
+            callMask = (1.0 - smoothstep(-3.0, 3.0, callD - mainD)) * (1.0 - smoothstep(-1.0, 1.0, callD));
+        }
         vec2 bend = n * bevel * 13.0;
         if (desktopLens > 0.5) {
             // A continuous lens curve avoids a jump where the nearest edge changes.
@@ -195,7 +208,7 @@ void main() {
             scene.r = texture(backdrop, clamp(uv + fringe, 0.0, 1.0)).r;
             scene.b = texture(backdrop, clamp(uv - fringe, 0.0, 1.0)).b;
         }
-        float tintAlpha = mix(min(1.0,materialStyle.x+0.29),materialStyle.x,max(mainMask,miniMask));
+        float tintAlpha = mix(min(1.0,materialStyle.x+0.29),materialStyle.x,max(mainMask,max(miniMask,callMask)));
         // Keep the words readable over a bright desktop without replacing the glass.
         tintAlpha += (1.0 - tintAlpha) * 0.36 * noticeMix * mainMask;
         // A complete captured pixel replaces the live pixel under the dock.

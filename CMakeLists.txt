@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 0.19.1 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 0.20.0 LANGUAGES CXX)
 
 set(SOUNDBAR_NOTIFICATION_PUBLISHER "" CACHE STRING "Certificate subject for a signed Windows notification package")
 if(WIN32 AND SOUNDBAR_NOTIFICATION_PUBLISHER)
@@ -58,7 +58,8 @@ set(shared_ui
     VoiceAnnotations.js
 )
 set(shared_assets assets/next.svg assets/previous.svg assets/volume.svg)
-foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml DockMiniPlayer.qml
+foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml DiscordCallPreview.qml
+        DockDiscordCall.qml DockMiniPlayer.qml
         DockNotification.qml DockNotificationContent.qml WifiThroughput.qml)
     set_source_files_properties("windows/qml/${file}"
         PROPERTIES QT_RESOURCE_ALIAS "${file}")
@@ -80,6 +81,8 @@ qt_add_qml_module(SekaiSoundbar
         windows/qml/Main.qml
         windows/qml/AlignmentDialog.qml
         windows/qml/ApplicationState.qml
+        windows/qml/DiscordCallPreview.qml
+        windows/qml/DockDiscordCall.qml
         windows/qml/DockMiniPlayer.qml
         windows/qml/DockNotification.qml
         windows/qml/DockNotificationContent.qml

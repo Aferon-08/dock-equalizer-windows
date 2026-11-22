@@ -705,6 +705,20 @@ Window {
                 }
             }
             Surface {
+                Action {
+                    objectName: "testDiscordCallButton"
+                    Layout.fillWidth: true
+                    text: "Тестовый звонок Discord"
+                    enabled: !panel.appState.discordPreview.active
+                    onClicked: {
+                        if (panel.displays.enabledCount === 0) {
+                            notificationStatus.text = "Включите док хотя бы на одном мониторе."
+                            return
+                        }
+                        notificationStatus.text = ""
+                        panel.appState.discordPreview.start()
+                    }
+                }
                 Copy { text: "Тестовые карточки раскрываются, когда в верхней части экрана есть место." }
                 Action {
                     Layout.fillWidth: true

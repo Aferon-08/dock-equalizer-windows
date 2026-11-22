@@ -17,20 +17,26 @@ Item {
     required property int miniPauseDelay
     required property real topInset
     required property real availableHeight
+    property real callSpan: 0
+    property bool suspended: false
 
     signal dismissed()
 
-    readonly property bool active: allowed && !!event
+    readonly property bool active: allowed && !suspended && !!event
     readonly property string miniProgressRenderer: miniPlayer.progressRenderer
     readonly property real miniProgressSpectrum: miniPlayer.progressSpectrum
     readonly property bool presenting: active || reveal > 0 || splitProgress > 0 || retiringMini
+    readonly property bool usesCallLayout: callSpan > 0
+    readonly property bool hasSideMusic: usesCallLayout && !!media.player
+    readonly property real musicArrival: hasSideMusic ? Geometry.phase(reveal, 0.22, 0.72) : 0
     readonly property bool widePlayer: attached && renderer.lyricsView.wide
-    readonly property bool keepPausedMini: paused && pauseHold.running
-    readonly property bool canHoldPausedMini: allowed && paused && splitProgress > 0.92 && !miniPauseExpired
+    readonly property bool keepPausedMini: !usesCallLayout && !suspended && paused && pauseHold.running
+    readonly property bool canHoldPausedMini: !usesCallLayout && !suspended
+        && allowed && paused && splitProgress > 0.92 && !miniPauseExpired
     readonly property bool retiringMini: miniPauseExpired && miniRetreat < 1 && retiringBounds.width > 0
     readonly property bool splittingPlayer: allowed && !miniPauseExpired
         && (keepPausedMini || (active && clearForDetails && widePlayer))
-    readonly property bool movingPlayer: splittingPlayer || (!active && splitProgress > 0)
+    readonly property bool movingPlayer: !usesCallLayout && (splittingPlayer || (!active && splitProgress > 0))
     readonly property real compactHeight: 76
     readonly property real miniDiameter: 66
     readonly property real miniGap: 16
@@ -39,14 +45,28 @@ Item {
     readonly property real detailsHeight: card.preferredHeight
     readonly property real maximumDetailsHeight: Math.max(compactHeight, detailsHeight, expandedHeight) + 16
     readonly property real compactPlayerWidth: Math.min(renderer.host.settings.compactWidth, renderer.lyricsView.maxBody)
-    readonly property real maxCardWidth: Math.min(720, Math.max(1, width - 56 - (widePlayer ? miniSpan : 0)))
-    readonly property real surfaceWidth: Math.max(expandedEnvelope.width, expandedWidth + miniSpan + 36)
+    readonly property real maxCardWidth: Math.min(720, Math.max(1, width - 56 - callSpan
+        - (widePlayer || hasSideMusic ? miniSpan : 0)))
+    readonly property real surfaceWidth: usesCallLayout ? width
+        : Math.max(expandedEnvelope.width, expandedWidth + miniSpan + 36)
     readonly property color accent: lastEvent?.accent ?? "#a4e7cc"
     readonly property rect expandedEnvelope: {
+        if (usesCallLayout)
+            return Qt.rect(cardLeft(detailsWidth), topInset, detailsWidth, detailsHeight)
         const footprintWidth = widePlayer
             ? Math.max(renderer.lyricsView.expandedBodySize.width, detailsWidth + miniSpan) + 36
             : Math.max(attached ? compactPlayerWidth : 0, detailsWidth)
         return Qt.rect((width - footprintWidth) / 2, topInset, footprintWidth, detailsHeight)
+    }
+
+    function cardLeft(cardWidth) {
+        const centered = (width - cardWidth) / 2
+        if (!usesCallLayout)
+            return centered
+        // Preserve the centered position whenever the left capsule and the
+        // optional music control fit on their own sides.
+        return Math.min(width - 20 - (hasSideMusic ? miniSpan : 0) - cardWidth,
+            Math.max(centered, 20 + callSpan))
     }
 
     property var lastEvent: null
@@ -98,6 +118,8 @@ Item {
     }
 
     onCanHoldPausedMiniChanged: beginPauseHold()
+    onSuspendedChanged: if (suspended) resetPauseHold()
+    onUsesCallLayoutChanged: if (usesCallLayout) resetPauseHold()
     onPausedChanged: if (!paused) resetPauseHold()
     onTrackKeyChanged: {
         resetPauseHold()
@@ -137,17 +159,21 @@ Item {
     readonly property real extraPlayerWidth: Math.max(0, expandedWidth + miniSpan - renderer.playerHousing.width) * extruded
     readonly property real releaseRecoil: Geometry.recoil((splitProgress - 0.76) / 0.24)
     readonly property real mergeRecoil: mergeWeight * Geometry.recoil((0.39 - splitProgress) / 0.39)
-    readonly property real bodyTaper: Math.max(Geometry.taper(cardRetraction),
-        Geometry.mix(Geometry.taper(1 - reveal), renderer.playerTaper, attachment))
+    readonly property real bodyTaper: usesCallLayout ? Geometry.taper(1 - reveal)
+        : Math.max(Geometry.taper(cardRetraction),
+            Geometry.mix(Geometry.taper(1 - reveal), renderer.playerTaper, attachment))
     readonly property real bodyRadius: {
         const radius = Geometry.mix(compactHeight / 2, 36, detailAmount)
-        return Geometry.mix(radius, Geometry.mix(renderer.radius, radius, coverAmount), attachment)
+        return usesCallLayout ? radius
+            : Geometry.mix(radius, Geometry.mix(renderer.radius, radius, coverAmount), attachment)
     }
     readonly property rect bodyBounds: {
         const height = Geometry.mix(compactHeight, expandedHeight, detailAmount) + 9 * detailSpring
-        const cardWidth = expandedWidth + 14 * detailSpring
+        const cardWidth = (usesCallLayout ? Math.min(expandedWidth, maxCardWidth) : expandedWidth) + 14 * detailSpring
         const solo = Geometry.settleHousing(Geometry.pullToEdge(
-            Qt.rect((width - cardWidth) / 2, topInset, cardWidth, height), 1 - reveal, 0, 0), reveal)
+            Qt.rect(cardLeft(cardWidth), topInset, cardWidth, height), 1 - reveal, 0, 0), reveal)
+        if (usesCallLayout)
+            return solo
         const body = retiringMini ? retiringDeckBounds : renderer.playerHousing
         const widthTaken = miniSpan * Motion.smooth((splitProgress - 0.1) / 0.78)
         const extra = extraPlayerWidth
@@ -162,6 +188,11 @@ Item {
     readonly property real miniStretch: Motion.smooth((splitProgress - 0.34) / 0.24)
         * (1 - Motion.smooth((splitProgress - 0.72) / 0.26))
     readonly property point miniCenter: {
+        if (usesCallLayout) {
+            const travel = Geometry.arrival(musicArrival, 0.18)
+            return Qt.point(bodyBounds.x + bodyBounds.width + miniGap + miniDiameter / 2 - 11 * (1 - travel),
+                bodyBounds.y + 34 - 14 * (1 - travel))
+        }
         const body = renderer.playerHousing
         const right = body.x + body.width + extraPlayerWidth / 2
         return Qt.point(right - Geometry.mix(miniDiameter * 0.78, miniDiameter / 2, extruded)
@@ -169,6 +200,10 @@ Item {
             body.y + 47 + 6 * miniStretch - 4 * releaseRecoil)
     }
     readonly property rect miniBounds: {
+        if (usesCallLayout) {
+            const span = miniDiameter * Geometry.arrival(musicArrival, 0.18)
+            return Qt.rect(miniCenter.x - span / 2, miniCenter.y - span / 2, span, span)
+        }
         if (miniPauseExpired)
             return retiringMini ? Geometry.pullToEdge(retiringBounds, miniRetreat, 0, 0) : Qt.rect(0, 0, 0, 0)
         const growth = Motion.smooth((splitProgress - 0.08) / 0.55)
@@ -179,7 +214,7 @@ Item {
         const vertical = span * (1 - 0.12 * miniStretch - 0.065 * releaseRecoil)
         return Qt.rect(miniCenter.x - horizontal / 2, miniCenter.y - vertical / 2, horizontal, vertical)
     }
-    readonly property real miniBlend: miniPauseExpired ? 0 : 48 * Motion.smooth((splitProgress - 0.16) / 0.27)
+    readonly property real miniBlend: usesCallLayout || miniPauseExpired ? 0 : 48 * Motion.smooth((splitProgress - 0.16) / 0.27)
         * (1 - Motion.smooth((splitProgress - 0.70) / 0.23)) * (1 - cardRetraction)
     readonly property rect neckBounds: {
         const edge = bodyBounds.x + bodyBounds.width
@@ -199,7 +234,7 @@ Item {
         return card.textLayout()
     }
 
-    visible: presenting
+    visible: presenting && !suspended
 
     DockNotificationContent {
         id: card
@@ -230,14 +265,16 @@ Item {
         x: notice.miniBounds.x + (notice.miniBounds.width - width) / 2
         y: notice.miniBounds.y + (notice.miniBounds.height - height) / 2
         scale: Math.min(notice.miniBounds.width, notice.miniBounds.height) / width
-        opacity: notice.miniPauseExpired ? 1 - Motion.smooth((notice.miniRetreat - 0.12) / 0.68)
-            : Motion.smooth((notice.splitProgress - 0.25) / 0.33)
+        opacity: notice.usesCallLayout ? Motion.smooth(Geometry.phase(notice.musicArrival, 0.26, 0.8))
+            : notice.miniPauseExpired ? 1 - Motion.smooth((notice.miniRetreat - 0.12) / 0.68)
+                : Motion.smooth((notice.splitProgress - 0.25) / 0.33)
         visible: opacity > 0.001
-        enabled: notice.splitProgress > 0.92 && !notice.miniPauseExpired
+        enabled: notice.usesCallLayout ? notice.musicArrival > 0.9
+            : notice.splitProgress > 0.92 && !notice.miniPauseExpired
         player: notice.media.player
         artwork: notice.media.artUrl
-        artworkOpacity: notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.coverAlpha
-        progressOpacity: notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.progressAlpha
+        artworkOpacity: notice.usesCallLayout || notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.coverAlpha
+        progressOpacity: notice.usesCallLayout || notice.miniPauseExpired ? 1 : 1 - notice.renderer.lyricsView.progressAlpha
         playing: notice.media.playing
         roundArtwork: notice.renderer.shaderAvailable
         host: notice.renderer.host

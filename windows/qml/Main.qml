@@ -24,7 +24,7 @@ Window {
     height: Math.min(workArea.height, Math.ceil(stage.height * stage.scale))
     x: workArea.x + Math.floor((workArea.width - width) / 2)
     y: workArea.y
-    visible: workArea.width > 0 && !desktop.fullscreenActive && (presence.showing || noticeLayer.presenting)
+    visible: workArea.width > 0 && !desktop.fullscreenActive && (presence.showing || wings.noticeVisible)
     onVisibleChanged: {
         if (visible) {
             Qt.callLater(updateExpandedRegion)
@@ -69,6 +69,7 @@ Window {
     readonly property bool desktopGlassAvailable: !smokeMode && wings.shaderAvailable
         && stage.GraphicsInfo.api === GraphicsInfo.Direct3D11
     readonly property var media: demoMode ? demoMedia : mediaSessions
+    readonly property DiscordCallPreview discordPreview: appState.discordPreview
     readonly property string activeTrackKey: media.player ? media.player.trackKey : ""
     readonly property var localLyrics: appState.localLyrics
     readonly property var onlineLyrics: !demoMode && lyricsSearch.trackKey === activeTrackKey
@@ -116,6 +117,7 @@ Window {
         idleDelay: demoHost.settings.collapseDelay
         pauseDelay: window.smokeMode ? 1700 : 60000
         holdOpen: window.trayPreview
+            || window.discordPreview.active
             || noticeLayer.keepPausedMini
             || (window.smokeMode && window.smokeHoldOpen)
             || (menuLoader.item?.visible ?? false)
@@ -134,14 +136,21 @@ Window {
     }
 
     readonly property rect bodyRegion: {
-        if (noticeLayer.presenting && !desktop.fullscreenActive) {
+        if (wings.noticeVisible && !desktop.fullscreenActive) {
             const body = wings.housingRect
             const pad = noticeGlowMargin
             return scaledRect(body.x - pad, body.y - pad, body.width + 2 * pad, body.height + 2 * pad)
         }
+        const padding = 26
+        if (callLayer.mainVisible) {
+            if (!callLayer.interactive)
+                return Qt.rect(0, 0, 0, 0)
+            const body = wings.playerHousing
+            return scaledRect(body.x - padding, body.y - padding,
+                body.width + 2 * padding, body.height + 2 * padding)
+        }
         if (!presence.interactive)
             return Qt.rect(0, 0, 0, 0)
-        const padding = 26
         return scaledRect(pill.x + wings.lyricsView.swipeX - padding,
             pill.y + wings.lyricsView.swipeY - padding, pill.width + 2 * padding,
             pill.capHeight + 2 * padding)
@@ -149,19 +158,24 @@ Window {
     readonly property rect leftRegion: capsuleRegion(-1)
     readonly property rect rightRegion: capsuleRegion(1)
     readonly property rect miniPlayerRegion: {
-        const body = noticeLayer.miniBounds
+        const body = wings.noticeVisible ? noticeLayer.miniBounds : Qt.rect(0, 0, 0, 0)
         return scaledRect(body.x, body.y, body.width, body.height)
     }
     readonly property rect miniPlayerNeckRegion: {
-        const body = noticeLayer.neckBounds
+        const body = wings.noticeVisible ? noticeLayer.neckBounds : Qt.rect(0, 0, 0, 0)
         return scaledRect(body.x, body.y, body.width, body.height)
     }
-    readonly property real noticeGlowMargin: wings.shaderAvailable && wings.fusion > 0.001
+    readonly property rect sideCallRegion: {
+        const body = callLayer.sideBounds
+        return scaledRect(body.x, body.y, body.width, body.height)
+    }
+    readonly property real noticeGlowMargin: !noticeLayer.usesCallLayout && wings.shaderAvailable && wings.fusion > 0.001
         && wings.edgeLight > 0.025 && wings.material.light > 0 ? 22 : 0
-    readonly property real regionRadius: (noticeLayer.presenting ? wings.housingRadius + noticeGlowMargin
+    readonly property real regionRadius: (wings.noticeVisible ? wings.housingRadius + noticeGlowMargin
         : wings.radius + 26) * stage.scale
     readonly property rect expandedRegion: {
-        const size = wings.lyricsView.expandedBodySize
+        const size = discordPreview.connected ? Qt.size(callLayer.expandedWidth, callLayer.expandedHeight)
+            : wings.lyricsView.expandedBodySize
         return scaledRect((stage.width - size.width) / 2, pill.y, size.width, size.height)
     }
     readonly property rect notificationRegion: {
@@ -173,6 +187,7 @@ Window {
     onRightRegionChanged: Qt.callLater(updatePanelRegion)
     onMiniPlayerRegionChanged: Qt.callLater(updatePanelRegion)
     onMiniPlayerNeckRegionChanged: Qt.callLater(updatePanelRegion)
+    onSideCallRegionChanged: Qt.callLater(updatePanelRegion)
     onRegionRadiusChanged: Qt.callLater(updatePanelRegion)
     onHeightChanged: Qt.callLater(updatePanelRegion)
     onExpandedRegionChanged: Qt.callLater(updateExpandedRegion)
@@ -195,7 +210,7 @@ Window {
 
     function updatePanelRegion() {
         desktop.setPanelRegion(window, bodyRegion, regionRadius, leftRegion, rightRegion,
-                               miniPlayerRegion, miniPlayerNeckRegion)
+                               miniPlayerRegion, miniPlayerNeckRegion, sideCallRegion)
     }
 
     function updateExpandedRegion() {
@@ -437,7 +452,8 @@ Window {
     Item {
         id: stage
         width: Math.max(760, window.width)
-        height: pill.y + Math.max(pill.height, noticeLayer.presenting ? noticeLayer.maximumDetailsHeight : 0)
+        height: pill.y + Math.max(pill.height, wings.noticeVisible ? noticeLayer.maximumDetailsHeight : 0,
+            callLayer.mainVisible ? callLayer.panelHeight + 4 : 0)
             + 32 + Math.max(0, wings.lyricsView.swipeY)
         scale: window.width / width
         transformOrigin: Item.TopLeft
@@ -449,7 +465,7 @@ Window {
             width: wings.housingRect.width
             height: wings.housingRect.height
             radius: wings.housingRadius
-            visible: (presence.showing || noticeLayer.presenting) && !wings.ownsHousing
+            visible: (presence.showing || wings.noticeVisible) && !wings.ownsHousing
             color: wings.noticeVisible && wings.material.enabled
                 ? Qt.alpha(demoHost.dock.palette.fill, 0.86) : demoHost.dock.palette.fill
             border.color: demoHost.dock.palette.rim
@@ -466,6 +482,18 @@ Window {
             border.color: solidHousing.border.color
             border.width: solidHousing.border.width
             antialiasing: true
+            visible: solidHousing.visible && wings.noticeVisible && width > 0
+        }
+        Rectangle {
+            x: callLayer.sideBounds.x
+            y: callLayer.sideBounds.y
+            width: callLayer.sideBounds.width
+            height: callLayer.sideBounds.height
+            radius: height / 2
+            color: solidHousing.color
+            border.color: solidHousing.border.color
+            border.width: solidHousing.border.width
+            antialiasing: true
             visible: solidHousing.visible && width > 0
         }
 
@@ -474,7 +502,7 @@ Window {
             y: pill.y + wings.lyricsView.swipeY
             width: pill.width
             height: pill.capHeight
-            enabled: presence.interactive && !noticeLayer.presenting && !!window.media.player
+            enabled: presence.interactive && !wings.noticeVisible && !window.discordPreview.active && !!window.media.player
             cursorShape: Qt.PointingHandCursor
             onClicked: window.toggleLyricsLayout()
         }
@@ -486,7 +514,10 @@ Window {
             host: demoHost
             hideProgress: presence.hideProgress
             staggeredOpening: true
-            notification: noticeLayer
+            notification: window.discordPreview.ringing ? null : noticeLayer
+            playerOverride: callLayer.mainVisible ? callLayer.layoutBounds : Qt.rect(0, 0, 0, 0)
+            sideCallBounds: callLayer.sideBounds
+            lyricsSuppressed: window.discordPreview.active
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
             desktopLens: backdropEnabled && (backdropItem?.hasFrame === true)
@@ -519,7 +550,9 @@ Window {
             media: window.media
             allowed: !window.desktop.fullscreenActive
             clearForDetails: window.notificationSpaceReady
-            attached: presence.showing && presence.hideProgress < 0.55
+            suspended: window.discordPreview.ringing
+            callSpan: window.discordPreview.connected ? callLayer.sideWidth + miniGap : 0
+            attached: !window.discordPreview.active && presence.showing && presence.hideProgress < 0.55
                 && (window.playbackActive || (!!window.media.player && !window.swipeDismissed))
             paused: window.playbackPaused
             trackKey: window.activeTrackKey
@@ -536,6 +569,19 @@ Window {
             }
             onReleaseRecoilChanged: if (window.smokePhase === 22 && releaseRecoil > 0.25)
                 window.smokeSawReleaseSpring = true
+        }
+        DockDiscordCall {
+            id: callLayer
+            anchors.fill: parent
+            preview: window.discordPreview
+            media: window.media
+            notification: noticeLayer
+            housing: wings.playerHousing
+            opening: 1 - presence.hideProgress
+            topInset: pill.y
+            expansionAllowed: window.expandedSpaceReady
+                && window.workArea.height >= (topInset + expandedHeight + 16) * stage.scale
+            musicProgress: wings.lyricsView.duration > 0 ? wings.lyricsView.position / wings.lyricsView.duration : 0
         }
     }
 
@@ -1367,9 +1413,103 @@ Window {
                 window.smokePhase = 33
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 33 && noticeLayer.textLayout().titleScroll < 0.85) {
+                window.discordPreview.start()
+                window.smokePhase = 36
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 36 && callLayer.entry === 1) {
+                if (callLayer.mode !== "incoming" || wings.noticeVisible || !window.appState.dockNotification) {
+                    window.failSmoke("an incoming call did not preserve the notification behind it")
+                    return
+                }
+                window.discordPreview.decline()
+                if (!noticeLayer.active || window.discordPreview.active) {
+                    window.failSmoke("declining did not restore the notification")
+                    return
+                }
+                window.appState.dismissNotification()
+                demoMedia.togglePlaying()
+                window.smokeNoSession = true
+                window.smokeHoldOpen = false
+                window.smokePhase = 37
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 37 && !noticeLayer.presenting && presence.hideProgress === 1) {
+                window.discordPreview.start()
+                window.smokePhase = 38
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 38 && presence.interactive) {
+                if (!window.visible || callLayer.mode !== "incoming" || callLayer.showMusic) {
+                    window.failSmoke("a test call did not open the dock without a media session")
+                    return
+                }
+                window.discordPreview.accept()
+                window.smokePhase = 39
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 39 && window.discordPreview.seconds > 0) {
+                const call = window.discordPreview
+                if (callLayer.mode !== "expanded" || call.participants.length !== 4
+                        || Math.abs(wings.playerHousing.height - callLayer.expandedHeight) > 1) {
+                    window.failSmoke("accepting did not show the expanded call, timer and participants")
+                    return
+                }
+                call.toggleMute()
+                call.toggleDeafen()
+                call.toggleMute()
+                call.toggleDeafen()
+                if (call.deafened || !call.microphoneOff || !call.muted) {
+                    window.failSmoke("deafen did not preserve the previous microphone setting")
+                    return
+                }
+                call.toggleMute()
+                call.toggleExpanded()
+                window.smokeNoSession = false
+                demoMedia.togglePlaying()
+                window.smokePhase = 40
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 40 && callLayer.entry === 1
+                    && wings.wingSpan > 60 && wings.contentOpacity === 1) {
+                if (callLayer.mode !== "compact" || !callLayer.showMusic || window.discordPreview.microphoneOff
+                        || wings.leftWingBounds.x < 0 || wings.rightWingBounds.x + wings.wingSpan > stage.width) {
+                    window.failSmoke("compact music and voice did not share the dock and its spectrum")
+                    return
+                }
+                demoMedia.togglePlaying()
+                demoPlayer.trackKey = "discord-preview-smoke"
+                if (!callLayer.showMusic || !window.discordPreview.connected || !presence.wanted) {
+                    window.failSmoke("pausing or changing tracks cleared the test call")
+                    return
+                }
+                demoMedia.togglePlaying()
+                window.discordPreview.toggleExpanded()
+                window.appState.postTestNotification("update")
+                window.smokePhase = 41
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 41 && noticeLayer.reveal === 1 && noticeLayer.detailProgress === 1) {
+                const body = noticeLayer.bodyBounds
+                const voice = callLayer.sideBounds
+                const music = noticeLayer.miniBounds
+                if (callLayer.mainVisible || voice.width < 165 || voice.x < 0 || voice.x + voice.width >= body.x
+                        || music.width < 60 || body.x + body.width >= music.x || music.x + music.width > stage.width
+                        || window.sideCallRegion.width <= 0 || window.discordPreview.seconds <= 0) {
+                    window.failSmoke("voice and music did not move to separate clickable capsules around a notification")
+                    return
+                }
+                window.appState.dismissNotification()
+                window.smokePhase = 42
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 42 && !noticeLayer.presenting && callLayer.entry === 1) {
+                if (callLayer.mode !== "expanded" || !window.discordPreview.connected || callLayer.sideBounds.width > 0) {
+                    window.failSmoke("dismissing the notification did not restore the expanded call")
+                    return
+                }
+                window.discordPreview.hangUp()
+                if (window.discordPreview.active || !window.playbackActive || wings.lyricsSuppressed) {
+                    window.failSmoke("ending the test call affected media playback")
+                    return
+                }
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
                 console.log("PASS desktop expansion, staggered player, notification sizing, progress styles and pause")
+                console.log("PASS Discord preview, mute and deafen, shared music layout and notification displacement")
                 Qt.exit(0)
             }
         }

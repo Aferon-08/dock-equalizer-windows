@@ -12,6 +12,9 @@ QtObject {
     property var dockNotification: null
     readonly property var pendingNotifications: []
     readonly property string trackKey: mediaSessions.trackKey
+    readonly property DiscordCallPreview discordPreview: DiscordCallPreview {
+        onRingingChanged: app.updateNotificationExpiry()
+    }
 
     signal alignmentFailed(string message)
 
@@ -75,7 +78,14 @@ QtObject {
     function showNotification(entry) {
         wifiStatus.active = entry.kind === "wifi"
         dockNotification = entry
-        notificationExpiry.restart()
+        updateNotificationExpiry()
+    }
+
+    function updateNotificationExpiry() {
+        if (dockNotification && !discordPreview.ringing)
+            notificationExpiry.restart()
+        else
+            notificationExpiry.stop()
     }
 
     function dismissNotification() {
