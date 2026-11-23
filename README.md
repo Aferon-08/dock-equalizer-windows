@@ -1,10 +1,10 @@
-# Sekai Soundbar 1.2.3 Preview для Windows 11
+# Sekai Soundbar 1.3 для Windows 11
 
 Самостоятельный музыкальный док у верхнего края рабочего стола. Он раскрывается, когда для него есть место, а окна приложений могут перекрывать его. На паузе док сохраняет текущий вид в течение минуты. Затем он сворачивается в каплю и уходит за верхнюю кромку. Значок **Sekai Soundbar** в трее открывает док и настройки на паузе.
 
 Док показывает трек и кнопки управления из медиасессии Windows, а боковые полосы реагируют на системный звук в левом и правом каналах. Поддерживает импорт LRC и Wordtime и поиск готовой лирики через системный curl.exe.
 
-[Установщик 1.2.3 Preview для Windows 11 x64](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.2.3-preview/SekaiSoundbar-1.2.3-Windows11-x64-Preview-Setup.exe) · [Описание выпуска](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.2.3-preview) · [Выпуск 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0)
+[Установщик 1.3 для Windows 11 x64](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.3.0/SekaiSoundbar-1.3-Windows11-x64-Setup.exe) · [Описание выпуска](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.3.0) · [Выпуск 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0)
 
 Закройте запущенный док через значок в трее и запустите установщик. При первой установке он может запросить права администратора для добавления тестового сертификата. Установщик, переносимый ZIP и исходники также формирует [сборка Windows x64](https://github.com/Aferon-08/dock-equalizer-windows/actions/workflows/windows.yml).
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 1.2.3 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 1.3.0 LANGUAGES CXX)
 
 set(SOUNDBAR_DISCORD_APPLICATION_ID "1574039320355020830" CACHE STRING "Public Application ID for Discord OAuth")
 set(SOUNDBAR_NOTIFICATION_PUBLISHER "" CACHE STRING "Certificate subject for a signed Windows notification package")
