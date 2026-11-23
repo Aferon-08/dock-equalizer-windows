@@ -5,6 +5,7 @@
 
 #include <QAbstractListModel>
 #include <QElapsedTimer>
+#include <QImage>
 #include <QJsonArray>
 #include <QNetworkAccessManager>
 #include <QSet>
@@ -121,7 +122,7 @@ private:
     DiscordParticipants m_participants;
     QNetworkAccessManager m_avatarNetwork;
     QHash<QUrl, QNetworkReply *> m_avatarRequests;
-    QHash<QUrl, QUrl> m_avatars;
+    QHash<QUrl, QImage> m_avatars;
     QTimer m_poll;
     QTimer m_clock;
     QElapsedTimer m_callStarted;

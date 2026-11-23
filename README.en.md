@@ -1,16 +1,16 @@
-# Sekai Soundbar 1.1.0 Preview for Windows 11
+# Sekai Soundbar 1.1.1 Preview for Windows 11
 
 A standalone music dock at the top of the desktop. It expands when its area is clear, and application windows can cover it. The dock keeps its layout for one minute after playback pauses, then folds into a drop and leaves through the top edge. Open the dock or its settings while paused from the **Sekai Soundbar** system tray icon.
 
 The dock shows track information and playback controls from Windows media sessions and visualizes the left and right channels of system audio. It imports LRC and Wordtime files and searches for existing lyrics using Windows curl.exe.
 
-[1.1.0 Preview installer for Windows 11 x64](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.1.0-preview/SekaiSoundbar-1.1.0-Windows11-x64-Preview-Setup.exe) · [Release notes](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.1.0-preview) · [Version 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0)
+[1.1.1 Preview installer for Windows 11 x64](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.1.1-preview/SekaiSoundbar-1.1.1-Windows11-x64-Preview-Setup.exe) · [Release notes](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.1.1-preview) · [Version 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0)
 
 The installer includes a signed identity package for reading Windows app notifications. In notification settings, enable **Уведомления поверх окон** to show a standalone card when the dock area is covered and choose where that card appears. Power and Wi-Fi events are available without app notification access.
 
 Quit the dock from the system tray before running the installer. On first install, Windows may request administrator rights to add the test signing certificate. The [Windows x64 workflow](https://github.com/Aferon-08/dock-equalizer-windows/actions/workflows/windows.yml) also produces an installer, a portable ZIP and a source archive.
 
-The Discord voice card shows participant names and avatars, connection status for a pair, and voice controls. **Показать превью** in the expanded card lets you select your own window or screen for a local preview. Answer incoming calls in Discord. [Connecting Discord (RU)](docs/windows-discord.md)
+The Discord voice card shows participant names and avatars, connection status for a pair, and voice controls. Answer incoming calls in Discord. [Connecting Discord (RU)](docs/windows-discord.md)
 
 Choose **Настройки…** (Settings) from the tray icon or the dock's right-click menu. **General** controls startup at Windows sign-in, and **Monitors** lets you select each connected display. The app starts with the primary display selected. The tray provides access to settings even when every display is turned off in the app.
 

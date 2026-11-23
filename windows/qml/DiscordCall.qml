@@ -15,7 +15,6 @@ QtObject {
     readonly property bool connected: phase === DiscordCallPreview.Connected
     readonly property bool active: phase !== DiscordCallPreview.Idle
     readonly property string caller: usesLive ? "" : testCall.caller
-    readonly property string channelKey: live.connected ? live.channelId : testCall.connected ? "test" : ""
     readonly property string room: source.room
     readonly property string context: usesLive ? live.context : "Discord · Тестовый звонок"
     readonly property var participantModel: source.participantModel

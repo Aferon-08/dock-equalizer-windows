@@ -7,7 +7,7 @@ target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.
     DiscordNotificationProbe.h NotificationPreferences.cpp NotificationPreferences.h
     BatteryStatus.cpp BatteryStatus.h WifiStatus.cpp WifiStatus.h WindowsNotifications.cpp WindowsNotifications.h
     DiscordOAuth.cpp DiscordOAuth.h DiscordRpc.cpp DiscordRpc.h DiscordVoice.cpp DiscordVoice.h
-    MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h VoicePreview.cpp VoicePreview.h)
+    DiscordParticipantAvatar.cpp DiscordParticipantAvatar.h MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
 target_include_directories(SekaiSoundbar PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
 target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}"
@@ -30,7 +30,7 @@ if(WIN32 AND SOUNDBAR_NOTIFICATION_PUBLISHER)
 endif()
 if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
-        WinCaptureAbi.h WinCaptureInterop.h WinNotificationAbi.h NotificationFeed.h BackdropTextureNode.h
+        WinCaptureAbi.h WinNotificationAbi.h NotificationFeed.h BackdropTextureNode.h
         WindowsNotificationBanners.cpp WindowsNotificationBanners.h)
     target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi powrprof advapi32 crypt32)
 endif()

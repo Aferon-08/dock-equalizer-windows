@@ -71,9 +71,14 @@ QUrl avatarUrl(const QString &id, const QJsonObject &user)
 {
     static const QRegularExpression hashPattern(u"\\A(?:a_)?[0-9a-f]{32}\\z"_s);
     const auto hash = user.value(u"avatar"_s).toString();
-    if (!validId(id) || !hashPattern.match(hash).hasMatch())
+    if (!validId(id))
         return {};
-    return QUrl(u"https://cdn.discordapp.com/avatars/%1/%2.png?size=128"_s.arg(id, hash));
+    if (hashPattern.match(hash).hasMatch())
+        return QUrl(u"https://cdn.discordapp.com/avatars/%1/%2.png?size=128"_s.arg(id, hash));
+
+    const auto discriminator = user.value(u"discriminator"_s).toString().toInt();
+    const auto index = discriminator > 0 ? discriminator % 5 : (id.toULongLong() >> 22) % 6;
+    return QUrl(u"https://cdn.discordapp.com/embed/avatars/%1.png"_s.arg(index));
 }
 
 QJsonObject updatedMember(QJsonObject current, const QJsonObject &update)
@@ -685,7 +690,7 @@ void DiscordVoice::setParticipantRows(QVariantList rows)
 
 void DiscordVoice::syncAvatars(const QSet<QUrl> &urls)
 {
-    m_avatars.removeIf([&](QHash<QUrl, QUrl>::iterator entry) { return !urls.contains(entry.key()); });
+    m_avatars.removeIf([&](QHash<QUrl, QImage>::iterator entry) { return !urls.contains(entry.key()); });
     for (const auto &url : m_avatarRequests.keys()) {
         if (urls.contains(url))
             continue;
@@ -728,10 +733,13 @@ void DiscordVoice::fetchAvatar(const QUrl &url)
         image.open(QIODevice::ReadOnly);
         QImageReader reader(&image, "png");
         const auto size = reader.size();
-        if (!size.isValid() || size.width() > 256 || size.height() > 256 || reader.read().isNull())
+        if (!size.isValid() || size.width() > 256 || size.height() > 256)
+            return;
+        const auto pixels = reader.read();
+        if (pixels.isNull())
             return;
 
-        m_avatars[url] = QUrl::fromEncoded("data:image/png;base64," + image.data().toBase64());
+        m_avatars[url] = pixels;
         publishParticipants();
     });
 }

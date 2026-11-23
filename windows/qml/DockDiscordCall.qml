@@ -19,15 +19,13 @@ Item {
     required property bool expansionAllowed
     required property real availableHeight
     required property real musicProgress
-    property bool presentationAvailable: true
-    property var captureOverride: null
 
     readonly property real sideWidth: 196
     readonly property real sideHeight: 50
     readonly property real expandedWidth: Math.min(504, Math.max(0, width - 48))
     readonly property real expandedChromeHeight: 128
     readonly property real minimumExpandedHeight: expandedChromeHeight + 86
-    readonly property real expandedHeight: baseExpandedHeight + previewSpace * previewProgress
+    readonly property real expandedHeight: expandedChromeHeight + participantAreaHeight
     readonly property color lavender: "#c6baff"
     readonly property color mutedInk: "#b5c8c1"
     readonly property color ink: "#eff8f5"
@@ -38,7 +36,6 @@ Item {
     property var presentedParticipants: []
     property string pairStatus: "unknown"
     readonly property int presentedParticipantCount: presentedParticipants.length
-    readonly property var previewCapture: captureOverride ?? videoPreview
 
     function refreshRoster() {
         if (session.connected) {
@@ -60,7 +57,6 @@ Item {
         }
         function onParticipantsChanged() { call.refreshRoster() }
         function onVoiceStatusChanged() { call.refreshRoster() }
-        function onChannelKeyChanged() { call.previewCapture.closePreview() }
     }
 
     readonly property bool conversation: presentedPhase === DiscordCallPreview.Connected
@@ -80,16 +76,6 @@ Item {
     readonly property real participantPairTravel: rosterBoard.pairTravel
     property real participantAreaHeight: Math.min(Math.max(86, availableHeight - expandedChromeHeight),
         presentedParticipantCount >= 4 ? 96 : presentedParticipantCount === 2 ? 90 : 86)
-    readonly property real baseExpandedHeight: expandedChromeHeight + participantAreaHeight
-    readonly property real previewWidth: Math.min(expandedWidth * 0.58,
-        Math.max(0, availableHeight - baseExpandedHeight - 10) * 16 / 9)
-    readonly property real previewHeight: previewWidth * 9 / 16
-    readonly property real previewSpace: previewHeight + 10
-    readonly property bool previewFits: previewWidth >= 156
-    readonly property bool previewOpen: previewCapture.opened && previewFits
-    readonly property bool captureActive: presentationAvailable && session.connected && expanded
-        && exposed > 0.79 && split < 0.03 && previewFits
-    property real previewProgress: previewOpen ? 1 : 0
     Behavior on lifetime { DockTransition { duration: call.session.active ? 880 : 680; curve: call.motionCurve } }
     Behavior on joinProgress { DockTransition { duration: 780; curve: call.motionCurve } }
     Behavior on expandProgress { DockTransition { duration: call.expanded ? 880 : 670; curve: call.motionCurve } }
@@ -97,10 +83,6 @@ Item {
     Behavior on participantAreaHeight {
         DockTransition { duration: 350; curve: call.motionCurve; standardEasing: Easing.InOutCubic }
     }
-    Behavior on previewProgress {
-        DockTransition { duration: 350; curve: call.motionCurve; standardEasing: Easing.InOutCubic }
-    }
-
     readonly property real housingMix: Motion.travel(Geometry.phase(lifetime, 0.05, 0.94))
     readonly property real lyricsCover: Motion.smooth(Geometry.phase(lifetime, 0.10, 0.74))
     readonly property real spread: Geometry.arrival(Geometry.phase(expandProgress, 0.03, 1), springMotion ? 0.14 : 0)
@@ -191,8 +173,6 @@ Item {
                         return "M3 14a2 2 0 0 1 0-3 15 15 0 0 1 18 0 2 2 0 0 1 0 3l-1 2-5-2v-3a11 11 0 0 0-6 0v3l-5 2z"
                     case "pause": return "M9 6v12 M15 6v12"
                     case "play": return "M9 5l10 7-10 7z"
-                    case "screen": return "M4 5h16v11H4z M12 16v4 M8 20h8"
-                    case "close": return "M6 6l12 12 M18 6L6 18"
                     default: return ""
                     }
                 }
@@ -248,16 +228,15 @@ Item {
         required property string symbol
         required property string actionName
         property color tint: "#b4d9cc"
-        property string helpText: actionName
 
         implicitWidth: text !== "" ? contentItem.implicitWidth + 20 : implicitHeight
         implicitHeight: 36
         padding: 0
         hoverEnabled: true
         Accessible.name: actionName
-        ToolTip.visible: hovered && (text === "" || helpText !== actionName)
+        ToolTip.visible: hovered && text === ""
         ToolTip.delay: 550
-        ToolTip.text: helpText
+        ToolTip.text: actionName
 
         contentItem: Item {
             implicitWidth: key.implicitWidth
@@ -333,9 +312,6 @@ Item {
         contentClip.y + participants.y, participants.width, participants.height)
     readonly property rect controlBounds: Qt.rect(callControls.x,
         controlClip.y + callControls.y, callControls.width, callControls.height)
-    readonly property rect previewTileBounds: Qt.rect(previewTile.x, contentClip.y + previewTile.y,
-        previewTile.width, previewTile.height)
-
     Foldout {
         id: ringControls
         source: Qt.point(call.deckRight - 19, call.headerTop + 17)
@@ -377,7 +353,7 @@ Item {
         readonly property real badgeSize: Geometry.mix(36, 30, call.identityTravel)
         readonly property real keyReserve: Geometry.mix(ringKeys.implicitWidth + 12,
             Geometry.mix(82 + call.musicMix * call.musicWidth,
-                64 + (call.previewOpen ? 0 : showPreview.implicitWidth + 8), Motion.smooth(call.expandProgress)),
+                64, Motion.smooth(call.expandProgress)),
             call.titleChange)
         readonly property real homeWidth: Math.max(44, call.deckRight - call.deckLeft - keyReserve)
         readonly property real arrival: Geometry.phase(call.exposed, 0.29, 0.78)
@@ -530,29 +506,6 @@ Item {
         }
     }
 
-    Action {
-        id: showPreview
-        objectName: "showDiscordPreview"
-        x: elapsedClock.x - width - 10
-        y: call.headerTop + 3
-        implicitHeight: 30
-        text: call.previewCapture.opened ? "Закрыть превью" : "Показать превью"
-        actionName: text
-        helpText: !call.previewCapture.available ? "Захват экрана недоступен"
-            : !call.previewFits ? "Недостаточно места для превью" : actionName
-        symbol: call.previewCapture.opened ? "close" : "screen"
-        opacity: call.headerExpanded * identity.opacity * (1 - call.previewProgress)
-        visible: opacity > 0.01 && !call.previewOpen
-        enabled: call.interactive && call.session.connected && opacity > 0.9
-            && (call.previewCapture.opened || (call.previewCapture.available && call.previewFits))
-        onClicked: {
-            if (call.previewCapture.opened)
-                call.previewCapture.closePreview()
-            else
-                call.previewCapture.chooseSource()
-        }
-    }
-
     Rectangle {
         x: call.deckLeft
         y: call.headerTop + 43
@@ -570,97 +523,11 @@ Item {
         height: Math.max(0, call.frame.y + call.frame.height - y - 5)
         clip: true
 
-        Item {
-            id: previewViewport
-            width: parent.width
-            height: call.previewSpace * call.previewProgress
-            visible: call.previewProgress > 0.001
-            clip: true
-
-            Rectangle {
-                id: previewTile
-                objectName: "discordPreviewTile"
-                x: (parent.width - width) / 2
-                y: (parent.height - height) / 2 - 3 * call.previewProgress
-                width: call.previewWidth
-                height: call.previewHeight
-                scale: Geometry.mix(0.55, 1, call.previewProgress)
-                opacity: Motion.smooth(Geometry.phase(call.previewProgress, 0.05, 0.72))
-                    * call.headerExpanded * identity.opacity * call.dockContent
-                radius: 10
-                color: "#151d21"
-                border.color: "#688ca69f"
-                antialiasing: true
-
-                Item {
-                    id: videoArea
-                    x: 3
-                    y: 3
-                    width: Math.max(0, parent.width - 6)
-                    height: Math.max(0, parent.height - previewFooter.height - 4)
-                    clip: true
-
-                    VoicePreview {
-                        id: videoPreview
-                        anchors.fill: parent
-                        active: !call.captureOverride && call.captureActive
-                    }
-
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        width: Math.max(0, parent.width - 12)
-                        visible: !call.previewCapture.hasFrame
-                        spacing: 3
-
-                        Caption {
-                            horizontalAlignment: Text.AlignHCenter
-                            wrapMode: Text.Wrap
-                            text: call.previewCapture.status
-                            font.pixelSize: 11
-                        }
-                        Action {
-                            objectName: "retryDiscordPreview"
-                            Layout.alignment: Qt.AlignHCenter
-                            visible: call.previewCapture.retryable === true
-                            enabled: call.captureActive && call.interactive && !call.previewCapture.selecting
-                            implicitHeight: 27
-                            text: "Выбрать источник"
-                            symbol: "screen"
-                            actionName: text
-                            onClicked: call.previewCapture.chooseSource()
-                        }
-                    }
-                }
-
-                RowLayout {
-                    id: previewFooter
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 4
-                    anchors.bottomMargin: 3
-                    height: 26
-                    spacing: 3
-                    VoiceIcon { name: "screen"; ink: call.mutedInk }
-                    Title { text: "Моя демонстрация"; font.pixelSize: 12 }
-                    Action {
-                        objectName: "closeDiscordPreview"
-                        implicitHeight: 24
-                        actionName: "Закрыть локальное превью"
-                        symbol: "close"
-                        enabled: call.interactive && call.captureActive
-                        onClicked: call.previewCapture.closePreview()
-                    }
-                }
-            }
-        }
-
         Foldout {
             id: participants
             objectName: "discordParticipants"
             source: Qt.point(call.releasePoint.x, call.releasePoint.y - parent.y)
-            targetBounds: Qt.rect(call.deckLeft, previewViewport.height,
+            targetBounds: Qt.rect(call.deckLeft, 0,
                 call.deckRight - call.deckLeft, call.participantAreaHeight)
             amount: Math.min(Geometry.phase(call.expandProgress, 0.19, 0.92), call.dockContent,
                 Geometry.phase(call.exposed, 0.44, 0.96))
@@ -684,7 +551,7 @@ Item {
     Item {
         id: controlClip
         width: parent.width
-        y: call.headerTop + 49 + call.participantAreaHeight + previewViewport.height
+        y: call.headerTop + 49 + call.participantAreaHeight
         height: Math.max(0, Math.min(48, call.frame.y + call.frame.height - y - 5))
         clip: true
 

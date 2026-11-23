@@ -27,17 +27,8 @@ struct Item : IInspectable
 {
     virtual HRESULT STDMETHODCALLTYPE get_DisplayName(HSTRING *) = 0;
     virtual HRESULT STDMETHODCALLTYPE get_Size(Size *) = 0;
-    virtual HRESULT STDMETHODCALLTYPE add_Closed(IUnknown *, EventRegistrationToken *) = 0;
-    virtual HRESULT STDMETHODCALLTYPE remove_Closed(EventRegistrationToken) = 0;
 };
 inline constexpr IID itemId{0x79c3f95b, 0x31f7, 0x4ec2, {0xa4, 0x64, 0x63, 0x2e, 0xf5, 0xd3, 0x07, 0x60}};
-
-struct ItemClosedHandler : IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(Item *, IInspectable *) = 0;
-};
-// TypedEventHandler<GraphicsCaptureItem, IInspectable>.
-inline constexpr IID itemClosedHandlerId{0xe9c610c0, 0xa68c, 0x5bd9, {0x80, 0x21, 0x85, 0x89, 0x34, 0x6e, 0xee, 0xe2}};
 
 struct ItemInterop : IUnknown
 {
@@ -45,25 +36,6 @@ struct ItemInterop : IUnknown
     virtual HRESULT STDMETHODCALLTYPE CreateForMonitor(HMONITOR, REFIID, void **) = 0;
 };
 inline constexpr IID itemInteropId{0x3628e81b, 0x3cac, 0x4c60, {0xb7, 0xf4, 0x23, 0xce, 0x0e, 0x0c, 0x33, 0x56}};
-
-struct PickerOperation : IInspectable
-{
-    virtual HRESULT STDMETHODCALLTYPE put_Completed(IUnknown *) = 0;
-    virtual HRESULT STDMETHODCALLTYPE get_Completed(IUnknown **) = 0;
-    virtual HRESULT STDMETHODCALLTYPE GetResults(Item **) = 0;
-};
-
-struct Picker : IInspectable
-{
-    virtual HRESULT STDMETHODCALLTYPE PickSingleItemAsync(PickerOperation **) = 0;
-};
-inline constexpr IID pickerId{0x5a1711b3, 0xad79, 0x4b4a, {0x93, 0x36, 0x13, 0x18, 0xfd, 0xde, 0x35, 0x39}};
-
-struct SessionStatics : IInspectable
-{
-    virtual HRESULT STDMETHODCALLTYPE IsSupported(boolean *) = 0;
-};
-inline constexpr IID sessionStaticsId{0x2224a540, 0x5974, 0x49aa, {0xb2, 0x32, 0x08, 0x82, 0x53, 0x6f, 0x4c, 0xb5}};
 
 struct Frame : IInspectable
 {

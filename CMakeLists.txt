@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 1.1.0 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 1.1.1 LANGUAGES CXX)
 
 set(SOUNDBAR_DISCORD_APPLICATION_ID "1574039320355020830" CACHE STRING "Public Application ID for Discord OAuth")
 set(SOUNDBAR_NOTIFICATION_PUBLISHER "" CACHE STRING "Certificate subject for a signed Windows notification package")
@@ -109,6 +109,7 @@ qt_add_shaders(SekaiSoundbar soundbar_shaders
     FILES
         "${PROJECT_SOURCE_DIR}/glass.frag"
         "${PROJECT_SOURCE_DIR}/liquid.frag"
+        "${PROJECT_SOURCE_DIR}/notification-glass.frag"
         "${PROJECT_SOURCE_DIR}/spectrum-ribbon.frag"
 )
 

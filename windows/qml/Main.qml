@@ -26,7 +26,7 @@ Window {
     height: Math.min(workArea.height, Math.ceil(stage.height * stage.scale))
     x: workArea.x + Math.floor((workArea.width - width) / 2)
     y: workArea.y
-    visible: workArea.width > 0 && !desktop.fullscreenActive && (presence.showing || wings.noticeVisible)
+    visible: workArea.width > 0 && !notificationFullscreen && (presence.showing || wings.noticeVisible)
     onVisibleChanged: {
         if (visible) {
             Qt.callLater(updateExpandedRegion)
@@ -121,6 +121,8 @@ Window {
     property bool smokeNotificationFullscreen: false
     property int smokeNotificationId: 0
     property real smokeNotificationExpiry: 0
+    property bool smokeSawNoticeDrop: false
+    property bool smokeSawNoticeRetreat: false
     property bool smokeHoldOpen: true
     property bool smokeSawGlassNeck: false
     property bool smokeSawPackedEntrance: false
@@ -138,19 +140,6 @@ Window {
     property bool smokeSawCallMusicPeel: false
     property bool smokeSawCallMusicReturn: false
     property bool smokeSawCustomCurve: false
-
-    QtObject {
-        id: smokeVoiceCapture
-        readonly property bool active: window.smokeMode && callLayer.captureActive
-        readonly property bool available: true
-        property bool opened: false
-        property bool hasFrame: opened && active
-        property bool selecting: false
-        readonly property bool retryable: false
-        property string status: ""
-        function chooseSource() { opened = true }
-        function closePreview() { opened = false }
-    }
 
     DockPresence {
         id: presence
@@ -639,7 +628,7 @@ Window {
             allowed: !window.desktop.fullscreenActive
             clearForDetails: window.notificationSpaceReady
             suspended: callLayer.ringOnTop
-            transferred: window.notificationDetached
+            transferred: window.notificationDetached || notificationOverlay.presenting
             compactSlot: window.notificationsAboveWindows && stage.scale > 0
                 ? Qt.rect(window.compactNotificationArea.x / stage.scale, window.compactNotificationArea.y / stage.scale,
                     window.compactNotificationArea.width / stage.scale, window.compactNotificationArea.height / stage.scale)
@@ -679,8 +668,6 @@ Window {
             housing: wings.playerHousing
             opening: 1 - presence.hideProgress
             topInset: pill.y
-            presentationAvailable: window.visible
-            captureOverride: window.smokeMode ? smokeVoiceCapture : null
             availableHeight: Math.max(0, window.workArea.height / Math.max(0.01, stage.scale) - topInset - 16)
             expansionAllowed: window.expandedSpaceReady
                 && availableHeight >= minimumExpandedHeight
@@ -693,6 +680,7 @@ Window {
         screen: window.screen
         desktop: window.desktop
         appearance: window.appearance.values
+        backdropComponent: window.smokeMode ? null : monitorBackdrop
         placement: window.appState.notificationPreferences.notificationPosition
         routed: window.notificationDetached
         fullscreen: window.notificationFullscreen
@@ -1016,6 +1004,13 @@ Window {
     function beginNotificationOverlaySmoke() {
         smokeStarted = Date.now()
         smokePhase = 60
+    }
+
+    function loadedAvatars(item) {
+        let count = item.objectName === "discordParticipantAvatar" && item.visible && item.loaded ? 1 : 0
+        for (const child of item.children)
+            count += loadedAvatars(child)
+        return count
     }
 
     Timer {
@@ -1798,31 +1793,26 @@ Window {
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 54 && wait >= 700) {
                 if (callLayer.presentedParticipantCount !== 8 || callLayer.portraitMix > 0.01
-                        || callLayer.participantPairTravel > 0.01) {
+                        || callLayer.participantPairTravel > 0.01 || window.loadedAvatars(callLayer) === 0) {
                     window.failSmoke("a larger voice group did not switch to the scrollable roster")
                     return
                 }
                 window.discordPreview.participantCount = 3
-                smokeVoiceCapture.chooseSource()
                 window.smokePhase = 55
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 55 && wait >= 900) {
-                const tile = callLayer.previewTileBounds
-                const controls = callLayer.controlBounds
+            } else if (window.smokePhase === 55 && wait >= 750) {
+                const roster = callLayer.participantBounds
+                const avatars = window.loadedAvatars(callLayer)
                 if (callLayer.presentedParticipantCount !== 3 || callLayer.portraitMix < 0.99
-                        || callLayer.previewProgress < 0.99 || !smokeVoiceCapture.active
-                        || tile.width < 100 || Math.abs(tile.width / tile.height - 16 / 9) > 0.05
-                        || tile.y + tile.height >= controls.y) {
-                    window.failSmoke("local screen preview did not fit above the three participant controls"
-                        + " (participants " + callLayer.presentedParticipantCount + ", portrait " + callLayer.portraitMix
-                        + ", preview " + callLayer.previewProgress + ", active " + smokeVoiceCapture.active
-                        + ", tile " + tile + ", controls " + controls + ")")
+                        || roster.height <= 0 || roster.y + roster.height > callLayer.controlBounds.y
+                        || avatars !== 2) {
+                    window.failSmoke("two photos and one initials portrait must fit above the call controls ("
+                        + avatars + " photos, roster " + roster + ", controls " + callLayer.controlBounds + ")")
                     return
                 }
-                smokeVoiceCapture.closePreview()
                 window.discordPreview.hangUp()
                 window.discordPreview.participantCount = 4
-                console.log("PASS one to eight voice participants, pair states and local preview layout")
+                console.log("PASS one to eight voice participants, pair states and portrait layout")
                 window.beginNotificationOverlaySmoke()
             } else if (window.smokePhase === 60 && !callLayer.presenting) {
                 if (window.notificationsAboveWindows || notificationOverlay.placement !== "top-center") {
@@ -1855,10 +1845,17 @@ Window {
                 window.smokeCompactObstructed = true
                 window.smokePhase = 63
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 63 && notificationOverlay.reveal === 1) {
+            } else if (window.smokePhase === 63) {
                 const overlay = notificationOverlay
+                if (overlay.visible && overlay.reveal > 0.20 && overlay.reveal < 0.50
+                        && overlay.body.y < 0 && overlay.body.y + overlay.body.height > 0
+                        && overlay.body.width < overlay.cardWidth / 2)
+                    window.smokeSawNoticeDrop = true
+                if (overlay.reveal !== 1)
+                    return
                 const area = overlay.placementArea
                 if (!overlay.visible || noticeLayer.presenting || overlay.transientParent
+                        || !window.smokeSawNoticeDrop || overlay.glass !== wings.shaderAvailable
                         || !(overlay.flags & Qt.WindowStaysOnTopHint) || !(overlay.flags & Qt.WindowDoesNotAcceptFocus)
                         || Math.abs(overlay.x + overlay.width / 2 - area.x - area.width / 2) > 1
                         || overlay.y !== area.y || overlay.cardHeight > 134
@@ -1882,7 +1879,9 @@ Window {
                 window.smokeNotificationExpiry = window.appState.notificationExpiresAt
                 window.smokePhase = 64
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 64 && notificationOverlay.reveal === 1) {
+            } else if (window.smokePhase === 64 && notificationOverlay.reveal === 1
+                    && notificationOverlay.presentedEvent?.eventId === window.smokeNotificationId
+                    && notificationOverlay.presentedPlacement === "bottom-right") {
                 const overlay = notificationOverlay
                 const area = overlay.placementArea
                 const text = overlay.textLayout()
@@ -1897,10 +1896,11 @@ Window {
                 window.appState.notificationPreferences.notificationPosition = "bottom-center"
                 window.smokePhase = 65
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 65 && notificationOverlay.reveal === 1) {
+            } else if (window.smokePhase === 65 && notificationOverlay.reveal === 1
+                    && notificationOverlay.presentedPlacement === "bottom-center") {
                 const overlay = notificationOverlay
                 const area = window.desktop.screenArea
-                if (!overlay.visible || noticeLayer.presenting || overlay.fromTaskbar
+                if (!overlay.visible || window.visible || noticeLayer.presenting || overlay.fromTaskbar
                         || overlay.y + overlay.height !== area.y + area.height
                         || Math.abs(overlay.x + overlay.width / 2 - area.x - area.width / 2) > 1
                         || window.appState.dockNotification.eventId !== window.smokeNotificationId
@@ -1912,8 +1912,15 @@ Window {
                 window.smokeObstructed = false
                 window.smokePhase = 66
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 66 && !window.notificationDetached && noticeLayer.reveal === 1) {
-                if (notificationOverlay.visible || !noticeLayer.active
+            } else if (window.smokePhase === 66) {
+                const overlay = notificationOverlay
+                if (!window.notificationDetached && overlay.visible && overlay.withdrawing
+                        && overlay.reveal > 0.20 && overlay.reveal < 0.80
+                        && overlay.presentedEvent?.eventId === window.smokeNotificationId)
+                    window.smokeSawNoticeRetreat = true
+                if (window.notificationDetached || noticeLayer.reveal !== 1)
+                    return
+                if (overlay.visible || !noticeLayer.active || !window.smokeSawNoticeRetreat
                         || window.appState.dockNotification.eventId !== window.smokeNotificationId
                         || window.appState.notificationExpiresAt !== window.smokeNotificationExpiry) {
                     window.failSmoke("returning to the dock duplicated the notification or restarted its timeout")
@@ -1922,6 +1929,29 @@ Window {
                 noticeLayer.dismissed(window.smokeNotificationId)
                 if (window.appState.dockNotification) {
                     window.failSmoke("the dock did not dismiss the shared event after transfer")
+                    return
+                }
+                window.smokeNotificationFullscreen = true
+                window.appState.postTestNotification()
+                window.smokeNotificationId = window.appState.dockNotification.eventId
+                window.smokeSawNoticeRetreat = false
+                window.smokePhase = 67
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 67 && notificationOverlay.reveal === 1) {
+                window.appState.notificationExpiry.interval = 100
+                window.appState.notificationExpiry.restart()
+                window.smokePhase = 68
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 68) {
+                const overlay = notificationOverlay
+                if (overlay.visible && overlay.withdrawing && overlay.reveal > 0.20 && overlay.reveal < 0.75
+                        && overlay.presentedEvent?.eventId === window.smokeNotificationId
+                        && !window.appState.dockNotification && !window.visible)
+                    window.smokeSawNoticeRetreat = true
+                if (overlay.presenting)
+                    return
+                if (!window.smokeSawNoticeRetreat || overlay.visible) {
+                    window.failSmoke("expiry of a fullscreen notice skipped its animated retreat")
                     return
                 }
                 window.appState.notificationPreferences.aboveWindows = false

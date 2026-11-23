@@ -48,7 +48,7 @@ Item {
 
     component ParticipantAvatar: Item {
         id: avatarTile
-        required property url avatar
+        required property var avatar
         required property string name
         required property bool speaking
 
@@ -61,6 +61,7 @@ Item {
 
         Text {
             anchors.centerIn: parent
+            visible: !avatarImage.loaded
             text: {
                 const words = avatarTile.name.trim().split(/\s+/)
                 const first = Array.from(words[0] ?? "")[0] ?? ""
@@ -74,40 +75,12 @@ Item {
             Accessible.ignored: true
         }
 
-        Canvas {
-            id: avatarCanvas
+        DiscordParticipantAvatar {
+            id: avatarImage
+            objectName: "discordParticipantAvatar"
             anchors.fill: parent
             anchors.margins: 2
-            property url imageUrl
-
-            function updateImage() {
-                if (imageUrl.toString() !== "")
-                    unloadImage(imageUrl)
-                imageUrl = avatarTile.avatar
-                if (imageUrl.toString() !== "")
-                    loadImage(imageUrl)
-                requestPaint()
-            }
-
-            Component.onCompleted: updateImage()
-            onImageLoaded: requestPaint()
-            onPaint: {
-                const context = getContext("2d")
-                context.clearRect(0, 0, width, height)
-                if (imageUrl.toString() === "" || !isImageLoaded(imageUrl))
-                    return
-                context.save()
-                context.beginPath()
-                context.arc(width / 2, height / 2, width / 2, 0, 2 * Math.PI)
-                context.clip()
-                context.drawImage(imageUrl, 0, 0, width, height)
-                context.restore()
-            }
-
-            Connections {
-                target: avatarTile
-                function onAvatarChanged() { avatarCanvas.updateImage() }
-            }
+            source: avatarTile.avatar
         }
 
         Rectangle {
@@ -404,7 +377,7 @@ Item {
             id: person
             required property string participantId
             required property string name
-            required property url avatar
+            required property var avatar
             required property bool speaking
             required property string status
 

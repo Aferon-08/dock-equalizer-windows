@@ -418,7 +418,8 @@ struct DiscordVoiceTest
         const QUrl url(u"http://discord.invalid/avatar.png"_s);
         voice.fetchAvatar(url);
         if (!check(waitFor([&] { return voice.m_avatars.contains(url); })
-                && voice.m_avatars.value(url).toEncoded() == "data:image/png;base64," + proxy.body.toBase64()
+                && voice.m_avatars.value(url).size() == pixels.size()
+                && voice.m_avatars.value(url).pixelColor(0, 0) == QColor(Qt::green)
                 && proxy.requestHeaders.startsWith("GET http://discord.invalid/avatar.png")
                 && !proxy.requestHeaders.toLower().contains("authorization:")
                 && !proxy.requestHeaders.toLower().contains("cookie:"),
@@ -428,7 +429,7 @@ struct DiscordVoiceTest
         proxy.body = "An invalid image";
         const QUrl invalid(u"http://discord.invalid/invalid.png"_s);
         voice.fetchAvatar(invalid);
-        if (!check(waitFor([&] { return voice.m_avatars.contains(invalid); }) && voice.m_avatars.value(invalid).isEmpty(),
+        if (!check(waitFor([&] { return voice.m_avatars.contains(invalid); }) && voice.m_avatars.value(invalid).isNull(),
                 "An invalid image must leave the initials fallback available"))
             return false;
         voice.syncAvatars({});
@@ -513,12 +514,13 @@ struct DiscordVoiceTest
 
         const auto own = voice.participants().at(0).toMap();
         const auto peer = voice.participants().at(1).toMap();
+        const QUrl peerDefault(u"https://cdn.discordapp.com/embed/avatars/%1.png"_s.arg((peerId.toULongLong() >> 22) % 6));
         if (!check(own.value(u"participantId"_s) == ownId && own.value(u"localUser"_s).toBool()
                 && own.value(u"name"_s) == u"Алекс Р."_s
                 && own.value(u"avatarUrl"_s).toUrl() == QUrl(u"https://cdn.discordapp.com/avatars/%1/%2.png?size=128"_s.arg(ownId, hash))
                 && peer.value(u"participantId"_s) == peerId && !peer.value(u"localUser"_s).toBool()
-                && peer.value(u"name"_s) == u"Мира"_s && peer.value(u"avatarUrl"_s).toUrl().isEmpty(),
-                "Rows must use stable IDs, self first, local identity fallback, nicknames and validated CDN paths"))
+                && peer.value(u"name"_s) == u"Мира"_s && peer.value(u"avatarUrl"_s).toUrl() == peerDefault,
+                "Rows must use stable IDs, self first, nicknames and validated custom or default CDN paths"))
             return false;
 
         const auto setStatus = [&](const QString &state, const QString &expected) {
