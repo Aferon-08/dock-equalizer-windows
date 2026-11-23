@@ -72,7 +72,7 @@ Item {
         return parts.join(" · ") || "Сведения о сигнале и интернете недоступны."
     }
 
-    readonly property string headline: (event?.title ?? "").replace(/[\r\n]+/g, " ")
+    readonly property string headline: oneLine(event?.title ?? "")
     readonly property string summary: kind === "wifi" ? wifiTitle : kind === "battery"
         ? (batteryDetailsData?.summary ?? "") : (event?.summary ?? "")
     readonly property string detail: {
@@ -86,6 +86,7 @@ Item {
     readonly property bool movesSummary: kind === "app" || (summary !== "" && kind !== "battery" && kind !== "wifi"
         && (detail === summary || detail.startsWith(summary + "\n")))
     readonly property string fullMessage: detail || (movesSummary ? summary : "")
+    readonly property string preview: oneLine(summary || fullMessage)
     readonly property string wrappedMessage: detail && summary && !movesSummary && summary !== detail
         ? summary + "\n" + detail : fullMessage || summary
     readonly property string source: event?.source ?? ""
@@ -117,9 +118,11 @@ Item {
         : Math.max(showGraph || (kind === "wifi" && wifi.state === "loading") ? 236 : 176, Math.ceil(idealHeight)))
     readonly property bool multiline: expansion > 0.42
     readonly property real messageMove: movesSummary ? Motion.smooth(Geometry.phase(expansion, 0.15, 0.88)) : 0
+    readonly property bool messageInBody: movesSummary && messageMove > 0.74
     readonly property real headerWidth: Math.max(1, width - headerSpace)
     readonly property real centeredHeaderWidth: Math.max(1, width - Geometry.mix(headerSpace, centeredHeaderSpace, expansion))
-    readonly property real headerGroupHeight: headlineFrame.height + (movesSummary || !summary ? 0 : 3 + summaryText.height)
+    readonly property real headerGroupHeight: headlineFrame.height + (messageInBody || !summaryText.text
+        ? 0 : (3 + summaryText.height) * (1 - messageMove))
     readonly property real headerHeight: Math.max(badgeSize, headerGroupHeight)
     readonly property real bodyWidth: Math.max(1, width - 2 * inset)
     readonly property real expandedEntrance: Math.min(entrance, detailProgress)
@@ -137,6 +140,10 @@ Item {
     onExpansionChanged: if (!expansion) viewport.contentY = 0
     onDismissibleChanged: if (!dismissible) actionsPopup.close()
 
+    function oneLine(text) {
+        return text.replace(/[\s\u0085]+/g, " ").trim()
+    }
+
     function dismiss() {
         if (event && dismissible)
             dismissed(event.eventId)
@@ -149,13 +156,12 @@ Item {
     }
 
     function textLayout() {
+        const message = wrappedLayout ? description : summaryText
         return { titleOverflow: headlineFrame.overflow, titleScroll: headlineFrame.scroll,
             titleCenterOffset: Qt.point(headlineFrame.x + headlineFrame.width / 2 - width / 2,
                 headlineFrame.y + headlineFrame.height / 2 - headerY - headerHeight / 2),
-            messageTruncated: wrappedLayout ? description.truncated : summaryText.truncated,
-            messageLines: wrappedLayout ? description.lineCount : summaryText.lineCount,
-            message: wrappedLayout ? description.text : summaryText.text,
-            messageY: wrappedLayout ? description.y : summaryText.y,
+            messageTruncated: message.truncated, messageLines: message.lineCount,
+            message: message.text, messageY: message.y, messageHeight: message.height,
             detailY, duplicateVisible: description.visible, messageColor: summaryText.color,
             scrollRange: viewport.contentHeight - viewport.height }
     }
@@ -292,7 +298,7 @@ Item {
         x: card.wrappedLayout ? card.wrappedTextX
             : Geometry.mix(card.headerTextX, (card.width - width) / 2, card.expansion)
         y: card.wrappedLayout ? (card.toastLayout ? 0 : card.expandedTop)
-            : card.headerY + (card.headerHeight - card.headerGroupHeight) / 2 * card.expansion
+            : card.headerY + (Geometry.mix(card.badgeSize, card.headerHeight, card.expansion) - card.headerGroupHeight) / 2
         width: card.wrappedLayout ? Math.max(1, card.width - card.wrappedGutters)
             : Math.max(1, Math.min(card.centeredHeaderWidth, Math.ceil(titleMeasure.implicitWidth)))
         height: headlineText.implicitHeight
@@ -351,18 +357,21 @@ Item {
     NoticeText {
         id: summaryText
         parent: messageLayer
+        readonly property bool wraps: card.messageInBody || (!card.movesSummary && card.multiline)
         x: card.movesSummary ? Geometry.mix(card.headerTextX, card.inset, card.messageMove)
             : Geometry.mix(card.headerTextX, (card.width - width) / 2, card.expansion)
         y: Geometry.mix(headlineFrame.y + headlineFrame.height + 3, card.detailY, card.messageMove)
         width: card.movesSummary ? Geometry.mix(card.headerWidth, card.bodyWidth, card.messageMove)
-            : Math.max(1, Math.min(card.centeredHeaderWidth, Math.ceil(summaryMeasure.implicitWidth)))
+            : Math.max(1, Math.min(card.centeredHeaderWidth, Math.ceil(implicitWidth)))
         horizontalAlignment: card.movesSummary ? Text.AlignLeft : Text.AlignHCenter
-        text: card.movesSummary && card.messageMove > 0.74 ? card.fullMessage : card.summary
+        text: card.messageInBody ? card.fullMessage : wraps ? card.summary : card.preview
         font.pixelSize: 13
         color: card.accent
         visible: !card.wrappedLayout
-        wrapMode: card.multiline ? Text.Wrap : Text.NoWrap
-        elide: card.multiline ? Text.ElideNone : Text.ElideRight
+        wrapMode: wraps ? Text.Wrap : Text.NoWrap
+        maximumLineCount: wraps ? undefined : 1
+        elide: wraps ? Text.ElideNone : Text.ElideRight
+        clip: !wraps
         opacity: messageArrival.alpha
         transform: Arrival {
             id: messageArrival

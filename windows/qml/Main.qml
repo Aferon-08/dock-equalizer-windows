@@ -1548,12 +1548,26 @@ Window {
                     === "materialProgressRenderer") {
                 const line = "Длинное уведомление переносится на новые строки, чтобы сохранить весь текст."
                 const lineCount = Math.ceil(noticeLayer.availableHeight / 10)
+                const summary = "#SC: Охотники за горизонтом\r\n" + line + "\u2028" + line
+                window.smokeObstructed = true
                 window.appState.showNotification({
                     kind: "app", accent: "#c3b5ff",
                     title: "Длинный заголовок уведомления прокручивается вперёд и назад с паузами на обоих концах",
-                    summary: line,
-                    detail: (line + "\n").repeat(lineCount) + "Конец сообщения.", source: "Ножницы", sentAt: new Date()
+                    summary,
+                    detail: summary + "\n\n" + (line + "\n").repeat(lineCount) + "Конец сообщения.",
+                    source: "Ножницы", sentAt: new Date()
                 })
+                window.smokePhase = 78
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 78 && noticeLayer.reveal === 1 && noticeLayer.detailProgress === 0) {
+                const text = noticeLayer.textLayout()
+                const preview = window.appState.dockNotification.summary.replace(/\r\n|\u2028/g, " ")
+                if (text.message !== preview || text.messageLines !== 1 || !text.messageTruncated
+                        || text.messageY < 8 || text.messageY + text.messageHeight > noticeLayer.bodyBounds.height - 8) {
+                    window.failSmoke("a multiline preview did not elide inside the compact notification")
+                    return
+                }
+                window.smokeObstructed = false
                 window.smokePhase = 31
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 31 && noticeLayer.reveal === 1
@@ -1562,6 +1576,7 @@ Window {
                 const body = noticeLayer.bodyBounds
                 if (text.titleOverflow <= 0.5 || text.messageTruncated || text.messageLines < 4
                         || text.scrollRange <= 0 || text.duplicateVisible
+                        || text.message !== window.appState.dockNotification.detail
                         || !text.message.endsWith("Конец сообщения.")
                         || body.x < 0 || body.y + body.height > stage.height
                         || Math.abs(body.width - noticeLayer.maxCardWidth) > 1
