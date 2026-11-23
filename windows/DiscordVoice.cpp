@@ -1,6 +1,11 @@
 #include "DiscordVoice.h"
 
+#include <QBuffer>
+#include <QImage>
+#include <QImageReader>
 #include <QNetworkProxy>
+#include <QNetworkReply>
+#include <QRegularExpression>
 #include <QSettings>
 #include <algorithm>
 #include <utility>
@@ -17,12 +22,18 @@ const auto incyHttp = u"incy-http"_s;
 const auto readyStatus = u"Discord подключён. Войдите в голосовой канал."_s;
 const auto inCallStatus = u"Discord подключён. Голосовая сессия отображается в доке."_s;
 const auto clientRequired = u"Запустите настольный Discord. Док подключится автоматически."_s;
+const auto voiceConnectionEvent = u"VOICE_CONNECTION_STATUS"_s;
+const auto unknownVoiceStatus = u"unknown"_s;
 const auto channelEvents = {u"VOICE_STATE_CREATE"_s, u"VOICE_STATE_UPDATE"_s, u"VOICE_STATE_DELETE"_s,
     u"SPEAKING_START"_s, u"SPEAKING_STOP"_s};
+const QHash<int, QByteArray> participantRoles{{Qt::UserRole, "participantId"}, {Qt::UserRole + 1, "name"},
+    {Qt::UserRole + 2, "avatar"}, {Qt::UserRole + 3, "avatarUrl"}, {Qt::UserRole + 4, "localUser"},
+    {Qt::UserRole + 5, "speaking"}, {Qt::UserRole + 6, "micOff"}, {Qt::UserRole + 7, "status"}};
+constexpr qint64 maxAvatarBytes = 256 * 1024;
 
 bool validId(const QString &id)
 {
-    return id.size() >= 16 && id.size() <= 20
+    return id.size() >= 16 && id.size() <= 20 && !id.startsWith(u'0') && id.toULongLong()
         && std::all_of(id.cbegin(), id.cend(), [](QChar digit) { return digit >= u'0' && digit <= u'9'; });
 }
 
@@ -42,7 +53,8 @@ QNetworkProxy discordProxy(const QString &mode)
 
 QString memberId(const QJsonObject &member)
 {
-    return member.value(u"user"_s).toObject().value(u"id"_s).toString();
+    const auto id = member.value(u"user"_s).toObject().value(u"id"_s).toString();
+    return id.isEmpty() ? member.value(u"user_id"_s).toString() : id;
 }
 
 QString memberName(const QJsonObject &member)
@@ -53,6 +65,15 @@ QString memberName(const QJsonObject &member)
             return name.toString().simplified().left(128);
     }
     return u"Участник Discord"_s;
+}
+
+QUrl avatarUrl(const QString &id, const QJsonObject &user)
+{
+    static const QRegularExpression hashPattern(u"\\A(?:a_)?[0-9a-f]{32}\\z"_s);
+    const auto hash = user.value(u"avatar"_s).toString();
+    if (!validId(id) || !hashPattern.match(hash).hasMatch())
+        return {};
+    return QUrl(u"https://cdn.discordapp.com/avatars/%1/%2.png?size=128"_s.arg(id, hash));
 }
 
 QJsonObject updatedMember(QJsonObject current, const QJsonObject &update)
@@ -66,7 +87,7 @@ QJsonObject updatedMember(QJsonObject current, const QJsonObject &update)
             fields.insert(it.key(), it.value());
         current.insert(key, fields);
     }
-    for (const auto key : {u"nick"_s, u"mute"_s}) {
+    for (const auto key : {u"user_id"_s, u"nick"_s}) {
         if (update.contains(key))
             current.insert(key, update.value(key));
     }
@@ -75,15 +96,87 @@ QJsonObject updatedMember(QJsonObject current, const QJsonObject &update)
 
 }
 
+DiscordParticipants::DiscordParticipants(QObject *parent) : QAbstractListModel(parent)
+{
+}
+
+int DiscordParticipants::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : int(m_rows.size());
+}
+
+QVariant DiscordParticipants::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() >= rowCount())
+        return {};
+    return m_rows.at(index.row()).toMap().value(QString::fromLatin1(participantRoles.value(role)));
+}
+
+QHash<int, QByteArray> DiscordParticipants::roleNames() const
+{
+    return participantRoles;
+}
+
+bool DiscordParticipants::setRows(QVariantList rows)
+{
+    if (m_rows == rows)
+        return false;
+
+    const auto idOf = [](const QVariant &value) { return value.toMap().value(u"participantId"_s).toString(); };
+    QSet<QString> ids;
+    for (const auto &row : std::as_const(rows))
+        ids.insert(idOf(row));
+    for (int row = rowCount() - 1; row >= 0; --row) {
+        if (ids.contains(idOf(m_rows.at(row))))
+            continue;
+        beginRemoveRows({}, row, row);
+        m_rows.removeAt(row);
+        endRemoveRows();
+    }
+
+    for (int row = 0; row < rows.size(); ++row) {
+        const auto &next = rows.at(row);
+        const auto id = idOf(next);
+        int current = row;
+        while (current < rowCount() && idOf(m_rows.at(current)) != id)
+            ++current;
+        if (current == rowCount()) {
+            beginInsertRows({}, row, row);
+            m_rows.insert(row, next);
+            endInsertRows();
+            continue;
+        }
+        if (current != row) {
+            beginMoveRows({}, current, current, {}, row);
+            m_rows.move(current, row);
+            endMoveRows();
+        }
+        if (m_rows.at(row) == next)
+            continue;
+        const auto oldData = m_rows.at(row).toMap();
+        const auto newData = next.toMap();
+        QList<int> roles;
+        for (auto it = participantRoles.constBegin(); it != participantRoles.constEnd(); ++it) {
+            const auto key = QString::fromLatin1(it.value());
+            if (oldData.value(key) != newData.value(key))
+                roles.append(it.key());
+        }
+        m_rows[row] = next;
+        emit dataChanged(index(row, 0), index(row, 0), roles);
+    }
+    return true;
+}
+
 DiscordVoice::DiscordVoice(QSettings &settings, bool available, QString applicationId, QStringList endpoints,
                            QObject *parent)
     : QObject(parent), m_settings(settings), m_available(available && validId(applicationId)),
       m_clientId(std::move(applicationId)), m_proxyMode(settings.value(proxyModeKey, systemProxy).toString()),
-      m_rpc(std::move(endpoints)), m_oauth(settings)
+      m_rpc(std::move(endpoints)), m_oauth(settings), m_participants(this)
 {
     if (!validProxyMode(m_proxyMode))
         m_proxyMode = systemProxy;
     m_oauth.setProxy(discordProxy(m_proxyMode));
+    m_avatarNetwork.setProxy(discordProxy(m_proxyMode));
     m_status = u"Discord отключён."_s;
     m_poll.setInterval(5000);
     m_clock.setInterval(1000);
@@ -130,6 +223,11 @@ DiscordVoice::DiscordVoice(QSettings &settings, bool available, QString applicat
     }
 }
 
+DiscordVoice::~DiscordVoice()
+{
+    syncAvatars({});
+}
+
 void DiscordVoice::setProxyMode(const QString &mode)
 {
     if (signingIn() || !validProxyMode(mode))
@@ -139,6 +237,9 @@ void DiscordVoice::setProxyMode(const QString &mode)
         return;
     m_proxyMode = mode;
     m_oauth.setProxy(discordProxy(mode));
+    m_avatarNetwork.setProxy(discordProxy(mode));
+    syncAvatars({});
+    publishParticipants();
     emit proxyModeChanged();
 }
 
@@ -221,9 +322,10 @@ void DiscordVoice::authenticate()
             m_authenticating = false;
             const auto data = value.toObject();
             const auto scopes = data.value(u"scopes"_s).toArray();
-            const auto userId = data.value(u"user"_s).toObject().value(u"id"_s).toString();
+            const auto user = data.value(u"user"_s).toObject();
+            const auto userId = user.value(u"id"_s).toString();
             if (error || data.value(u"application"_s).toObject().value(u"id"_s).toString() != m_clientId
-                || userId.isEmpty() || !scopes.contains(u"rpc"_s) || !scopes.contains(u"rpc.voice.read"_s)) {
+                || !validId(userId) || !scopes.contains(u"rpc"_s) || !scopes.contains(u"rpc.voice.read"_s)) {
                 if (error >= 0)
                     m_oauth.forget();
                 setStatus(u"Discord не подтвердил доступ к голосовым каналам. Попробуйте подключиться снова."_s);
@@ -236,6 +338,7 @@ void DiscordVoice::authenticate()
             }
             m_consentRequested = false;
             m_selfId = userId;
+            m_selfUser = user;
             m_authorized = true;
             m_writable = scopes.contains(u"rpc.voice.write"_s);
             const auto ignore = [](const QJsonValue &, int) {};
@@ -245,6 +348,9 @@ void DiscordVoice::authenticate()
             setStatus(readyStatus);
             refreshVoice();
             refreshSettings();
+            m_rpc.request(u"SUBSCRIBE"_s, {}, [this](const QJsonValue &reply, int error) {
+                m_voiceStatusSubscribed = !error && reply.toObject().value(u"evt"_s) == voiceConnectionEvent;
+            }, voiceConnectionEvent);
         });
 }
 
@@ -318,15 +424,23 @@ void DiscordVoice::applyChannel(const QJsonValue &data)
     if (id.isEmpty() && !data.isNull())
         return;
 
+    if (oldChannel != id || m_switching) {
+        setVoiceStatus(m_pendingChannel == id && !m_pendingVoiceStatus.isEmpty()
+            ? m_pendingVoiceStatus : unknownVoiceStatus);
+    }
     m_switching = false;
     m_channelId = id;
     if (oldChannel != id)
         subscribeChannel(oldChannel);
+    m_pendingChannel.clear();
+    m_pendingVoiceStatus.clear();
     if (id.isEmpty()) {
         m_lastChannel.clear();
         m_clock.stop();
         m_speaking.clear();
-        // The last display values remain available while the dock closes.
+        m_members = QJsonArray{};
+        syncAvatars({});
+        setParticipantRows({});
         if (m_status != readyStatus || !oldChannel.isEmpty())
             setStatus(readyStatus);
         return;
@@ -345,7 +459,30 @@ void DiscordVoice::applyChannel(const QJsonValue &data)
     }
     const auto newName = channel.value(u"name"_s).toString().simplified().left(128);
     const int newType = channel.value(u"type"_s).toInt();
-    const auto states = channel.value(u"voice_states"_s).toArray();
+    const auto voiceStates = channel.value(u"voice_states"_s);
+    QJsonArray states;
+    if (voiceStates.isArray()) {
+        QHash<QString, qsizetype> indices;
+        const auto snapshot = voiceStates.toArray();
+        for (const auto &entry : snapshot) {
+            const auto member = entry.toObject();
+            const auto memberUserId = memberId(member);
+            if (!validId(memberUserId))
+                continue;
+            const auto existing = indices.constFind(memberUserId);
+            if (existing == indices.constEnd()) {
+                indices.insert(memberUserId, states.size());
+                states.append(member);
+            } else {
+                states.replace(*existing, updatedMember(states.at(*existing).toObject(), member));
+            }
+        }
+        m_speaking.removeIf([&](const QString &memberUserId) {
+            return memberUserId != m_selfId && !indices.contains(memberUserId);
+        });
+    } else if (oldChannel == id) {
+        states = m_members;
+    }
     const bool rosterChanged = m_members != states || m_channelType != newType || m_channelName != newName;
     m_members = states;
     m_channelType = newType;
@@ -382,10 +519,16 @@ void DiscordVoice::dispatch(const QString &event, const QJsonObject &data)
         const auto channel = data.value(u"channel_id"_s);
         if (channel.isNull()) {
             ++m_voiceRevision;
+            m_pendingChannel.clear();
+            m_pendingVoiceStatus.clear();
             applyChannel(QJsonValue(QJsonValue::Null));
-        } else if (channel.isString() && channel.toString() != m_channelId) {
+        } else if (channel.isString() && validId(channel.toString())
+            && channel.toString() != (m_switching ? m_pendingChannel : m_channelId)) {
             ++m_voiceRevision;
+            m_pendingChannel = channel.toString();
+            m_pendingVoiceStatus.clear();
             m_switching = true;
+            setVoiceStatus(unknownVoiceStatus);
             emit changed();
             refreshVoice();
         }
@@ -393,6 +536,10 @@ void DiscordVoice::dispatch(const QString &event, const QJsonObject &data)
     }
     if (event == u"VOICE_SETTINGS_UPDATE"_s) {
         voiceSettings(data);
+        return;
+    }
+    if (event == voiceConnectionEvent) {
+        connectionStatus(data);
         return;
     }
     if (!connected() || m_switching || !m_subscribed.contains(event))
@@ -404,18 +551,18 @@ void DiscordVoice::dispatch(const QString &event, const QJsonObject &data)
 
     if (event == u"SPEAKING_START"_s || event == u"SPEAKING_STOP"_s) {
         const auto id = data.value(u"user_id"_s).toString();
-        if (id.isEmpty())
+        const bool speaking = event == u"SPEAKING_START"_s;
+        if (!validId(id) || m_speaking.contains(id) == speaking)
             return;
-        if (event == u"SPEAKING_START"_s)
+        if (speaking)
             m_speaking.insert(id);
         else
             m_speaking.remove(id);
     } else {
-        auto id = memberId(data);
-        if (id.isEmpty())
-            id = data.value(u"user_id"_s).toString();
-        if (id.isEmpty())
+        const auto id = memberId(data);
+        if (!validId(id))
             return;
+        ++m_voiceRevision;
         qsizetype index = 0;
         while (index < m_members.size() && memberId(m_members.at(index).toObject()) != id)
             ++index;
@@ -424,14 +571,45 @@ void DiscordVoice::dispatch(const QString &event, const QJsonObject &data)
                 m_members.removeAt(index);
             m_speaking.remove(id);
         } else if (index == m_members.size()) {
-            if (!memberId(data).isEmpty())
-                m_members.append(updatedMember({}, data));
+            m_members.append(updatedMember({}, data));
         } else {
             m_members.replace(index, updatedMember(m_members.at(index).toObject(), data));
         }
     }
     publishParticipants();
     emit changed();
+}
+
+void DiscordVoice::connectionStatus(const QJsonObject &data)
+{
+    const auto &selected = m_switching ? m_pendingChannel : m_channelId;
+    const auto channel = data.value(u"channel_id"_s);
+    if (!m_voiceStatusSubscribed || selected.isEmpty() || (channel.isString() && channel.toString() != selected))
+        return;
+
+    const auto state = data.value(u"state"_s).toString();
+    auto status = unknownVoiceStatus;
+    if (state == u"VOICE_CONNECTED"_s) {
+        status = u"connected"_s;
+    } else if (state == u"DISCONNECTED"_s || state == u"VOICE_DISCONNECTED"_s || state == u"NO_ROUTE"_s) {
+        status = u"disconnected"_s;
+    } else if (state == u"AWAITING_ENDPOINT"_s || state == u"AUTHENTICATING"_s || state == u"CONNECTING"_s
+        || state == u"CONNECTED"_s || state == u"VOICE_CONNECTING"_s || state == u"ICE_CHECKING"_s) {
+        status = u"connecting"_s;
+    }
+    // An event can precede the snapshot when Discord has just selected a channel.
+    if (m_switching)
+        m_pendingVoiceStatus = status;
+    else
+        setVoiceStatus(status);
+}
+
+void DiscordVoice::setVoiceStatus(const QString &status)
+{
+    if (m_voiceStatus == status)
+        return;
+    m_voiceStatus = status;
+    emit voiceStatusChanged();
 }
 
 void DiscordVoice::publishParticipants()
@@ -444,34 +622,118 @@ void DiscordVoice::publishParticipants()
     m_room = m_channelName;
     QString firstPeer;
     QVariantList participants;
-    for (const auto &entry : m_members) {
-        const auto member = entry.toObject();
-        const auto id = memberId(member);
-        if (id.isEmpty())
-            continue;
-        const auto name = memberName(member);
+    QSet<QUrl> avatars;
+    const auto appendParticipant = [&](QJsonObject member, const QString &id) {
         const bool self = id == m_selfId;
+        auto user = member.value(u"user"_s).toObject();
+        if (self) {
+            for (auto it = m_selfUser.constBegin(); it != m_selfUser.constEnd(); ++it) {
+                if (!user.contains(it.key()))
+                    user.insert(it.key(), it.value());
+            }
+            member.insert(u"user"_s, user);
+        }
+        const auto name = memberName(member);
         if (!self && firstPeer.isEmpty())
             firstPeer = name;
         const auto state = member.value(u"voice_state"_s).toObject();
-        const bool deaf = state.value(u"deaf"_s).toBool() || state.value(u"self_deaf"_s).toBool()
-            || (self && m_deafened);
-        const bool mute = state.value(u"mute"_s).toBool() || state.value(u"self_mute"_s).toBool()
-            || member.value(u"mute"_s).toBool() || (self && m_muted);
-        const bool speaking = !deaf && !mute && m_speaking.contains(id);
-        const auto status = deaf ? u"Без звука"_s : mute ? u"Микрофон выкл."_s
+        const bool deaf = state.value(u"deaf"_s).toBool()
+            || (self && m_settingsKnown ? m_deafened : state.value(u"self_deaf"_s).toBool());
+        const bool mute = state.value(u"mute"_s).toBool()
+            || (self && m_settingsKnown ? m_muted : state.value(u"self_mute"_s).toBool());
+        const bool micOff = mute || deaf || state.value(u"suppress"_s).toBool();
+        const bool speaking = !micOff && m_speaking.contains(id);
+        const auto status = deaf ? u"Без звука"_s : micOff ? u"Микрофон выкл."_s
             : speaking ? u"Говорит"_s : u"В канале"_s;
-        const QVariantMap row{{u"name"_s, self ? u"Ты"_s : name}, {u"status"_s, status}, {u"speaking"_s, speaking}};
+        const auto url = avatarUrl(id, user);
+        if (!url.isEmpty())
+            avatars.insert(url);
+        const QVariantMap row{{u"participantId"_s, id}, {u"name"_s, name}, {u"localUser"_s, self},
+            {u"avatar"_s, m_avatars.value(url)}, {u"avatarUrl"_s, url}, {u"status"_s, status},
+            {u"speaking"_s, speaking}, {u"micOff"_s, micOff}};
         if (self)
             participants.prepend(row);
         else
             participants.append(row);
+    };
+    bool ownRow = false;
+    for (const auto &entry : std::as_const(m_members)) {
+        const auto member = entry.toObject();
+        const auto id = memberId(member);
+        ownRow |= id == m_selfId;
+        appendParticipant(member, id);
     }
+    if (!ownRow)
+        appendParticipant({}, m_selfId);
     if (m_room.isEmpty())
         m_room = m_channelType == 1 && !firstPeer.isEmpty() ? firstPeer
             : m_channelType == 1 ? u"Личный звонок"_s
             : m_channelType == 3 ? u"Групповой звонок"_s : u"Голосовой канал"_s;
-    m_participants = std::move(participants);
+    setParticipantRows(std::move(participants));
+    syncAvatars(avatars);
+}
+
+void DiscordVoice::setParticipantRows(QVariantList rows)
+{
+    const bool countChanged = participantCount() != rows.size();
+    if (!m_participants.setRows(std::move(rows)))
+        return;
+    if (countChanged)
+        emit participantCountChanged();
+    emit participantsChanged();
+}
+
+void DiscordVoice::syncAvatars(const QSet<QUrl> &urls)
+{
+    m_avatars.removeIf([&](QHash<QUrl, QUrl>::iterator entry) { return !urls.contains(entry.key()); });
+    for (const auto &url : m_avatarRequests.keys()) {
+        if (urls.contains(url))
+            continue;
+        auto *reply = m_avatarRequests.take(url);
+        reply->disconnect(this);
+        reply->abort();
+        reply->deleteLater();
+    }
+    for (const auto &url : urls) {
+        if (!m_avatars.contains(url) && !m_avatarRequests.contains(url))
+            fetchAvatar(url);
+    }
+}
+
+void DiscordVoice::fetchAvatar(const QUrl &url)
+{
+    QNetworkRequest request(url);
+    request.setTransferTimeout(5000);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    request.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
+    request.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
+    request.setAttribute(QNetworkRequest::AuthenticationReuseAttribute, QNetworkRequest::Manual);
+    auto *reply = m_avatarNetwork.get(request);
+    m_avatarRequests.insert(url, reply);
+    reply->setReadBufferSize(maxAvatarBytes + 1);
+    connect(reply, &QNetworkReply::readyRead, this, [reply] {
+        if (reply->bytesAvailable() > maxAvatarBytes)
+            reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, reply, url] {
+        m_avatarRequests.remove(url);
+        reply->deleteLater();
+        m_avatars.insert(url, {});
+        if (reply->error() != QNetworkReply::NoError || reply->bytesAvailable() > maxAvatarBytes
+            || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200)
+            return;
+
+        QBuffer image;
+        image.setData(reply->readAll());
+        image.open(QIODevice::ReadOnly);
+        QImageReader reader(&image, "png");
+        const auto size = reader.size();
+        if (!size.isValid() || size.width() > 256 || size.height() > 256 || reader.read().isNull())
+            return;
+
+        m_avatars[url] = QUrl::fromEncoded("data:image/png;base64," + image.data().toBase64());
+        publishParticipants();
+    });
 }
 
 void DiscordVoice::toggleMute()
@@ -520,13 +782,25 @@ void DiscordVoice::clearSession()
     ++m_voiceRevision;
     ++m_settingsRevision;
     m_channelId.clear();
+    m_pendingChannel.clear();
+    m_pendingVoiceStatus.clear();
+    setVoiceStatus(unknownVoiceStatus);
     m_subscribed.clear();
+    m_members = QJsonArray{};
+    m_speaking.clear();
+    m_selfId.clear();
+    m_selfUser = {};
+    syncAvatars({});
+    setParticipantRows({});
     m_poll.stop();
     m_clock.stop();
     m_authorized = false;
+    m_voiceStatusSubscribed = false;
     m_authenticating = false;
     m_writable = false;
     m_settingsKnown = false;
+    m_muted = false;
+    m_deafened = false;
     m_mutating = false;
     m_switching = false;
     m_queryingVoice = false;

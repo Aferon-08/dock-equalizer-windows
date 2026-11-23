@@ -14,10 +14,14 @@ QtObject {
     readonly property bool ringing: phase === DiscordCallPreview.Ringing
     readonly property bool connected: phase === DiscordCallPreview.Connected
     readonly property bool active: phase !== DiscordCallPreview.Idle
-    readonly property string caller: testCall.caller
+    readonly property string caller: usesLive ? "" : testCall.caller
+    readonly property string channelKey: live.connected ? live.channelId : testCall.connected ? "test" : ""
     readonly property string room: source.room
-    readonly property string context: usesLive ? live.context : "Discord · Тестовый войс"
+    readonly property string context: usesLive ? live.context : "Discord · Тестовый звонок"
+    readonly property var participantModel: source.participantModel
+    readonly property int participantCount: source.participantCount
     readonly property var participants: source.participants
+    readonly property string voiceStatus: source.voiceStatus
     readonly property string durationText: source.durationText
     readonly property bool muted: source.muted
     readonly property bool deafened: source.deafened
@@ -42,8 +46,8 @@ QtObject {
         }
     }
 
-    function accept() { testCall.accept() }
-    function decline() { testCall.decline() }
+    function accept() { if (ringing) testCall.accept() }
+    function decline() { if (ringing) testCall.decline() }
     function toggleMute() { if (canChangeVoice) source.toggleMute() }
     function toggleDeafen() { if (canChangeVoice) source.toggleDeafen() }
     function hangUp() { if (canHangUp) source.hangUp() }

@@ -7,25 +7,17 @@
 
 #ifdef Q_OS_WIN
 #include "BackdropTextureNode.h"
-#include "WinCaptureAbi.h"
+#include "WinCaptureInterop.h"
 
 #include <QElapsedTimer>
 #include <QThread>
 
 #include <asyncinfo.h>
-#include <d3d11_4.h>
-#include <roapi.h>
-#include <winstring.h>
-#include <wrl/client.h>
-
 #include <cstring>
 #include <utility>
 
-extern "C" HRESULT WINAPI CreateDirect3D11DeviceFromDXGIDevice(IDXGIDevice *, IInspectable **);
-
 namespace {
 
-using Microsoft::WRL::ComPtr;
 using namespace wincapture;
 
 constexpr int bufferCount = 3;
@@ -48,31 +40,6 @@ struct CapturedFrame
     std::shared_ptr<CaptureLease> lease;
     bool borderError = false;
 };
-
-template<class Interface>
-HRESULT query(IUnknown *object, REFIID id, ComPtr<Interface> &result)
-{
-    return object->QueryInterface(id, reinterpret_cast<void **>(result.ReleaseAndGetAddressOf()));
-}
-
-template<class Interface, size_t N>
-HRESULT activationFactory(const wchar_t (&name)[N], REFIID id, ComPtr<Interface> &result)
-{
-    HSTRING_HEADER header{};
-    HSTRING value = nullptr;
-    const HRESULT hr = WindowsCreateStringReference(name, N - 1, &header, &value);
-    return FAILED(hr) ? hr
-        : RoGetActivationFactory(value, id, reinterpret_cast<void **>(result.GetAddressOf()));
-}
-
-template<class Interface>
-void releaseCapture(ComPtr<Interface> &object)
-{
-    ComPtr<Closable> closable;
-    if (object && SUCCEEDED(query(object.Get(), closableId, closable)))
-        closable->Close();
-    object.Reset();
-}
 
 // The worker hands off a checked-out frame instead of reading back pixels.
 class CaptureWorker : public QObject
@@ -171,19 +138,8 @@ private:
                 || FAILED(item->get_Size(&size)) || QSize(size.width, size.height) != m_bounds.size())
             return false;
 
-        ComPtr<ID3D11DeviceContext> context;
-        m_device->GetImmediateContext(context.GetAddressOf());
-        ComPtr<ID3D11Multithread> guard;
-        if (FAILED(context.As(&guard)))
-            return false;
-        guard->SetMultithreadProtected(TRUE);
-
-        ComPtr<IDXGIDevice> dxgi;
-        ComPtr<IInspectable> wrapper;
         ComPtr<IInspectable> graphicsDevice;
-        if (FAILED(m_device.As(&dxgi))
-                || FAILED(CreateDirect3D11DeviceFromDXGIDevice(dxgi.Get(), wrapper.GetAddressOf()))
-                || FAILED(query(wrapper.Get(), direct3dDeviceId, graphicsDevice)))
+        if (!wrapCaptureDevice(m_device.Get(), graphicsDevice))
             return false;
 
         ComPtr<FramePoolFactory> factory;
@@ -212,14 +168,9 @@ private:
     std::shared_ptr<CaptureLease> mapFrame(ComPtr<Frame> frame)
     {
         Size size{};
-        ComPtr<IInspectable> surface;
-        ComPtr<SurfaceAccess> access;
         ComPtr<ID3D11Texture2D> source;
         if (FAILED(frame->get_ContentSize(&size)) || QSize(size.width, size.height) != m_bounds.size()
-                || FAILED(frame->get_Surface(surface.GetAddressOf()))
-                || FAILED(query(surface.Get(), surfaceAccessId, access))
-                || FAILED(access->GetInterface(__uuidof(ID3D11Texture2D),
-                          reinterpret_cast<void **>(source.GetAddressOf()))))
+                || !frameTexture(frame.Get(), source))
             return {};
 
         return std::make_shared<CaptureLease>(CaptureLease{std::move(frame), std::move(source), {}});

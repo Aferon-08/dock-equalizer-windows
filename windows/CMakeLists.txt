@@ -1,12 +1,13 @@
-target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.h
+target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.h DesktopOverlayGeometry.h
     MediaSessions.cpp MediaSessions.h PlaybackClock.h ArtworkColor.cpp ArtworkColor.h
     DisplaySettings.cpp DisplaySettings.h DockAppearance.cpp DockAppearance.h StartupSettings.cpp StartupSettings.h
     LyricsAlignment.cpp LyricsAlignment.h
     LyricsHttp.cpp LyricsHttp.h LyricsImport.cpp LyricsImport.h LyricsSearch.cpp LyricsSearch.h
     SystemAudio.cpp SystemAudio.h SpectrumAnalyzer.cpp SpectrumAnalyzer.h
+    DiscordNotificationProbe.h NotificationPreferences.cpp NotificationPreferences.h
     BatteryStatus.cpp BatteryStatus.h WifiStatus.cpp WifiStatus.h WindowsNotifications.cpp WindowsNotifications.h
     DiscordOAuth.cpp DiscordOAuth.h DiscordRpc.cpp DiscordRpc.h DiscordVoice.cpp DiscordVoice.h
-    MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
+    MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h VoicePreview.cpp VoicePreview.h)
 target_include_directories(SekaiSoundbar PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
 target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}"
@@ -29,7 +30,7 @@ if(WIN32 AND SOUNDBAR_NOTIFICATION_PUBLISHER)
 endif()
 if(WIN32)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
-        WinCaptureAbi.h WinNotificationAbi.h NotificationFeed.h BackdropTextureNode.h
+        WinCaptureAbi.h WinCaptureInterop.h WinNotificationAbi.h NotificationFeed.h BackdropTextureNode.h
         WindowsNotificationBanners.cpp WindowsNotificationBanners.h)
     target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi powrprof advapi32 crypt32)
 endif()
@@ -98,6 +99,10 @@ if(BUILD_TESTING)
     add_executable(soundbar_backdrop_test tests/BackdropGeometryTest.cpp)
     target_link_libraries(soundbar_backdrop_test PRIVATE Qt6::Core)
     add_test(NAME soundbar.backdrop-geometry COMMAND soundbar_backdrop_test)
+    add_executable(soundbar_desktop_overlay_geometry_test tests/DesktopOverlayGeometryTest.cpp DesktopOverlayGeometry.h)
+    target_include_directories(soundbar_desktop_overlay_geometry_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(soundbar_desktop_overlay_geometry_test PRIVATE Qt6::Gui)
+    add_test(NAME soundbar.desktop-overlay-geometry COMMAND soundbar_desktop_overlay_geometry_test)
     add_executable(soundbar_lyrics_test tests/LyricsImportTest.cpp LyricsImport.cpp LyricsImport.h)
     target_link_libraries(soundbar_lyrics_test PRIVATE Qt6::Core)
     add_test(NAME soundbar.lyrics-import COMMAND soundbar_lyrics_test)

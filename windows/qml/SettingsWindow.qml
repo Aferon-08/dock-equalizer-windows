@@ -669,6 +669,43 @@ Window {
 
             FieldLabel { text: "Уведомления"; font.pixelSize: 23 }
             Surface {
+                RowLayout {
+                    Layout.fillWidth: true
+                    FieldLabel { text: "Уведомления поверх окон" }
+                    Option {
+                        objectName: "notificationsAboveWindowsSwitch"
+                        Accessible.name: "Уведомления поверх окон"
+                        checked: panel.appState.notificationPreferences.aboveWindows
+                        onToggled: panel.appState.notificationPreferences.aboveWindows = checked
+                    }
+                }
+                Copy { text: "Если у верхней кромки мало места или включён полноэкранный режим, уведомление появится поверх окон." }
+                FieldLabel { text: "Позиция отдельного уведомления" }
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: width >= 440 ? 3 : 1
+                    rowSpacing: 8
+                    columnSpacing: 8
+                    Repeater {
+                        model: [
+                            {value: "top-center", label: "Сверху по центру"},
+                            {value: "bottom-right", label: "Справа внизу"},
+                            {value: "bottom-center", label: "Снизу по центру"}
+                        ]
+                        delegate: Action {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            text: modelData.label
+                            checkable: true
+                            autoExclusive: true
+                            checked: panel.appState.notificationPreferences.notificationPosition === modelData.value
+                            emphasized: checked
+                            onClicked: panel.appState.notificationPreferences.notificationPosition = modelData.value
+                        }
+                    }
+                }
+            }
+            Surface {
                 FieldLabel { text: "Автоматические события" }
                 Copy {
                     text: {
@@ -771,6 +808,26 @@ Window {
                 }
             }
             Surface {
+                RowLayout {
+                    Layout.fillWidth: true
+                    FieldLabel { text: "Участники в тестовом звонке" }
+                    Label {
+                        text: panel.appState.discordPreview.participantCount.toString()
+                        color: panel.mint
+                    }
+                }
+                Slider {
+                    id: testParticipantCount
+                    objectName: "testDiscordParticipantCount"
+                    Layout.fillWidth: true
+                    from: 1
+                    to: 8
+                    stepSize: 1
+                    snapMode: Slider.SnapAlways
+                    value: panel.appState.discordPreview.participantCount
+                    Accessible.name: "Участники в тестовом звонке"
+                    onMoved: panel.appState.discordPreview.participantCount = Math.round(value)
+                }
                 Action {
                     objectName: "testDiscordCallButton"
                     Layout.fillWidth: true
@@ -801,6 +858,51 @@ Window {
                     Layout.fillWidth: true
                     text: "Подключение к Wi-Fi"
                     onClicked: notifications.sendTest("wifi")
+                }
+            }
+            Surface {
+                FieldLabel { text: "Входящие звонки Discord" }
+                Copy { text: "Отвечайте на входящие в Discord. Док показывает голосовую сессию после подключения." }
+                Action {
+                    Layout.fillWidth: true
+                    text: "Открыть Discord"
+                    onClicked: {
+                        if (Qt.openUrlExternally("discord://-/channels/@me")
+                                || Qt.openUrlExternally("https://discord.com/channels/@me"))
+                            notificationStatus.text = ""
+                        else
+                            notificationStatus.text = "Не удалось открыть Discord. Запустите его из меню «Пуск»."
+                    }
+                }
+                Action {
+                    Layout.fillWidth: true
+                    visible: notifications.listenerStatus === "active" || notifications.windowsSource.discordProbeActive
+                    text: notifications.windowsSource.discordProbeActive
+                        ? "Остановить проверку уведомлений Discord" : "Проверить уведомления Discord"
+                    onClicked: notifications.windowsSource.setDiscordProbeActive(!notifications.windowsSource.discordProbeActive)
+                }
+                Copy {
+                    visible: notifications.windowsSource.discordProbeLog !== ""
+                    text: "Временный журнал показывает источник, ID и время уведомления."
+                }
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 140
+                    visible: notifications.windowsSource.discordProbeLog !== ""
+                    clip: true
+                    contentWidth: availableWidth
+                    background: Rectangle { color: "#172a25"; radius: 10; border.color: panel.line }
+
+                    TextArea {
+                        readOnly: true
+                        selectByMouse: true
+                        textFormat: TextEdit.PlainText
+                        wrapMode: TextEdit.Wrap
+                        text: notifications.windowsSource.discordProbeLog
+                        color: panel.ink
+                        padding: 9
+                        Accessible.name: "Журнал проверки уведомлений Discord"
+                    }
                 }
             }
             Surface {

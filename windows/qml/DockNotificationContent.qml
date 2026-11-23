@@ -18,18 +18,22 @@ Item {
     required property bool dismissible
     required property var motionCurve
     required property bool springMotion
-    signal dismissed()
+    property bool toastLayout: false
+    property bool compactPopup: false
+    signal dismissed(int eventId)
 
     readonly property string kind: event?.kind ?? "regular"
     readonly property var batteryDetailsData: event?.liveBattery && battery.state === event.state ? battery : event
-    readonly property real inset: 24
-    readonly property real badgeSize: 38
+    readonly property bool wrappedLayout: toastLayout || compactPopup
+    readonly property real inset: toastLayout || compactPopup ? 16 : 24
+    readonly property real badgeSize: toastLayout ? 26 : compactPopup ? 34 : 38
     readonly property real closeSize: 30
-    readonly property real headerTextX: inset + badgeSize + 12
+    readonly property real headerTextX: inset + badgeSize + (wrappedLayout ? 8 : 12)
     readonly property real headerSpace: headerTextX + 8 + closeSize + inset
     readonly property real centeredHeaderSpace: 2 * headerTextX
-    readonly property real expandedTop: 19
-    readonly property real headerY: Math.max(0, Geometry.mix((height - badgeSize) / 2, expandedTop, expansion))
+    readonly property real expandedTop: wrappedLayout ? 13 : 19
+    readonly property real headerY: wrappedLayout ? expandedTop
+        : Math.max(0, Geometry.mix((height - badgeSize) / 2, expandedTop, expansion))
     readonly property color ink: "#f1f9f5"
     readonly property color secondary: "#c3d8cf"
     readonly property bool wifiConnected: wifi.state === "connected" || wifi.state === "restricted"
@@ -72,18 +76,35 @@ Item {
     readonly property bool movesSummary: kind === "app" || (summary !== "" && kind !== "battery" && kind !== "wifi"
         && (detail === summary || detail.startsWith(summary + "\n")))
     readonly property string fullMessage: detail || (movesSummary ? summary : "")
+    readonly property string wrappedMessage: detail && summary && !movesSummary && summary !== detail
+        ? summary + "\n" + detail : fullMessage || summary
+    readonly property string source: event?.source ?? ""
+    readonly property string actionLabel: kind === "wifi" ? "Открыть настройки Wi-Fi"
+        : kind === "battery" ? "Открыть параметры питания" : ""
+    readonly property url actionUrl: kind === "wifi" ? "ms-settings:network-wifi"
+        : kind === "battery" ? "ms-settings:powersleep" : ""
+    readonly property bool showsAction: toastLayout && actionLabel !== "" && availableHeight >= 130
+    readonly property real actionHeight: showsAction ? 38 : 0
+    readonly property real wrappedHeaderHeight: toastLayout ? expandedTop + badgeSize + 12 : 0
+    readonly property real wrappedTextX: toastLayout ? inset : headerTextX
+    readonly property real wrappedGutters: toastLayout ? 2 * inset : headerSpace
     readonly property bool showGraph: kind === "wifi" && wifi.hasCounters === true
     readonly property bool showCharge: kind === "battery" && (batteryDetailsData?.charge ?? -1) >= 0
     readonly property real accessoryHeight: showGraph ? 99 : showCharge ? 14 : 0
-    readonly property real preferredWidth: Math.ceil(Math.min(availableWidth, Math.max(minimumWidth,
-        centeredHeaderSpace + titleMeasure.implicitWidth,
+    readonly property real preferredWidth: Math.min(availableWidth, Math.ceil(Math.max(minimumWidth,
+        (wrappedLayout ? wrappedGutters : centeredHeaderSpace) + titleMeasure.implicitWidth,
         (movesSummary ? headerSpace : centeredHeaderSpace) + summaryMeasure.implicitWidth,
-        2 * inset + detailMeasure.implicitWidth)))
+        (wrappedLayout ? wrappedGutters : 2 * inset) + detailMeasure.implicitWidth,
+        toastLayout ? headerSpace + sourceText.implicitWidth + (showsAction ? closeSize + 3 : 0) : 0)))
     readonly property real idealHeight: expandedTop
         + Math.max(badgeSize, titleMeasure.implicitHeight + (movesSummary || !summary ? 0 : 3 + summaryMeasure.implicitHeight))
         + 34 + (fullMessage ? detailMeasure.implicitHeight : 0) + accessoryHeight + 16 + footer.implicitHeight + 19
-    readonly property real preferredHeight: Math.min(availableHeight,
-        Math.max(showGraph || (kind === "wifi" && wifi.state === "loading") ? 236 : 176, Math.ceil(idealHeight)))
+    readonly property real wrappedIdealHeight: wrappedHeaderHeight + (compactPopup ? expandedTop : 0)
+        + wrappedTitleMeasure.implicitHeight + (wrappedMessage !== "" ? 6 + wrappedMessageMeasure.implicitHeight : 0)
+        + (toastLayout ? accessoryHeight : 0) + inset + (showsAction ? actionHeight + inset : 0)
+    readonly property real preferredHeight: Math.min(availableHeight, wrappedLayout
+        ? Math.min(compactPopup ? 134 : availableHeight, Math.max(compactPopup ? 68 : 94, Math.ceil(wrappedIdealHeight)))
+        : Math.max(showGraph || (kind === "wifi" && wifi.state === "loading") ? 236 : 176, Math.ceil(idealHeight)))
     readonly property bool multiline: expansion > 0.42
     readonly property real messageMove: movesSummary ? Motion.smooth(Geometry.phase(expansion, 0.15, 0.88)) : 0
     readonly property real headerWidth: Math.max(1, width - headerSpace)
@@ -93,19 +114,37 @@ Item {
     readonly property real bodyWidth: Math.max(1, width - 2 * inset)
     readonly property real expandedEntrance: Math.min(entrance, detailProgress)
     readonly property real dividerY: headerY + headerHeight + 16
-    readonly property real detailY: dividerY + 18
-    readonly property real accessoryY: detailY + (fullMessage ? (movesSummary ? summaryText.height : description.height) : 0)
+    readonly property real detailY: wrappedLayout ? headlineFrame.y + headlineFrame.height + 6 : dividerY + 18
+    readonly property real accessoryY: detailY + (wrappedLayout ? (wrappedMessage ? description.height : 0)
+        : fullMessage ? (movesSummary ? summaryText.height : description.height) : 0)
     readonly property real footerY: Math.max(accessoryY + accessoryHeight + 16, height - 19 - footer.height)
 
-    onEventChanged: viewport.contentY = 0
+    onEventChanged: {
+        viewport.contentY = 0
+        actionsPopup.close()
+    }
     onExpansionChanged: if (!expansion) viewport.contentY = 0
+    onDismissibleChanged: if (!dismissible) actionsPopup.close()
+
+    function dismiss() {
+        if (event && dismissible)
+            dismissed(event.eventId)
+    }
+
+    function runAction() {
+        actionsPopup.close()
+        if (dismissible && actionLabel !== "" && Qt.openUrlExternally(actionUrl))
+            dismiss()
+    }
 
     function textLayout() {
         return { titleOverflow: headlineFrame.overflow, titleScroll: headlineFrame.scroll,
             titleCenterOffset: Qt.point(headlineFrame.x + headlineFrame.width / 2 - width / 2,
                 headlineFrame.y + headlineFrame.height / 2 - headerY - headerHeight / 2),
-            messageTruncated: summaryText.truncated,
-            messageLines: summaryText.lineCount, message: summaryText.text, messageY: summaryText.y,
+            messageTruncated: wrappedLayout ? description.truncated : summaryText.truncated,
+            messageLines: wrappedLayout ? description.lineCount : summaryText.lineCount,
+            message: wrappedLayout ? description.text : summaryText.text,
+            messageY: wrappedLayout ? description.y : summaryText.y,
             detailY, duplicateVisible: description.visible, messageColor: summaryText.color,
             scrollRange: viewport.contentHeight - viewport.height }
     }
@@ -139,20 +178,42 @@ Item {
     NoticeText {
         id: detailMeasure
         visible: false
-        text: card.fullMessage
-        font: card.movesSummary ? summaryText.font : description.font
+        text: card.wrappedLayout ? card.wrappedMessage : card.fullMessage
+        font: !card.wrappedLayout && card.movesSummary ? summaryText.font : description.font
         width: Math.max(1, card.preferredWidth - 2 * card.inset)
+        wrapMode: Text.Wrap
+    }
+    NoticeText {
+        id: wrappedTitleMeasure
+        visible: false
+        text: card.headline
+        font: headlineText.font
+        width: Math.max(1, card.preferredWidth - card.wrappedGutters)
+        wrapMode: Text.Wrap
+    }
+    NoticeText {
+        id: wrappedMessageMeasure
+        visible: false
+        text: card.wrappedMessage
+        font: description.font
+        width: wrappedTitleMeasure.width
         wrapMode: Text.Wrap
     }
 
     Flickable {
         id: viewport
-        anchors.fill: parent
+        y: card.wrappedHeaderHeight
+        width: parent.width
+        height: Math.max(0, parent.height - y - (card.showsAction ? card.actionHeight + card.inset : 0))
         contentWidth: width
-        contentHeight: card.multiline ? Math.max(height, card.footerY + footer.height + 19) : height
+        contentHeight: card.wrappedLayout
+            ? Math.max(height, card.accessoryY + (card.toastLayout ? card.accessoryHeight : 0) + card.inset)
+            : card.multiline ? Math.max(height, card.footerY + footer.height + 19) : height
+        clip: card.wrappedLayout
         flickableDirection: Flickable.VerticalFlick
         boundsBehavior: Flickable.StopAtBounds
-        interactive: card.expansion >= 0.99 && contentHeight > height + 1
+        interactive: (card.wrappedLayout ? card.entrance > 0.91 && card.dismissible : card.expansion >= 0.99)
+            && contentHeight > height + 1
         ScrollBar.vertical: ScrollBar {
             policy: viewport.interactive ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
         }
@@ -160,7 +221,7 @@ Item {
 
     Rectangle {
         id: badge
-        parent: viewport.contentItem
+        parent: card.wrappedLayout ? card : viewport.contentItem
         x: card.inset
         y: card.headerY
         width: card.badgeSize
@@ -241,17 +302,34 @@ Item {
         }
     }
 
+    NoticeText {
+        id: sourceText
+        x: card.headerTextX
+        y: card.headerY + (card.badgeSize - height) / 2
+        width: Math.max(1, card.headerWidth - (card.showsAction ? card.closeSize + 3 : 0))
+        visible: card.toastLayout
+        text: card.source
+        color: card.secondary
+        elide: Text.ElideRight
+        font.pixelSize: 12
+        font.weight: Font.DemiBold
+        opacity: badgeArrival.alpha
+    }
+
     Item {
         id: headlineFrame
         parent: viewport.contentItem
-        x: Geometry.mix(card.headerTextX, (card.width - width) / 2, card.expansion)
-        y: card.headerY + (card.headerHeight - card.headerGroupHeight) / 2 * card.expansion
-        width: Math.max(1, Math.min(card.centeredHeaderWidth, Math.ceil(titleMeasure.implicitWidth)))
+        x: card.wrappedLayout ? card.wrappedTextX
+            : Geometry.mix(card.headerTextX, (card.width - width) / 2, card.expansion)
+        y: card.wrappedLayout ? (card.toastLayout ? 0 : card.expandedTop)
+            : card.headerY + (card.headerHeight - card.headerGroupHeight) / 2 * card.expansion
+        width: card.wrappedLayout ? Math.max(1, card.width - card.wrappedGutters)
+            : Math.max(1, Math.min(card.centeredHeaderWidth, Math.ceil(titleMeasure.implicitWidth)))
         height: headlineText.implicitHeight
         clip: overflow > 0.5
         opacity: titleArrival.alpha
         property real scroll: 0
-        readonly property real overflow: Math.max(0, headlineText.implicitWidth - width)
+        readonly property real overflow: card.wrappedLayout ? 0 : Math.max(0, headlineText.implicitWidth - width)
         readonly property bool shouldScroll: overflow > 0.5 && card.visible && card.entrance === 1
             && (card.detailProgress === 0 || card.detailProgress === 1)
         readonly property int scrollDuration: Math.round(Math.max(1400, Math.min(6800, overflow * 14)))
@@ -275,8 +353,10 @@ Item {
         }
         NoticeText {
             id: headlineText
-            x: headlineFrame.overflow > 0.5 ? -headlineFrame.overflow * headlineFrame.scroll
+            x: card.wrappedLayout ? 0 : headlineFrame.overflow > 0.5 ? -headlineFrame.overflow * headlineFrame.scroll
                 : (headlineFrame.width - width) / 2
+            width: card.wrappedLayout ? headlineFrame.width : implicitWidth
+            wrapMode: card.wrappedLayout ? Text.Wrap : Text.NoWrap
             text: card.headline
             font.pixelSize: 17
             font.weight: Font.DemiBold
@@ -310,6 +390,7 @@ Item {
         text: card.movesSummary && card.messageMove > 0.74 ? card.fullMessage : card.summary
         font.pixelSize: 13
         color: card.accent
+        visible: !card.wrappedLayout
         wrapMode: card.multiline ? Text.Wrap : Text.NoWrap
         elide: card.multiline ? Text.ElideNone : Text.ElideRight
         opacity: messageArrival.alpha
@@ -361,7 +442,7 @@ Item {
                 ctx.stroke()
             }
         }
-        onClicked: card.dismissed()
+        onClicked: card.dismiss()
     }
 
     Rectangle {
@@ -371,24 +452,25 @@ Item {
         width: card.bodyWidth
         height: 1
         color: Qt.alpha(card.accent, 0.26)
+        visible: !card.wrappedLayout
         opacity: Motion.smooth(Geometry.phase(card.expandedEntrance, 0.38, 0.85))
     }
 
     NoticeText {
         id: description
         parent: viewport.contentItem
-        x: card.inset
+        x: card.wrappedLayout ? card.wrappedTextX : card.inset
         y: card.detailY
-        width: card.bodyWidth
-        text: card.movesSummary ? "" : card.detail
+        width: card.wrappedLayout ? Math.max(1, card.width - card.wrappedGutters) : card.bodyWidth
+        text: card.wrappedLayout ? card.wrappedMessage : card.movesSummary ? "" : card.detail
         wrapMode: Text.Wrap
-        color: card.ink
+        color: card.compactPopup ? card.accent : card.ink
         font.pixelSize: card.kind === "wifi" ? 13 : 14
         visible: text !== "" && opacity > 0.001
         opacity: bodyArrival.alpha
         transform: Arrival {
             id: bodyArrival
-            progress: Geometry.phase(card.expandedEntrance, 0.48, 0.95)
+            progress: Geometry.phase(card.wrappedLayout ? card.entrance : card.expandedEntrance, 0.48, 0.95)
             offset: Qt.point(0, 19)
         }
     }
@@ -399,7 +481,7 @@ Item {
         y: card.accessoryY + 6
         width: card.bodyWidth
         height: Math.max(0, card.accessoryHeight - 6)
-        active: card.showGraph || card.showCharge
+        active: !card.compactPopup && (card.showGraph || card.showCharge)
         opacity: accessoryArrival.alpha
         visible: opacity > 0.001
         transform: Arrival {
@@ -442,11 +524,88 @@ Item {
         color: card.secondary
         font.pixelSize: 12
         elide: Text.ElideRight
+        visible: !card.wrappedLayout
         opacity: footerArrival.alpha
         transform: Arrival {
             id: footerArrival
             progress: Geometry.phase(card.expandedEntrance, 0.59, 1)
             offset: Qt.point(10, 15)
         }
+    }
+
+    Button {
+        id: actionsButton
+        anchors.right: closeButton.left
+        anchors.rightMargin: 3
+        y: closeButton.y
+        width: card.closeSize
+        height: width
+        padding: 0
+        visible: card.showsAction
+        enabled: closeButton.enabled
+        opacity: closeButton.opacity
+        Accessible.name: "Действия уведомления"
+        background: Rectangle {
+            radius: width / 2
+            color: actionsButton.hovered || actionsButton.down ? Qt.alpha(card.accent, 0.16) : "transparent"
+        }
+        contentItem: NoticeText {
+            text: "⋯"
+            color: card.secondary
+            font.pixelSize: 20
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        onClicked: actionsPopup.open()
+    }
+
+    component NoticeAction: Button {
+        id: action
+        implicitHeight: 38
+        text: card.actionLabel
+        font.pixelSize: 13
+        font.weight: Font.DemiBold
+        contentItem: NoticeText {
+            text: action.text
+            color: card.ink
+            font: action.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            radius: 8
+            color: Qt.alpha(card.accent, action.down ? 0.25 : action.hovered ? 0.19 : 0.11)
+            border.color: Qt.alpha(card.accent, 0.23)
+        }
+        onClicked: card.runAction()
+    }
+
+    NoticeAction {
+        x: card.inset
+        y: card.height - height - card.inset
+        width: card.bodyWidth
+        height: card.actionHeight
+        visible: card.showsAction
+        opacity: Motion.smooth(Geometry.phase(card.entrance, 0.64, 1))
+        enabled: card.dismissible && opacity > 0.75
+    }
+
+    Popup {
+        id: actionsPopup
+        parent: card
+        popupType: Popup.Item
+        padding: 6
+        x: card.width - card.inset - width
+        y: actionsButton.y + actionsButton.height + 5
+        width: Math.min(242, Math.max(1, card.bodyWidth))
+        height: contentItem.implicitHeight + 2 * padding
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            radius: 10
+            color: "#182d26"
+            border.color: Qt.alpha(card.accent, 0.32)
+        }
+        contentItem: NoticeAction { }
     }
 }

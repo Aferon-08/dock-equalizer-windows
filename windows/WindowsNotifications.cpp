@@ -1,5 +1,7 @@
 #include "WindowsNotifications.h"
 
+#include "DiscordNotificationProbe.h"
+
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QSettings>
@@ -138,18 +140,18 @@ QStringList notificationText(winnotification::UserNotification *entry)
     return {};
 }
 
-QVariantMap toCard(winnotification::UserNotification *entry, qint64 timestamp, AppInfo *appInfo,
-    const QString &appId)
+QString notificationDisplayName(AppInfo *appInfo)
 {
-    QString source = WindowsNotifications::tr("Приложение Windows");
-    if (appInfo) {
-        ComPtr<AppDisplayInfo> display;
-        if (SUCCEEDED(appInfo->get_DisplayInfo(display.GetAddressOf())) && display) {
-            const auto displayName = readString(display.Get(), &AppDisplayInfo::get_DisplayName);
-            if (!displayName.isEmpty())
-                source = displayName;
-        }
-    }
+    ComPtr<AppDisplayInfo> display;
+    if (appInfo && SUCCEEDED(appInfo->get_DisplayInfo(display.GetAddressOf())) && display)
+        return readString(display.Get(), &AppDisplayInfo::get_DisplayName);
+    return {};
+}
+
+QVariantMap toCard(winnotification::UserNotification *entry, qint64 timestamp, const QString &appId,
+    const QString &displayName)
+{
+    const auto source = displayName.isEmpty() ? WindowsNotifications::tr("Приложение Windows") : displayName;
     const bool system = appId.startsWith(QLatin1StringView("Windows.SystemToast."), Qt::CaseInsensitive);
     auto lines = notificationText(entry);
     const auto title = lines.isEmpty() ? source : lines.takeFirst();
@@ -232,7 +234,39 @@ HRESULT showTestToast(const QString &message)
 
 struct WindowsNotifications::Private
 {
+    DiscordNotificationProbe discordProbe;
+    QStringList discordProbeLines;
 #ifdef Q_OS_WIN
+    bool observeDiscordNotifications(const QList<DiscordNotificationProbe::Entry> &snapshot)
+    {
+        const bool first = !discordProbe.hasBaseline();
+        const auto changes = discordProbe.observe(snapshot);
+        if (first)
+            discordProbeLines = {WindowsNotifications::tr("Исходный снимок получен.")};
+        if (!first && changes.isEmpty())
+            return false;
+        const auto timeFormat = QStringLiteral("HH:mm:ss.zzz");
+        const auto observed = QDateTime::currentDateTime().toString(timeFormat);
+        for (const auto &change : changes) {
+            using Action = DiscordNotificationProbe::Action;
+            QString action;
+            switch (change.action) {
+            case Action::Present: action = WindowsNotifications::tr("Уже было"); break;
+            case Action::Added: action = WindowsNotifications::tr("Появилось"); break;
+            case Action::Removed: action = WindowsNotifications::tr("Исчезло из снимка"); break;
+            }
+            const auto createdMs = change.entry.createdAt / 10000 - windowsEpochMs;
+            const auto created = createdMs > 0 ? QDateTime::fromMSecsSinceEpoch(createdMs).toString(timeFormat)
+                : QStringLiteral("—");
+            discordProbeLines.append(WindowsNotifications::tr("%1 · %2 · %3 · ID %4 · создано %5").arg(
+                observed, action, change.entry.source, QString::number(change.entry.id), created));
+        }
+        constexpr qsizetype maxLines = 60;
+        if (discordProbeLines.size() > maxLines)
+            discordProbeLines.remove(0, discordProbeLines.size() - maxLines);
+        return true;
+    }
+
     bool apartment = false;
     bool dockAvailable = false;
     bool suppressing = false;
@@ -342,6 +376,26 @@ void WindowsNotifications::setTestResult(const QString &result, bool testing)
     m_testResult = result;
     m_testing = testing;
     emit testChanged();
+}
+
+bool WindowsNotifications::discordProbeActive() const
+{
+    return m_data->discordProbe.active();
+}
+
+QString WindowsNotifications::discordProbeLog() const
+{
+    return m_data->discordProbeLines.join(u'\n');
+}
+
+void WindowsNotifications::setDiscordProbeActive(bool active)
+{
+    if (discordProbeActive() == active || (active && m_status != QStringLiteral("active")))
+        return;
+    m_data->discordProbe.setActive(active);
+    if (active)
+        m_data->discordProbeLines = {tr("Ожидаем исходный снимок Центра уведомлений…")};
+    emit discordProbeChanged();
 }
 
 void WindowsNotifications::setDockAvailable(bool available)
@@ -473,6 +527,7 @@ void WindowsNotifications::refresh()
     Access access = Access::Unspecified;
     const auto accessResult = m_data->listener->GetAccessStatus(&access);
     if (FAILED(accessResult) || access != Access::Allowed) {
+        setDiscordProbeActive(false);
         m_data->read.Reset();
         m_data->scannedSources = false;
         m_data->nextRead = elapsed;
@@ -524,31 +579,42 @@ void WindowsNotifications::refresh()
     }
 
     QList<QPair<qint64, QVariantMap>> arrivals;
+    const bool probing = discordProbeActive();
+    bool completeSnapshot = true;
+    QList<DiscordNotificationProbe::Entry> probeEntries;
     const auto knownSenderCount = m_data->senders.size();
     for (UINT32 index = 0; index < count; ++index) {
         ComPtr<winnotification::UserNotification> entry;
         UINT32 id = 0;
         WinTime timestamp{};
-        if (FAILED(list->GetAt(index, entry.GetAddressOf())) || !entry || FAILED(entry->get_Id(&id)))
+        if (FAILED(list->GetAt(index, entry.GetAddressOf())) || !entry || FAILED(entry->get_Id(&id))) {
+            completeSnapshot = false;
             continue;
-        entry->get_CreationTime(&timestamp);
+        }
+        if (FAILED(entry->get_CreationTime(&timestamp)))
+            completeSnapshot = false;
         const bool fresh = m_data->feed.observe(id, timestamp.ticks);
-        if (!fresh && m_data->scannedSources)
+        if (!fresh && m_data->scannedSources && !probing)
             continue;
         ComPtr<AppInfo> appInfo;
         entry->get_AppInfo(appInfo.GetAddressOf());
         const auto appId = appInfo ? readString(appInfo.Get(), &AppInfo::get_AppUserModelId) : QString();
         if (!appId.isEmpty())
             m_data->senders.insert(appId);
+        const auto displayName = fresh || probing ? notificationDisplayName(appInfo.Get()) : QString();
+        if (probing)
+            probeEntries.append({id, timestamp.ticks, DiscordNotificationProbe::source(appId, displayName)});
         if (!fresh)
             continue;
-        auto card = toCard(entry.Get(), timestamp.ticks, appInfo.Get(), appId);
+        auto card = toCard(entry.Get(), timestamp.ticks, appId, displayName);
         if (m_testing && card.value(QStringLiteral("title")).toString() == probeTitle
                 && card.value(QStringLiteral("detail")).toString() == m_data->testMessage) {
             setTestResult(tr("Проверочное уведомление получено из Windows и передано доку."));
         }
         arrivals.append(qMakePair(qint64(timestamp.ticks), std::move(card)));
     }
+    if (probing && completeSnapshot && m_data->observeDiscordNotifications(probeEntries))
+        emit discordProbeChanged();
     m_data->scannedSources = true;
     if (m_status == QStringLiteral("active") && m_bannersHidden && m_data->dockAvailable
             && (m_data->senders.size() != knownSenderCount || elapsed >= m_data->nextBannerScan)) {

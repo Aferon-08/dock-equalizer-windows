@@ -1,10 +1,14 @@
 #include "DesktopOverlay.h"
+#include "DesktopOverlayGeometry.h"
 
+#include <QEvent>
 #include <QPainterPath>
+#include <QPlatformSurfaceEvent>
 #include <QRegion>
 #include <QScreen>
 #include <QTimer>
 #include <QWindow>
+#include <QtMath>
 
 #include <string_view>
 #include <utility>
@@ -91,20 +95,70 @@ bool applicationWindow(HWND window, HWND foreground, bool shellProcess)
         && !GetWindow(window, GW_OWNER) && GetWindowTextLengthW(window) > 0;
 }
 
+bool fullscreenWindow(HWND window, const QRect &bounds, const QRect &monitor, const QRect &workArea)
+{
+    if (!bounds.adjusted(-1, -1, 1, 1).contains(monitor))
+        return false;
+
+    const LONG_PTR style = GetWindowLongPtrW(window, GWL_STYLE);
+    const bool framed = (style & WS_CAPTION) == WS_CAPTION || (style & WS_THICKFRAME);
+    return !IsZoomed(window) || !framed || !workArea.adjusted(-1, -1, 1, 1).contains(monitor);
+}
+
 struct DesktopWindows
 {
+    HMONITOR monitor = nullptr;
+    QRect bounds;
+    QRect workArea;
+    QRect notificationWorkArea;
     HWND panel = nullptr;
     HWND shell = GetShellWindow();
     HWND foreground = GetAncestor(GetForegroundWindow(), GA_ROOT);
     DWORD shellProcess = 0;
     QRegion expanded;
     QRegion notification;
+    QRect compactZone;
+    QRegion compactOcclusion;
+    QRegion fullscreenVisibleArea;
     HWND lastOrdinary = nullptr;
+    bool foregroundOnMonitor = false;
     bool passedPanel = false;
     bool needsRestack = false;
     bool obstructed = false;
     bool notificationObstructed = false;
+    bool fullscreen = false;
+    bool bottomTaskbarVisible = false;
 };
+
+bool collectTaskbar(HWND window, DesktopWindows &state)
+{
+    wchar_t name[32]{};
+    const std::wstring_view type(name, size_t(GetClassNameW(window, name, 32)));
+    if (type != L"Shell_TrayWnd" && type != L"Shell_SecondaryTrayWnd")
+        return false;
+    if (MonitorFromWindow(window, MONITOR_DEFAULTTONULL) != state.monitor)
+        return true;
+
+    const QRect shown = windowBounds(window).intersected(state.bounds);
+    // An auto-hidden taskbar leaves a thin activation strip at the edge.
+    if (shown.width() <= 3 || shown.height() <= 3)
+        return true;
+
+    auto &area = state.notificationWorkArea;
+    if (shown.width() > shown.height()) {
+        if (shown.bottom() == state.bounds.bottom()) {
+            area.setBottom(qMin(area.bottom(), shown.top() - 1));
+            state.bottomTaskbarVisible = true;
+        } else if (shown.top() == state.bounds.top()) {
+            area.setTop(qMax(area.top(), shown.bottom() + 1));
+        }
+    } else if (shown.left() == state.bounds.left()) {
+        area.setLeft(qMax(area.left(), shown.right() + 1));
+    } else if (shown.right() == state.bounds.right()) {
+        area.setRight(qMin(area.right(), shown.left() - 1));
+    }
+    return true;
+}
 
 BOOL CALLBACK scanDesktopWindow(HWND window, LPARAM data)
 {
@@ -121,6 +175,8 @@ BOOL CALLBACK scanDesktopWindow(HWND window, LPARAM data)
     }
     DWORD process = 0;
     GetWindowThreadProcessId(window, &process);
+    if (process == state.shellProcess && collectTaskbar(window, state))
+        return TRUE;
     if (process == GetCurrentProcessId() || window == GetDesktopWindow()
             || !applicationWindow(window, state.foreground, process == state.shellProcess))
         return TRUE;
@@ -129,39 +185,50 @@ BOOL CALLBACK scanDesktopWindow(HWND window, LPARAM data)
         state.lastOrdinary = window;
         state.needsRestack |= state.passedPanel;
     }
-    if ((!state.obstructed && !state.expanded.isEmpty())
-        || (!state.notificationObstructed && !state.notification.isEmpty())) {
-        const auto bounds = windowBounds(window);
-        state.obstructed |= state.expanded.intersects(bounds);
-        state.notificationObstructed |= state.notification.intersects(bounds);
+
+    const bool checkFullscreen = !state.fullscreen && (!state.foregroundOnMonitor || window == state.foreground)
+        && !state.fullscreenVisibleArea.isEmpty();
+    if (!checkFullscreen && state.compactZone.isEmpty()
+            && (state.obstructed || state.expanded.isEmpty())
+            && (state.notificationObstructed || state.notification.isEmpty()))
+        return TRUE;
+
+    const auto bounds = windowBounds(window);
+    if (!bounds.intersects(state.bounds))
+        return TRUE;
+
+    state.obstructed |= state.expanded.intersects(bounds);
+    state.notificationObstructed |= state.notification.intersects(bounds);
+    state.compactOcclusion |= bounds.intersected(state.compactZone);
+
+    // Respect the foreground window on its own monitor. On another monitor
+    // a fullscreen window can still be visible behind small floating windows.
+    if (checkFullscreen) {
+        state.fullscreen = fullscreenWindow(window, bounds, state.bounds, state.workArea);
+        state.fullscreenVisibleArea -= bounds;
     }
     return TRUE;
 }
 
-bool fullscreenOnMonitor(const QRect &monitorBounds)
+QRect logicalWorkArea(const QRect &logicalArea, const QRect &workArea, const QRect &visibleArea, qreal scale)
 {
-    const HWND foreground = GetForegroundWindow();
-    if (!foreground)
-        return false;
+    return logicalArea.adjusted(qCeil((visibleArea.left() - workArea.left()) / scale),
+        qCeil((visibleArea.top() - workArea.top()) / scale),
+        -qCeil((workArea.right() - visibleArea.right()) / scale),
+        -qCeil((workArea.bottom() - visibleArea.bottom()) / scale));
+}
 
-    const HWND window = GetAncestor(foreground, GA_ROOT);
-    if (!window || window == GetShellWindow() || window == GetDesktopWindow()
-            || !visibleWindow(window))
-        return false;
-
-    DWORD processId = 0;
-    DWORD shellProcess = 0;
-    GetWindowThreadProcessId(window, &processId);
-    if (const HWND shell = GetShellWindow())
-        GetWindowThreadProcessId(shell, &shellProcess);
-    if (processId == GetCurrentProcessId() || !applicationWindow(window, window, processId == shellProcess))
-        return false;
-
-    const LONG_PTR style = GetWindowLongPtrW(window, GWL_STYLE);
-    if (IsZoomed(window) && ((style & WS_CAPTION) == WS_CAPTION || (style & WS_THICKFRAME)))
-        return false;
-
-    return windowBounds(window).adjusted(-1, -1, 1, 1).contains(monitorBounds);
+void setNotificationMask(HWND window, const QRectF &body, qreal radius, qreal scale)
+{
+    const QRect bounds = body.isEmpty() ? QRect{} : QRectF(body.topLeft() * scale, body.size() * scale).toAlignedRect();
+    const int diameter = qBound(0, qRound(2 * radius * scale), qMin(bounds.width(), bounds.height()));
+    // The notification surface has the same contour for rendering and input.
+    const HRGN mask = diameter > 0
+        ? CreateRoundRectRgn(bounds.x(), bounds.y(), bounds.x() + bounds.width(), bounds.y() + bounds.height(),
+                             diameter, diameter)
+        : CreateRectRgn(bounds.x(), bounds.y(), bounds.x() + bounds.width(), bounds.y() + bounds.height());
+    if (mask && !SetWindowRgn(window, mask, TRUE))
+        DeleteObject(mask);
 }
 #endif
 
@@ -170,12 +237,9 @@ bool fullscreenOnMonitor(const QRect &monitorBounds)
 DesktopOverlay::DesktopOverlay(QScreen *screen)
     : m_screen(screen)
 {
-    connect(screen, &QScreen::availableGeometryChanged, this, [this] {
-        updateWorkArea();
-        updateDesktopState();
-    });
-    updateWorkArea();
-    updateDesktopState();
+    connect(screen, &QScreen::geometryChanged, this, &DesktopOverlay::updateScreenGeometry);
+    connect(screen, &QScreen::availableGeometryChanged, this, &DesktopOverlay::updateScreenGeometry);
+    updateScreenGeometry();
 
 #ifdef Q_OS_WIN
     // Sampling coalesces the window moves and z-order changes during a drag.
@@ -191,17 +255,25 @@ DesktopOverlay::DesktopOverlay(QScreen *screen)
 #endif
 }
 
-void DesktopOverlay::updateWorkArea()
+void DesktopOverlay::updateScreenGeometry()
 {
-    const QRect area = m_screen ? m_screen->availableGeometry() : QRect{};
-    if (m_workArea != area) {
-        m_workArea = area;
+    const QRect previousScreenArea = std::exchange(m_screenArea, m_screen ? m_screen->geometry() : QRect{});
+    const QRect previousWorkArea = std::exchange(m_workArea, m_screen ? m_screen->availableGeometry() : QRect{});
+    if (m_screenArea != previousScreenArea)
+        emit screenAreaChanged();
+    if (m_workArea != previousWorkArea)
         emit workAreaChanged();
-    }
+    updateDesktopState();
 }
 
 void DesktopOverlay::updateDesktopState()
 {
+    QRect notificationWorkArea = m_workArea;
+    QRectF compactArea;
+    bool active = false;
+    bool bottomTaskbarVisible = false;
+    bool obstructed = false;
+    bool notificationObstructed = false;
 #ifdef Q_OS_WIN
     const auto *native = m_screen ? m_screen->nativeInterface<QNativeInterface::QWindowsScreen>() : nullptr;
     const HMONITOR monitor = native ? native->handle() : nullptr;
@@ -209,49 +281,106 @@ void DesktopOverlay::updateDesktopState()
     info.cbSize = sizeof(info);
     if (!monitor || !GetMonitorInfoW(monitor, &info))
         return;
-    const QRect monitorBounds(info.rcMonitor.left, info.rcMonitor.top,
-        info.rcMonitor.right - info.rcMonitor.left, info.rcMonitor.bottom - info.rcMonitor.top);
-
-    const bool active = fullscreenOnMonitor(monitorBounds);
-    if (m_fullscreenActive != active) {
-        m_fullscreenActive = active;
-        emit fullscreenActiveChanged();
-    }
-    if (!m_panel || m_expandedBounds.isEmpty())
-        return;
-
-    const HWND panel = m_panel->handle() ? reinterpret_cast<HWND>(m_panel->winId()) : nullptr;
-    const qreal scale = m_screen->devicePixelRatio();
-    const QPoint offset = m_panel->position() - m_workArea.topLeft();
-    POINT clientOrigin{};
-    const QPointF origin = panel && !IsIconic(panel)
-        && MonitorFromWindow(panel, MONITOR_DEFAULTTONULL) == monitor && ClientToScreen(panel, &clientOrigin)
-        ? QPointF(clientOrigin.x, clientOrigin.y)
-        : QPointF(info.rcWork.left, info.rcWork.top) + offset * scale;
-    const auto nativeRegion = [&](const QRectF &bounds, qreal radius) {
-        return roundedRegion(QRectF(origin + bounds.topLeft() * scale, bounds.size() * scale),
-                             radius * scale) & monitorBounds;
-    };
     DesktopWindows windows;
-    windows.panel = panel;
+    windows.monitor = monitor;
+    windows.bounds = QRect(info.rcMonitor.left, info.rcMonitor.top,
+        info.rcMonitor.right - info.rcMonitor.left, info.rcMonitor.bottom - info.rcMonitor.top);
+    windows.workArea = QRect(info.rcWork.left, info.rcWork.top,
+        info.rcWork.right - info.rcWork.left, info.rcWork.bottom - info.rcWork.top);
+    windows.notificationWorkArea = windows.workArea;
+    windows.foregroundOnMonitor = windows.foreground
+        && MonitorFromWindow(windows.foreground, MONITOR_DEFAULTTONULL) == monitor;
+    windows.fullscreenVisibleArea = QRegion(windows.workArea);
     if (windows.shell)
         GetWindowThreadProcessId(windows.shell, &windows.shellProcess);
-    windows.expanded = nativeRegion(m_expandedBounds, m_expandedRadius);
-    windows.notification = nativeRegion(m_notificationBounds, m_notificationRadius);
+
+    const qreal scale = m_screen->devicePixelRatio();
+    QPointF origin;
+    if (m_panel) {
+        windows.panel = m_panel->handle() ? reinterpret_cast<HWND>(m_panel->winId()) : nullptr;
+        const QPoint offset = m_panel->position() - m_workArea.topLeft();
+        POINT clientOrigin{};
+        origin = windows.panel && m_panel->isVisible() && !IsIconic(windows.panel)
+            && MonitorFromWindow(windows.panel, MONITOR_DEFAULTTONULL) == monitor
+            && ClientToScreen(windows.panel, &clientOrigin)
+            ? QPointF(clientOrigin.x, clientOrigin.y)
+            : QPointF(windows.workArea.topLeft()) + offset * scale;
+        const auto nativeBounds = [&](const QRectF &bounds) {
+            return QRectF(origin + bounds.topLeft() * scale, bounds.size() * scale);
+        };
+        windows.expanded = roundedRegion(nativeBounds(m_expandedBounds), m_expandedRadius * scale) & windows.bounds;
+        windows.notification = roundedRegion(nativeBounds(m_notificationBounds), m_notificationRadius * scale) & windows.bounds;
+        windows.compactZone = nativeBounds(m_compactNotificationZone).toAlignedRect();
+    }
+
     EnumWindows(scanDesktopWindow, reinterpret_cast<LPARAM>(&windows));
-    if (panel && m_panel->isVisible() && !active && windows.needsRestack) {
-        SetWindowPos(panel, windows.lastOrdinary ? windows.lastOrdinary : HWND_TOP,
+    active = windows.fullscreen;
+    obstructed = windows.obstructed;
+    notificationObstructed = windows.notificationObstructed;
+    notificationWorkArea = logicalWorkArea(m_workArea, windows.workArea, windows.notificationWorkArea, scale);
+    bottomTaskbarVisible = windows.bottomTaskbarVisible && !active;
+    if (windows.panel && m_panel->isVisible() && !active && windows.needsRestack) {
+        SetWindowPos(windows.panel, windows.lastOrdinary ? windows.lastOrdinary : HWND_TOP,
             0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
-    if (m_expandedObstructed != windows.obstructed) {
-        m_expandedObstructed = windows.obstructed;
-        emit expandedObstructedChanged();
+    const auto foreground = reinterpret_cast<WId>(windows.foreground);
+    if (std::exchange(m_foregroundWindow, foreground) != foreground
+            && m_notificationWindow && m_notificationWindow->isVisible())
+        updateNotificationWindow(true);
+
+    if (!active && !windows.compactZone.isEmpty()) {
+        const QSize minimum(qCeil(m_compactNotificationMinimum.width() * scale),
+                            qCeil(m_compactNotificationMinimum.height() * scale));
+        const QRect fit = DesktopOverlayGeometry::compactNotificationArea(windows.compactZone, minimum,
+            windows.notificationWorkArea.intersected(windows.bounds), windows.compactOcclusion);
+        if (!fit.isEmpty()) {
+            const QPointF offset = (QPointF(fit.topLeft()) - origin) / scale;
+            compactArea = QRectF(QPointF(offset.x(), m_compactNotificationZone.y()),
+                QSizeF(fit.width() / scale, m_compactNotificationMinimum.height())) & m_compactNotificationZone;
+        }
     }
-    if (m_notificationObstructed != windows.notificationObstructed) {
-        m_notificationObstructed = windows.notificationObstructed;
-        emit notificationObstructedChanged();
+#else
+    if (m_panel && !m_compactNotificationZone.isEmpty()) {
+        const QSize minimum(qCeil(m_compactNotificationMinimum.width()), qCeil(m_compactNotificationMinimum.height()));
+        const QRect fit = DesktopOverlayGeometry::compactNotificationArea(m_compactNotificationZone.toAlignedRect(),
+            minimum, m_workArea.intersected(m_screenArea).translated(-m_panel->position()), {});
+        if (!fit.isEmpty()) {
+            compactArea = QRectF(QPointF(fit.x(), m_compactNotificationZone.y()),
+                QSizeF(fit.width(), m_compactNotificationMinimum.height())) & m_compactNotificationZone;
+        }
     }
 #endif
+
+    const bool fullscreenChanged = std::exchange(m_fullscreenActive, active) != active;
+    const bool expandedChanged = std::exchange(m_expandedObstructed, obstructed) != obstructed;
+    const bool extendedNotificationChanged = std::exchange(m_notificationObstructed, notificationObstructed)
+        != notificationObstructed;
+    const bool compactChanged = std::exchange(m_compactNotificationArea, compactArea) != compactArea;
+    const bool taskbarChanged = std::exchange(m_bottomTaskbarVisible, bottomTaskbarVisible) != bottomTaskbarVisible;
+    if (std::exchange(m_notificationWorkArea, notificationWorkArea) != notificationWorkArea)
+        emit notificationWorkAreaChanged();
+    if (taskbarChanged)
+        emit bottomTaskbarVisibleChanged();
+    if (fullscreenChanged)
+        emit fullscreenActiveChanged();
+    if (expandedChanged)
+        emit expandedObstructedChanged();
+    if (extendedNotificationChanged)
+        emit notificationObstructedChanged();
+    if (compactChanged)
+        emit compactNotificationAreaChanged();
+}
+
+void DesktopOverlay::setCompactNotificationZone(QWindow *window, const QRectF &zone, const QSizeF &minimumSize)
+{
+    if (!window || (m_panel == window && m_compactNotificationZone == zone
+            && m_compactNotificationMinimum == minimumSize))
+        return;
+
+    m_panel = window;
+    m_compactNotificationZone = zone;
+    m_compactNotificationMinimum = minimumSize;
+    updateDesktopState();
 }
 
 void DesktopOverlay::setExpandedRegions(QWindow *window, const QRectF &player, qreal playerRadius,
@@ -265,6 +394,67 @@ void DesktopOverlay::setExpandedRegions(QWindow *window, const QRectF &player, q
     m_notificationBounds = notification;
     m_notificationRadius = notificationRadius;
     updateDesktopState();
+}
+
+void DesktopOverlay::setNotificationRegion(QWindow *window, const QRectF &body, qreal radius)
+{
+    if (!window || window == m_panel)
+        return;
+
+    const bool changedWindow = m_notificationWindow != window;
+    if (changedWindow) {
+        if (m_notificationWindow)
+            m_notificationWindow->removeEventFilter(this);
+        m_notificationWindow = window;
+        window->installEventFilter(this);
+    } else if (body == m_notificationBody && radius == m_notificationBodyRadius) {
+        return;
+    }
+
+    m_notificationBody = body;
+    m_notificationBodyRadius = radius;
+    updateNotificationWindow(changedWindow);
+}
+
+bool DesktopOverlay::eventFilter(QObject *object, QEvent *event)
+{
+    if (object == m_notificationWindow) {
+        const auto type = event->type();
+        const bool created = type == QEvent::PlatformSurface
+            && static_cast<QPlatformSurfaceEvent *>(event)->surfaceEventType() == QPlatformSurfaceEvent::SurfaceCreated;
+        if (created || type == QEvent::Show || type == QEvent::DevicePixelRatioChange)
+            updateNotificationWindow(created || type == QEvent::Show);
+    }
+    return QObject::eventFilter(object, event);
+}
+
+void DesktopOverlay::updateNotificationWindow(bool promote)
+{
+    auto *window = m_notificationWindow.data();
+    if (!window)
+        return;
+
+#ifdef Q_OS_WIN
+    if (!window->handle())
+        return;
+
+    const HWND hwnd = reinterpret_cast<HWND>(window->winId());
+    const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    if (!(style & WS_EX_NOACTIVATE))
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE);
+    if (promote || !(style & WS_EX_TOPMOST)) {
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+    setNotificationMask(hwnd, m_notificationBody, m_notificationBodyRadius, window->devicePixelRatio());
+#else
+    Q_UNUSED(promote);
+    QRegion mask = roundedRegion(m_notificationBody, m_notificationBodyRadius);
+    if (mask.isEmpty())
+        mask = QRegion(-2, -2, 1, 1);
+    if (window->mask() != mask)
+        window->setMask(mask);
+#endif
 }
 
 void DesktopOverlay::setPanelRegion(QWindow *window, const QRectF &body, qreal radius,

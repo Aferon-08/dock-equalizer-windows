@@ -7,6 +7,7 @@
 #include "LyricsImport.h"
 #include "LyricsSearch.h"
 #include "MediaSessions.h"
+#include "NotificationPreferences.h"
 #include "StartupSettings.h"
 #include "SystemAudio.h"
 #include "WifiStatus.h"
@@ -163,6 +164,7 @@ int main(int argc, char *argv[])
     QSettings settings(QStringLiteral("SekaiSoundbar"), QStringLiteral("Settings"));
     DiscordVoice discord(settings, liveInputs && !trayExitTest, QStringLiteral(SOUNDBAR_DISCORD_APPLICATION_ID));
     WindowsNotifications windowsNotifications(liveInputs, settings);
+    NotificationPreferences notificationPreferences(smokeMode ? nullptr : &settings);
     LyricsImport lyrics;
     LyricsSearch search;
     LyricsAlignment alignment;
@@ -204,6 +206,7 @@ int main(int argc, char *argv[])
         {QStringLiteral("batteryStatus"), QVariant::fromValue(&batteryStatus)},
         {QStringLiteral("wifiStatus"), QVariant::fromValue(&wifiStatus)},
         {QStringLiteral("discordVoice"), QVariant::fromValue(&discord)},
+        {QStringLiteral("notificationPreferences"), QVariant::fromValue(&notificationPreferences)},
         {QStringLiteral("windowsNotifications"), QVariant::fromValue(&windowsNotifications)}
     }));
     if (!appState) {

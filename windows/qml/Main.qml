@@ -59,6 +59,22 @@ Window {
         && !(smokeMode ? smokeObstructed : desktop.notificationObstructed)
     property bool notificationSpaceReady: false
     onNotificationClearChanged: if (!notificationClear) notificationSpaceReady = false
+    readonly property bool notificationsAboveWindows: appState.notificationPreferences.aboveWindows
+    readonly property bool notificationFullscreen: desktop.fullscreenActive || (smokeMode && smokeNotificationFullscreen)
+    readonly property rect notificationCompactZone: {
+        if (!notificationsAboveWindows || workArea.height < (pill.y + noticeLayer.compactHeight) * stage.scale)
+            return Qt.rect(0, 0, 0, 0)
+        const left = noticeLayer.usesCallLayout ? 20 + noticeLayer.callSpan : 28
+        const right = noticeLayer.hasSideMusic ? 20 + noticeLayer.miniSpan : 28
+        return scaledRect(left, pill.y, Math.max(0, stage.width - left - right), noticeLayer.compactHeight)
+    }
+    readonly property rect compactNotificationArea: smokeMode
+        ? smokeCompactObstructed ? Qt.rect(0, 0, 0, 0) : notificationCompactZone
+        : desktop.compactNotificationArea
+    readonly property bool wantsNotificationFallback: notificationsAboveWindows
+        && (notificationFullscreen || compactNotificationArea.width <= 0)
+    property bool notificationFallback: false
+    readonly property bool notificationDetached: notificationsAboveWindows && notificationFallback
     property bool trayPreview: false
     readonly property bool playbackActive: !!media.player && media.playing
     readonly property bool playbackPaused: !!media.player && media.paused
@@ -101,6 +117,10 @@ Window {
     property real smokeLandingTime: 0
     property real smokeFirstMarkerX: 0
     property bool smokeObstructed: false
+    property bool smokeCompactObstructed: false
+    property bool smokeNotificationFullscreen: false
+    property int smokeNotificationId: 0
+    property real smokeNotificationExpiry: 0
     property bool smokeHoldOpen: true
     property bool smokeSawGlassNeck: false
     property bool smokeSawPackedEntrance: false
@@ -118,6 +138,19 @@ Window {
     property bool smokeSawCallMusicPeel: false
     property bool smokeSawCallMusicReturn: false
     property bool smokeSawCustomCurve: false
+
+    QtObject {
+        id: smokeVoiceCapture
+        readonly property bool active: window.smokeMode && callLayer.captureActive
+        readonly property bool available: true
+        property bool opened: false
+        property bool hasFrame: opened && active
+        property bool selecting: false
+        readonly property bool retryable: false
+        property string status: ""
+        function chooseSource() { opened = true }
+        function closePreview() { opened = false }
+    }
 
     DockPresence {
         id: presence
@@ -147,6 +180,11 @@ Window {
         interval: 400
         running: window.notificationClear && !window.notificationSpaceReady
         onTriggered: window.notificationSpaceReady = true
+    }
+    Timer {
+        interval: 250
+        running: window.wantsNotificationFallback !== window.notificationFallback
+        onTriggered: window.notificationFallback = window.wantsNotificationFallback
     }
 
     readonly property rect bodyRegion: {
@@ -210,6 +248,9 @@ Window {
     onHeightChanged: Qt.callLater(updatePanelRegion)
     onExpandedRegionChanged: Qt.callLater(updateExpandedRegion)
     onNotificationRegionChanged: Qt.callLater(updateExpandedRegion)
+    onNotificationCompactZoneChanged: Qt.callLater(updateExpandedRegion)
+    onXChanged: Qt.callLater(updateExpandedRegion)
+    onYChanged: Qt.callLater(updateExpandedRegion)
     onWorkAreaChanged: Qt.callLater(updateExpandedRegion)
 
     function scaledRect(x, y, width, height) {
@@ -234,6 +275,8 @@ Window {
     function updateExpandedRegion() {
         desktop.setExpandedRegions(window, expandedRegion, 40 * stage.scale,
                                    notificationRegion, 36 * stage.scale)
+        desktop.setCompactNotificationZone(window, notificationCompactZone,
+            Qt.size(noticeLayer.minimumCompactWidth * stage.scale, noticeLayer.compactHeight * stage.scale))
     }
 
     function toggleLyricsLayout() {
@@ -596,6 +639,11 @@ Window {
             allowed: !window.desktop.fullscreenActive
             clearForDetails: window.notificationSpaceReady
             suspended: callLayer.ringOnTop
+            transferred: window.notificationDetached
+            compactSlot: window.notificationsAboveWindows && stage.scale > 0
+                ? Qt.rect(window.compactNotificationArea.x / stage.scale, window.compactNotificationArea.y / stage.scale,
+                    window.compactNotificationArea.width / stage.scale, window.compactNotificationArea.height / stage.scale)
+                : Qt.rect(0, 0, 0, 0)
             callSpan: callLayer.presenting && callLayer.conversation ? callLayer.sideWidth + miniGap : 0
             callArtworkCenter: callLayer.artworkCenter
             callArtworkSize: callLayer.artworkSize
@@ -609,7 +657,8 @@ Window {
             topInset: pill.y
             availableHeight: Math.max(compactHeight, window.workArea.height / Math.max(0.01, stage.scale)
                 - topInset - 44)
-            onDismissed: window.appState.dismissNotification()
+            onDismissed: eventId => window.appState.dismissNotification(eventId)
+            onMinimumCompactWidthChanged: Qt.callLater(window.updateExpandedRegion)
             onNeckBoundsChanged: {
                 if (window.smokePhase === 22 && neckBounds.width > 0 && miniBounds.width > miniBounds.height
                         && miniBounds.x + miniBounds.width > bodyBounds.x + bodyBounds.width + 8) {
@@ -630,10 +679,28 @@ Window {
             housing: wings.playerHousing
             opening: 1 - presence.hideProgress
             topInset: pill.y
+            presentationAvailable: window.visible
+            captureOverride: window.smokeMode ? smokeVoiceCapture : null
+            availableHeight: Math.max(0, window.workArea.height / Math.max(0.01, stage.scale) - topInset - 16)
             expansionAllowed: window.expandedSpaceReady
-                && window.workArea.height >= (topInset + expandedHeight + 16) * stage.scale
+                && availableHeight >= minimumExpandedHeight
             musicProgress: wings.lyricsView.duration > 0 ? wings.lyricsView.position / wings.lyricsView.duration : 0
         }
+    }
+
+    NotificationOverlay {
+        id: notificationOverlay
+        screen: window.screen
+        desktop: window.desktop
+        appearance: window.appearance.values
+        placement: window.appState.notificationPreferences.notificationPosition
+        routed: window.notificationDetached
+        fullscreen: window.notificationFullscreen
+        allowed: !callLayer.ringOnTop
+        event: window.appState.dockNotification
+        wifi: window.appState.wifiStatus.snapshot
+        battery: window.appState.batteryStatus.snapshot
+        onDismissed: eventId => window.appState.dismissNotification(eventId)
     }
 
     Connections {
@@ -944,6 +1011,11 @@ Window {
                 window.smokeSawPackedEntrance = true
             }
         }
+    }
+
+    function beginNotificationOverlaySmoke() {
+        smokeStarted = Date.now()
+        smokePhase = 60
     }
 
     Timer {
@@ -1683,11 +1755,183 @@ Window {
                     return
                 window.appearance.setMotionCurve([])
                 window.appearance.setSpringMotion(true)
+                window.discordPreview.participantCount = 1
+                window.discordPreview.start()
+                window.discordPreview.accept()
+                window.smokePhase = 50
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 50 && wait >= 1100) {
+                if (!callLayer.expanded || callLayer.presentedParticipantCount !== 1 || callLayer.portraitMix !== 1
+                        || callLayer.participantPairTravel !== 0) {
+                    window.failSmoke("one voice participant must use a centered portrait without a link line")
+                    return
+                }
+                window.discordPreview.participantCount = 2
+                window.discordPreview.voiceStatus = "connecting"
+                window.smokePhase = 51
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 51 && wait >= 650) {
+                if (callLayer.presentedParticipantCount !== 2 || callLayer.participantPairTravel < 0.99
+                        || callLayer.pairStatus !== "connecting") {
+                    window.failSmoke("the pair layout must display the connecting link")
+                    return
+                }
+                window.discordPreview.voiceStatus = "connected"
+                window.smokePhase = 52
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 52 && wait >= 450) {
+                if (callLayer.pairStatus !== "connected" || callLayer.participantPairTravel < 0.99) {
+                    window.failSmoke("the voice link did not become connected for the same pair")
+                    return
+                }
+                window.discordPreview.voiceStatus = "disconnected"
+                window.smokePhase = 53
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 53 && wait >= 450) {
+                if (callLayer.pairStatus !== "disconnected" || callLayer.participantPairTravel < 0.99) {
+                    window.failSmoke("losing the voice link removed the pair or its disconnected state")
+                    return
+                }
+                window.discordPreview.voiceStatus = "connected"
+                window.discordPreview.participantCount = 8
+                window.smokePhase = 54
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 54 && wait >= 700) {
+                if (callLayer.presentedParticipantCount !== 8 || callLayer.portraitMix > 0.01
+                        || callLayer.participantPairTravel > 0.01) {
+                    window.failSmoke("a larger voice group did not switch to the scrollable roster")
+                    return
+                }
+                window.discordPreview.participantCount = 3
+                smokeVoiceCapture.chooseSource()
+                window.smokePhase = 55
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 55 && wait >= 900) {
+                const tile = callLayer.previewTileBounds
+                const controls = callLayer.controlBounds
+                if (callLayer.presentedParticipantCount !== 3 || callLayer.portraitMix < 0.99
+                        || callLayer.previewProgress < 0.99 || !smokeVoiceCapture.active
+                        || tile.width < 100 || Math.abs(tile.width / tile.height - 16 / 9) > 0.05
+                        || tile.y + tile.height >= controls.y) {
+                    window.failSmoke("local screen preview did not fit above the three participant controls"
+                        + " (participants " + callLayer.presentedParticipantCount + ", portrait " + callLayer.portraitMix
+                        + ", preview " + callLayer.previewProgress + ", active " + smokeVoiceCapture.active
+                        + ", tile " + tile + ", controls " + controls + ")")
+                    return
+                }
+                smokeVoiceCapture.closePreview()
+                window.discordPreview.hangUp()
+                window.discordPreview.participantCount = 4
+                console.log("PASS one to eight voice participants, pair states and local preview layout")
+                window.beginNotificationOverlaySmoke()
+            } else if (window.smokePhase === 60 && !callLayer.presenting) {
+                if (window.notificationsAboveWindows || notificationOverlay.placement !== "top-center") {
+                    window.failSmoke("the separate notification window must start disabled and at the top center")
+                    return
+                }
+                window.smokeObstructed = true
+                window.smokeCompactObstructed = true
+                const summary = "Карточка сохраняет сообщение при переносе."
+                window.appState.showNotification({kind: "app", source: "Sekai Soundbar",
+                    title: "Перенос уведомления", summary, detail: summary})
+                window.smokeNotificationId = window.appState.dockNotification.eventId
+                window.smokeNotificationExpiry = window.appState.notificationExpiresAt
+                window.smokePhase = 61
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 61 && noticeLayer.reveal === 1) {
+                if (!noticeLayer.active || notificationOverlay.visible) {
+                    window.failSmoke("a disabled separate window changed the notification in the dock")
+                    return
+                }
+                window.smokeCompactObstructed = false
+                window.appState.notificationPreferences.aboveWindows = true
+                window.smokePhase = 62
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 62 && wait >= 350) {
+                if (!noticeLayer.active || notificationOverlay.visible) {
+                    window.failSmoke("the notice moved even though the compact region could accommodate it")
+                    return
+                }
+                window.smokeCompactObstructed = true
+                window.smokePhase = 63
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 63 && notificationOverlay.reveal === 1) {
+                const overlay = notificationOverlay
+                const area = overlay.placementArea
+                if (!overlay.visible || noticeLayer.presenting || overlay.transientParent
+                        || !(overlay.flags & Qt.WindowStaysOnTopHint) || !(overlay.flags & Qt.WindowDoesNotAcceptFocus)
+                        || Math.abs(overlay.x + overlay.width / 2 - area.x - area.width / 2) > 1
+                        || overlay.y !== area.y || overlay.cardHeight > 134
+                        || window.appState.dockNotification.eventId !== window.smokeNotificationId
+                        || window.appState.notificationExpiresAt !== window.smokeNotificationExpiry) {
+                    window.failSmoke("the top-center transfer lost the event, timer, or independent compact window")
+                    return
+                }
+                const summary = "Сообщение с несколькими строками."
+                window.appState.enqueueNotification({kind: "app", source: "Sekai Soundbar",
+                    title: "Заголовок переносится на следующую строку ".repeat(5), summary,
+                    detail: (summary + "\n").repeat(74)})
+                window.appState.notificationPreferences.notificationPosition = "bottom-right"
+                overlay.dismissed(window.smokeNotificationId)
+                overlay.dismissed(window.smokeNotificationId)
+                if (window.appState.dockNotification.eventId === window.smokeNotificationId) {
+                    window.failSmoke("closing the separate notification did not advance the shared queue")
+                    return
+                }
+                window.smokeNotificationId = window.appState.dockNotification.eventId
+                window.smokeNotificationExpiry = window.appState.notificationExpiresAt
+                window.smokePhase = 64
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 64 && notificationOverlay.reveal === 1) {
+                const overlay = notificationOverlay
+                const area = overlay.placementArea
+                const text = overlay.textLayout()
+                if (!overlay.visible || noticeLayer.presenting || text.messageLines < 2 || text.scrollRange <= 0
+                        || overlay.x + overlay.width !== area.x + area.width
+                        || overlay.y + overlay.height !== area.y + area.height) {
+                    window.failSmoke("the bottom-right layout did not wrap and scroll at the working-area corner")
+                    return
+                }
+                window.smokeNotificationFullscreen = true
+                window.smokeCompactObstructed = false
+                window.appState.notificationPreferences.notificationPosition = "bottom-center"
+                window.smokePhase = 65
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 65 && notificationOverlay.reveal === 1) {
+                const overlay = notificationOverlay
+                const area = window.desktop.screenArea
+                if (!overlay.visible || noticeLayer.presenting || overlay.fromTaskbar
+                        || overlay.y + overlay.height !== area.y + area.height
+                        || Math.abs(overlay.x + overlay.width / 2 - area.x - area.width / 2) > 1
+                        || window.appState.dockNotification.eventId !== window.smokeNotificationId
+                        || window.appState.notificationExpiresAt !== window.smokeNotificationExpiry) {
+                    window.failSmoke("the fullscreen notice did not stay centered along the bottom of the monitor")
+                    return
+                }
+                window.smokeNotificationFullscreen = false
+                window.smokeObstructed = false
+                window.smokePhase = 66
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 66 && !window.notificationDetached && noticeLayer.reveal === 1) {
+                if (notificationOverlay.visible || !noticeLayer.active
+                        || window.appState.dockNotification.eventId !== window.smokeNotificationId
+                        || window.appState.notificationExpiresAt !== window.smokeNotificationExpiry) {
+                    window.failSmoke("returning to the dock duplicated the notification or restarted its timeout")
+                    return
+                }
+                noticeLayer.dismissed(window.smokeNotificationId)
+                if (window.appState.dockNotification) {
+                    window.failSmoke("the dock did not dismiss the shared event after transfer")
+                    return
+                }
+                window.appState.notificationPreferences.aboveWindows = false
+                window.appState.notificationPreferences.notificationPosition = "top-center"
                 smokeTimer.stop()
                 console.log("PASS LRC word jumps and splashes, exact Wordtime, paused seeks and track change")
                 console.log("PASS desktop expansion, staggered player, notification sizing, progress styles and pause")
                 console.log("PASS Discord preview, automatic folding, music detachment and return, connected notification split")
                 console.log("PASS custom transition curve and spring-free notification and player motion")
+                console.log("PASS positioned separate notifications, shared queue and expiry, and one card per monitor")
                 Qt.exit(0)
             }
         }

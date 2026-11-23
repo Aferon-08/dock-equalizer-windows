@@ -9,8 +9,12 @@ QtObject {
     required property var wifiStatus
     required property var windowsNotifications
     required property var discordVoice
+    required property var notificationPreferences
     property var localLyrics: null
     property var dockNotification: null
+    property int nextNotificationId: 0
+    property int notificationRemaining: 0
+    property real notificationExpiresAt: 0
     readonly property var pendingNotifications: []
     readonly property string trackKey: mediaSessions.trackKey
     readonly property DiscordCallPreview discordPreview: DiscordCallPreview {}
@@ -80,31 +84,43 @@ QtObject {
     }
 
     function showNotification(entry) {
+        notificationExpiry.stop()
+        notificationExpiresAt = 0
+        notificationRemaining = 30000
         wifiStatus.active = entry.kind === "wifi"
-        dockNotification = entry
+        dockNotification = Object.assign({sentAt: new Date()}, entry, {eventId: ++nextNotificationId})
         updateNotificationExpiry()
     }
 
     function updateNotificationExpiry() {
-        if (dockNotification && !discordCall.ringing)
-            notificationExpiry.restart()
-        else
+        if (!dockNotification)
+            return
+        if (discordCall.ringing && notificationExpiry.running) {
+            notificationRemaining = Math.max(1, notificationExpiresAt - Date.now())
             notificationExpiry.stop()
+            notificationExpiresAt = 0
+        } else if (!discordCall.ringing && !notificationExpiry.running) {
+            notificationExpiry.interval = notificationRemaining
+            notificationExpiresAt = Date.now() + notificationRemaining
+            notificationExpiry.start()
+        }
     }
 
-    function dismissNotification() {
+    function dismissNotification(expectedId) {
+        if (expectedId !== undefined && dockNotification?.eventId !== expectedId)
+            return
         if (pendingNotifications.length) {
             showNotification(pendingNotifications.shift())
             return
         }
         notificationExpiry.stop()
+        notificationExpiresAt = 0
         wifiStatus.active = false
         dockNotification = null
     }
 
     property Timer notificationExpiry: Timer {
-        interval: 30000
-        onTriggered: app.dismissNotification()
+        onTriggered: app.dismissNotification(app.dockNotification?.eventId)
     }
 
     property Connections batteryEvents: Connections {

@@ -16,6 +16,8 @@ class WindowsNotifications final : public QObject
     Q_PROPERTY(QString diagnostic READ diagnostic NOTIFY statusChanged FINAL)
     Q_PROPERTY(QString testResult READ testResult NOTIFY testChanged FINAL)
     Q_PROPERTY(bool testing READ testing NOTIFY testChanged FINAL)
+    Q_PROPERTY(bool discordProbeActive READ discordProbeActive NOTIFY discordProbeChanged FINAL)
+    Q_PROPERTY(QString discordProbeLog READ discordProbeLog NOTIFY discordProbeChanged FINAL)
     Q_PROPERTY(bool bannerControlAvailable READ bannerControlAvailable NOTIFY bannerSettingsChanged FINAL)
     Q_PROPERTY(bool bannersHidden READ bannersHidden NOTIFY bannerSettingsChanged FINAL)
     Q_PROPERTY(int suppressedBannerCount READ suppressedBannerCount NOTIFY bannerSettingsChanged FINAL)
@@ -29,6 +31,8 @@ public:
     QString diagnostic() const { return m_diagnostic; }
     QString testResult() const { return m_testResult; }
     bool testing() const { return m_testing; }
+    bool discordProbeActive() const;
+    QString discordProbeLog() const;
     bool bannerControlAvailable() const { return m_bannerControlAvailable; }
     bool bannersHidden() const { return m_bannersHidden; }
     int suppressedBannerCount() const { return m_suppressedBannerCount; }
@@ -37,11 +41,13 @@ public:
     void setDockAvailable(bool available);
     Q_INVOKABLE void requestAccess(QWindow *owner);
     Q_INVOKABLE void sendTestNotification();
+    Q_INVOKABLE void setDiscordProbeActive(bool active);
     Q_INVOKABLE void setBannersHidden(bool hidden);
 
 signals:
     void statusChanged();
     void testChanged();
+    void discordProbeChanged();
     void bannerSettingsChanged();
     void notification(const QVariantMap &event);
 

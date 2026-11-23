@@ -1,10 +1,12 @@
 #include "DiscordVoice.h"
 
+#include <QBuffer>
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QEventLoop>
+#include <QImage>
 #include <QJsonDocument>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -82,7 +84,9 @@ public:
             QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
         });
         channel = {{u"id"_s, voiceId}, {u"name"_s, u"Ночной эфир"_s}, {u"type"_s, 2},
-            {u"voice_states"_s, QJsonArray{member(ownId, u"self"_s), member(peerId, u"mira"_s, u"Мира"_s)}}};
+            {u"voice_states"_s, QJsonArray{member(peerId, u"mira"_s, u"Мира"_s), member(ownId, u"self"_s),
+                QJsonObject{{u"user"_s, QJsonObject{{u"id"_s, peerId}, {u"global_name"_s, u"Мирослава"_s},
+                    {u"avatar"_s, u"../../наружу"_s}}}}}}};
     }
 
     void sendEvent(const QString &event, const QJsonObject &data)
@@ -104,6 +108,7 @@ public:
     QLocalServer server;
     QPointer<QLocalSocket> socket;
     QJsonObject channel;
+    QJsonObject authUser{{u"id"_s, ownId}};
     QJsonObject heldQuery;
     QJsonObject lastMutation;
     QSet<QString> subscriptions;
@@ -114,6 +119,7 @@ public:
     bool pongReceived = false;
     bool holdQuery = false;
     bool rejectMutation = false;
+    bool voiceStatusSupported = true;
     bool writeScope = true;
     bool muted = false;
     bool deafened = false;
@@ -160,9 +166,13 @@ private:
             QJsonArray scopes{u"identify"_s, u"rpc"_s, u"rpc.voice.read"_s};
             if (writeScope)
                 scopes.append(u"rpc.voice.write"_s);
-            reply(request, QJsonObject{{u"user"_s, QJsonObject{{u"id"_s, ownId}}}, {u"scopes"_s, scopes},
+            reply(request, QJsonObject{{u"user"_s, authUser}, {u"scopes"_s, scopes},
                 {u"application"_s, QJsonObject{{u"id"_s, applicationId}}}});
         } else if (command == u"SUBSCRIBE"_s || command == u"UNSUBSCRIBE"_s) {
+            if (event == u"VOICE_CONNECTION_STATUS"_s && !voiceStatusSupported) {
+                reply(request, {}, 4002);
+                return;
+            }
             if (command == u"SUBSCRIBE"_s)
                 subscriptions.insert(subscription);
             else
@@ -359,12 +369,14 @@ struct DiscordVoiceTest
     {
         DiscordVoice voice(settings, true, applicationId);
         if (!check(voice.proxyMode() == u"system"_s
-                && voice.m_oauth.m_network.proxy().type() == QNetworkProxy::DefaultProxy,
+                && voice.m_oauth.m_network.proxy().type() == QNetworkProxy::DefaultProxy
+                && voice.m_avatarNetwork.proxy().type() == QNetworkProxy::DefaultProxy,
                 "Discord must start with the system proxy unless a preset was selected"))
             return false;
         voice.setProxyMode(u"incy-http"_s);
         const auto http = voice.m_oauth.m_network.proxy();
-        if (!check(http.type() == QNetworkProxy::HttpProxy && http.hostName() == u"127.0.0.1"_s && http.port() == 10809,
+        if (!check(http.type() == QNetworkProxy::HttpProxy && http.hostName() == u"127.0.0.1"_s && http.port() == 10809
+                && voice.m_avatarNetwork.proxy() == http,
                 "The INCY HTTP preset must use the local HTTP proxy"))
             return false;
 
@@ -372,7 +384,8 @@ struct DiscordVoiceTest
         DiscordVoice restarted(settings, true, applicationId);
         const auto remembered = restarted.m_oauth.m_network.proxy();
         if (!check(restarted.proxyMode() == u"incy-socks5"_s && remembered.type() == QNetworkProxy::Socks5Proxy
-                && remembered.hostName() == u"127.0.0.1"_s && remembered.port() == 10808,
+                && remembered.hostName() == u"127.0.0.1"_s && remembered.port() == 10808
+                && restarted.m_avatarNetwork.proxy() == remembered,
                 "Discord must remember the selected proxy across restarts"))
             return false;
 
@@ -380,10 +393,47 @@ struct DiscordVoiceTest
         restarted.setProxyMode(u"invalid"_s);
         DiscordVoice system(settings, true, applicationId);
         const bool valid = check(system.proxyMode() == u"system"_s
-                && system.m_oauth.m_network.proxy().type() == QNetworkProxy::DefaultProxy,
+                && system.m_oauth.m_network.proxy().type() == QNetworkProxy::DefaultProxy
+                && system.m_avatarNetwork.proxy().type() == QNetworkProxy::DefaultProxy,
             "Switching back to the system route must clear the proxy override");
         settings.remove(u"discord/proxyMode"_s);
         return valid;
+    }
+
+    static bool avatarDownload(QSettings &settings)
+    {
+        MockTokenEndpoint proxy;
+        if (!check(proxy.server.listen(QHostAddress::LocalHost), "Could not listen on the mock avatar proxy"))
+            return false;
+        proxy.status = "200 OK";
+        proxy.body.clear();
+        QImage pixels(2, 2, QImage::Format_RGB32);
+        pixels.fill(Qt::green);
+        QBuffer buffer(&proxy.body);
+        if (!check(buffer.open(QIODevice::WriteOnly) && pixels.save(&buffer, "PNG"), "Could not create the mock PNG"))
+            return false;
+
+        DiscordVoice voice(settings, true, applicationId);
+        voice.m_avatarNetwork.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s, proxy.server.serverPort()));
+        const QUrl url(u"http://discord.invalid/avatar.png"_s);
+        voice.fetchAvatar(url);
+        if (!check(waitFor([&] { return voice.m_avatars.contains(url); })
+                && voice.m_avatars.value(url).toEncoded() == "data:image/png;base64," + proxy.body.toBase64()
+                && proxy.requestHeaders.startsWith("GET http://discord.invalid/avatar.png")
+                && !proxy.requestHeaders.toLower().contains("authorization:")
+                && !proxy.requestHeaders.toLower().contains("cookie:"),
+                "Avatar bytes must use the selected proxy, carry no grant or cookies, and stay in memory"))
+            return false;
+
+        proxy.body = "An invalid image";
+        const QUrl invalid(u"http://discord.invalid/invalid.png"_s);
+        voice.fetchAvatar(invalid);
+        if (!check(waitFor([&] { return voice.m_avatars.contains(invalid); }) && voice.m_avatars.value(invalid).isEmpty(),
+                "An invalid image must leave the initials fallback available"))
+            return false;
+        voice.syncAvatars({});
+        return check(voice.m_avatars.isEmpty() && voice.m_avatarRequests.isEmpty(),
+            "Avatar data must be released on leaving the voice channel");
     }
 
     static bool storedGrant(QSettings &settings)
@@ -431,9 +481,14 @@ struct DiscordVoiceTest
     static bool voice(QSettings &settings)
     {
         MockDiscord discord;
+        MockTokenEndpoint avatarProxy;
         const auto endpoint = u"sekai-voice-test-"_s + QUuid::createUuid().toString(QUuid::WithoutBraces);
-        if (!check(discord.server.listen(endpoint), "Could not listen on the mock Discord IPC endpoint"))
+        if (!check(discord.server.listen(endpoint), "Could not listen on the mock Discord IPC endpoint")
+            || !check(avatarProxy.server.listen(QHostAddress::LocalHost), "Could not listen on the mock CDN proxy"))
             return false;
+        const auto hash = u"a_0123456789abcdef0123456789abcdef"_s;
+        discord.authUser.insert(u"global_name"_s, u"Алекс Р."_s);
+        discord.authUser.insert(u"avatar"_s, hash);
 
         DiscordVoice invalid(settings, true, u"invalid"_s, {endpoint});
         invalid.connectDiscord();
@@ -442,25 +497,68 @@ struct DiscordVoiceTest
 
         settings.setValue(u"discord/clientId"_s, voiceId);
         DiscordVoice voice(settings, true, applicationId, {endpoint + u"-missing"_s, endpoint});
+        voice.m_avatarNetwork.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s,
+            avatarProxy.server.serverPort()));
         voice.m_oauth.setClientId(applicationId);
         voice.m_oauth.m_accessToken = mockAccess;
         voice.m_oauth.m_expiresAt = QDateTime::currentMSecsSinceEpoch() + 3600000;
         voice.connectDiscord();
         if (!check(waitFor([&] { return voice.canChangeVoice() && discord.pongReceived
-                && voice.m_subscribed.contains(u"SPEAKING_START"_s); }),
+                && voice.m_subscribed.contains(u"SPEAKING_START"_s) && voice.m_voiceStatusSubscribed; }),
                 "The handshake, fragmented READY, ping and authenticated subscriptions must work")
             || !check(!discord.wrongHandshake && !discord.wrongToken && voice.room() == u"Ночной эфир"_s
-                && voice.participants().size() == 2,
-                "Connect must use the configured app and expose the room and both users"))
+                && voice.participantCount() == 2 && voice.voiceStatus() == u"unknown"_s,
+                "Connect must expose the selected room and deduplicate users without inferring the voice status"))
             return false;
 
+        const auto own = voice.participants().at(0).toMap();
+        const auto peer = voice.participants().at(1).toMap();
+        if (!check(own.value(u"participantId"_s) == ownId && own.value(u"localUser"_s).toBool()
+                && own.value(u"name"_s) == u"Алекс Р."_s
+                && own.value(u"avatarUrl"_s).toUrl() == QUrl(u"https://cdn.discordapp.com/avatars/%1/%2.png?size=128"_s.arg(ownId, hash))
+                && peer.value(u"participantId"_s) == peerId && !peer.value(u"localUser"_s).toBool()
+                && peer.value(u"name"_s) == u"Мира"_s && peer.value(u"avatarUrl"_s).toUrl().isEmpty(),
+                "Rows must use stable IDs, self first, local identity fallback, nicknames and validated CDN paths"))
+            return false;
+
+        const auto setStatus = [&](const QString &state, const QString &expected) {
+            discord.sendEvent(u"VOICE_CONNECTION_STATUS"_s, {{u"state"_s, state}});
+            return check(waitFor([&] { return voice.voiceStatus() == expected; }) && voice.connected(),
+                "Voice status must follow the confirmed RPC state while selection remains active");
+        };
+        if (!setStatus(u"CONNECTED"_s, u"connecting"_s) || !setStatus(u"VOICE_CONNECTED"_s, u"connected"_s)
+            || !setStatus(u"NO_ROUTE"_s, u"disconnected"_s) || !setStatus(u"ICE_CHECKING"_s, u"connecting"_s)
+            || !setStatus(u"VOICE_DISCONNECTED"_s, u"disconnected"_s) || !setStatus(u"NEW_STATE"_s, u"unknown"_s)
+            || !setStatus(u"VOICE_CONNECTED"_s, u"connected"_s))
+            return false;
+
+        auto *model = voice.participantModel();
+        const QPersistentModelIndex peerIndex(model->index(1, 0));
+        const auto speakingRole = model->roleNames().key("speaking");
+        int modelResets = 0;
+        QObject::connect(model, &QAbstractItemModel::modelReset, &voice, [&] { ++modelResets; });
         discord.sendEvent(u"SPEAKING_START"_s, {{u"user_id"_s, peerId}});
-        if (!check(waitFor([&] { return voice.participants().at(1).toMap().value(u"speaking"_s).toBool(); }),
-                "Speaking events must update the visible participant"))
+        if (!check(waitFor([&] { return peerIndex.data(speakingRole).toBool(); }) && modelResets == 0
+                && model == voice.participantModel() && voice.participantCount() == 2,
+                "Speaking events must update the existing participant row without rebuilding the model"))
+            return false;
+        discord.sendEvent(u"VOICE_STATE_UPDATE"_s, {{u"user_id"_s, peerId}, {u"nick"_s, QJsonValue()},
+            {u"voice_state"_s, QJsonObject{{u"self_mute"_s, true}}}});
+        if (!check(waitFor([&] { return peerIndex.data(model->roleNames().key("micOff")).toBool(); })
+                && !peerIndex.data(speakingRole).toBool() && peerIndex.data(model->roleNames().key("name")) == u"Мирослава"_s,
+                "A partial voice-state update must preserve identity, use the global name and suppress muted speech"))
             return false;
         discord.sendEvent(u"VOICE_STATE_DELETE"_s, {{u"user_id"_s, peerId}});
-        if (!check(waitFor([&] { return voice.participants().size() == 1; }),
-                "Leaving participants must disappear from the panel"))
+        if (!check(waitFor([&] { return voice.participantCount() == 1; }) && !peerIndex.isValid(),
+                "Leaving participants must disappear from the model and count"))
+            return false;
+        const auto rejoined = member(peerId, u"mira"_s, u"Алекс Р."_s);
+        discord.sendEvent(u"VOICE_STATE_CREATE"_s, rejoined);
+        discord.sendEvent(u"VOICE_STATE_CREATE"_s, rejoined);
+        if (!check(waitFor([&] { return voice.participantCount() == 2; })
+                && voice.participants().at(1).toMap().value(u"participantId"_s) == peerId
+                && voice.participants().at(1).toMap().value(u"name"_s) == own.value(u"name"_s),
+                "Repeated join events must deduplicate by ID and allow equal names"))
             return false;
 
         discord.rejectMutation = true;
@@ -489,19 +587,29 @@ struct DiscordVoiceTest
             return false;
         const auto oldChannel = discord.channel;
         discord.channel = {{u"id"_s, directId}, {u"type"_s, 1},
-            {u"voice_states"_s, QJsonArray{member(ownId, u"self"_s), member(peerId, u"mira"_s, u"Мира"_s)}}};
+            {u"voice_states"_s, QJsonArray{member(ownId, u"self"_s, u"Алекс в Discord"_s),
+                member(peerId, u"mira"_s, u"Мира"_s)}}};
         discord.sendEvent(u"VOICE_CHANNEL_SELECT"_s, {{u"channel_id"_s, directId}});
+        if (!check(waitFor([&] { return voice.voiceStatus() == u"unknown"_s; }) && voice.channelId() == voiceId,
+                "A new selection must invalidate the old status before its snapshot arrives"))
+            return false;
+        discord.sendEvent(u"VOICE_CONNECTION_STATUS"_s, {{u"state"_s, u"VOICE_CONNECTED"_s}, {u"channel_id"_s, voiceId}});
+        discord.sendEvent(u"VOICE_CONNECTION_STATUS"_s, {{u"state"_s, u"VOICE_CONNECTING"_s}});
         discord.holdQuery = false;
         discord.reply(discord.heldQuery, oldChannel);
         if (!check(waitFor([&] { return voice.room() == u"Мира"_s
                 && discord.subscriptions.contains(u"VOICE_STATE_CREATE:"_s + directId); })
-                && voice.connected() && !discord.subscriptions.contains(u"VOICE_STATE_CREATE:"_s + voiceId),
-                "A newer DM selection must supersede a stale snapshot and replace room subscriptions"))
+                && voice.channelId() == directId && voice.voiceStatus() == u"connecting"_s
+                && voice.participants().at(0).toMap().value(u"name"_s) == u"Алекс в Discord"_s
+                && !discord.subscriptions.contains(u"VOICE_STATE_CREATE:"_s + voiceId),
+                "A newer DM selection must replace the stale snapshot, subscriptions and old voice status"))
             return false;
 
         discord.socket->disconnectFromServer();
-        if (!check(waitFor([&] { return !voice.connected(); }), "Lost IPC must hide the active voice panel")
-            || !check(waitFor([&] { return discord.authCount == 2 && voice.connected() && voice.canHangUp(); }, 4500),
+        if (!check(waitFor([&] { return !voice.connected(); }) && voice.voiceStatus() == u"unknown"_s
+                && voice.participantCount() == 0, "Lost IPC must clear the live roster and reset voice status")
+            || !check(waitFor([&] { return discord.authCount == 2 && voice.connected() && voice.canHangUp(); }, 4500)
+                && voice.voiceStatus() == u"unknown"_s,
                 "Discord must reconnect and recover the selected channel without a second sign-in"))
             return false;
         voice.hangUp();
@@ -511,10 +619,13 @@ struct DiscordVoiceTest
             return false;
 
         discord.writeScope = false;
+        discord.voiceStatusSupported = false;
         discord.channel = {{u"id"_s, voiceId}, {u"name"_s, u"Просмотр"_s}, {u"type"_s, 2}};
         discord.socket->disconnectFromServer();
-        if (!check(waitFor([&] { return voice.connected() && discord.authCount == 3; }, 4500)
-                && !voice.canHangUp() && !voice.canChangeVoice(), "Read-only grants must show voice without write controls"))
+        if (!check(waitFor([&] { return voice.connected() && discord.authCount == 3 && voice.m_settingsKnown; }, 4500)
+                && !voice.canHangUp() && !voice.canChangeVoice() && !voice.m_voiceStatusSubscribed
+                && voice.participantCount() == 1 && voice.voiceStatus() == u"unknown"_s,
+                "Read-only grants and unsupported status subscriptions must leave the selected roster accessible"))
             return false;
 
         const auto count = discord.mutationCount;
@@ -536,7 +647,8 @@ int main(int argc, char **argv)
         return 1;
     QSettings settings(data.filePath(u"test.ini"_s), QSettings::IniFormat);
     return DiscordVoiceTest::oauth(settings) && DiscordVoiceTest::tokenExchange(settings)
-        && DiscordVoiceTest::proxyPreference(settings) && DiscordVoiceTest::storedGrant(settings)
+        && DiscordVoiceTest::proxyPreference(settings) && DiscordVoiceTest::avatarDownload(settings)
+        && DiscordVoiceTest::storedGrant(settings)
         && DiscordVoiceTest::voice(settings) ? 0 : 1;
 }
 

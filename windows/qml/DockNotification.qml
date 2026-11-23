@@ -25,24 +25,28 @@ Item {
     required property real callMusicSeparation
     property real callSpan: 0
     property bool suspended: false
+    property bool transferred: false
+    property rect compactSlot: Qt.rect(0, 0, 0, 0)
 
-    signal dismissed()
+    signal dismissed(int eventId)
 
-    readonly property bool active: allowed && !suspended && !!event
+    readonly property bool active: allowed && !suspended && !transferred && !!event
     readonly property string miniProgressRenderer: miniPlayer.progressRenderer
     readonly property real miniProgressSpectrum: miniPlayer.progressSpectrum
-    readonly property bool presenting: active || reveal > 0 || splitProgress > 0 || retiringMini
+    readonly property bool presenting: !transferred
+        && (active || (!!lastEvent && (reveal > 0 || splitProgress > 0)) || retiringMini)
     readonly property bool usesCallLayout: callSpan > 0
     readonly property bool hasSideMusic: usesCallLayout && !!media.player
     readonly property bool widePlayer: attached && renderer.lyricsView.wide
-    readonly property bool keepPausedMini: !usesCallLayout && !suspended && paused && pauseHold.running
-    readonly property bool canHoldPausedMini: !usesCallLayout && !suspended
+    readonly property bool keepPausedMini: !usesCallLayout && !suspended && !transferred && paused && pauseHold.running
+    readonly property bool canHoldPausedMini: !usesCallLayout && !suspended && !transferred
         && allowed && paused && splitProgress > 0.92 && !miniPauseExpired
     readonly property bool retiringMini: miniPauseExpired && miniRetreat < 1 && retiringBounds.width > 0
-    readonly property bool splittingPlayer: allowed && !miniPauseExpired
+    readonly property bool splittingPlayer: allowed && !transferred && !miniPauseExpired
         && (keepPausedMini || (active && (usesCallLayout || (clearForDetails && widePlayer))))
     readonly property bool movingPlayer: splittingPlayer || (!active && splitProgress > 0)
     readonly property real compactHeight: 76
+    readonly property real minimumCompactWidth: Math.min(maxCardWidth, card.minimumWidth)
     readonly property real miniDiameter: 66
     readonly property real miniGap: 16
     readonly property real miniSpan: miniDiameter + miniGap
@@ -79,7 +83,8 @@ Item {
     property real detailProgress: presenting && clearForDetails ? 1 : 0
     property real expandedWidth: detailsWidth
     property real expandedHeight: detailsHeight
-    property real splitProgress: 0
+    readonly property real splitProgress: transferred ? 0 : splitAmount
+    property real splitAmount: 0
     property real mergeWeight: splittingPlayer || miniPauseExpired ? 0 : 1
     property real attachment: attached && !miniPauseExpired ? 1 : 0
     property real nudge: 0
@@ -112,7 +117,7 @@ Item {
     }
 
     onSplittingPlayerChanged: {
-        const current = splitProgress
+        const current = splitAmount
         const target = splittingPlayer ? 1 : 0
         split.stop()
         if (current === target)
@@ -123,7 +128,7 @@ Item {
         split.start()
     }
     DockTransition {
-        id: split; target: notice; property: "splitProgress"; duration: 1060
+        id: split; target: notice; property: "splitAmount"; duration: 1060
         curve: notice.motionCurve
     }
 
@@ -140,6 +145,14 @@ Item {
     onCanHoldPausedMiniChanged: beginPauseHold()
     onSuspendedChanged: if (suspended) resetPauseHold()
     onUsesCallLayoutChanged: if (usesCallLayout) resetPauseHold()
+    onTransferredChanged: {
+        if (transferred) {
+            resetPauseHold()
+            lastEvent = null
+        } else if (event) {
+            lastEvent = event
+        }
+    }
     onPausedChanged: if (!paused) resetPauseHold()
     onTrackKeyChanged: {
         resetPauseHold()
@@ -157,7 +170,7 @@ Item {
     }
 
     onEventChanged: {
-        if (!event)
+        if (!event || transferred)
             return
         lastEvent = event
         if (springMotion && active && attached && !widePlayer)
@@ -206,7 +219,12 @@ Item {
     readonly property rect bodyBounds: {
         const height = Geometry.mix(compactHeight, expandedHeight, detailAmount) + 9 * detailSpring
         const cardWidth = (usesCallLayout ? Math.min(expandedWidth, maxCardWidth) : expandedWidth) + 14 * detailSpring
-        const cardBounds = Qt.rect(cardLeft(cardWidth), topInset, cardWidth, height)
+        const compactWidth = compactSlot.width > 0 ? Math.min(cardWidth, compactSlot.width) : cardWidth
+        const compactX = compactSlot.width > 0
+            ? Math.max(compactSlot.x, Math.min(cardLeft(compactWidth), compactSlot.x + compactSlot.width - compactWidth))
+            : cardLeft(compactWidth)
+        const cardBounds = Qt.rect(Geometry.mix(compactX, cardLeft(cardWidth), detailAmount), topInset,
+            Geometry.mix(compactWidth, cardWidth, detailAmount), height)
         const body = retiringMini ? retiringDeckBounds : renderer.playerHousing
         if (usesCallLayout) {
             const morph = Geometry.arrival(Geometry.phase(splitProgress, 0.04, 1), springMotion ? 0.08 : 0)
@@ -216,8 +234,12 @@ Item {
         const widthTaken = miniSpan * Motion.smooth((splitProgress - 0.1) / 0.78)
         const extra = extraPlayerWidth
             + (widePlayer ? 0 : Math.max(0, cardWidth - body.width) * coverAmount) + 14 * detailSpring * extruded
-        const playerBounds = Qt.rect(body.x - extra / 2 + nudge * coverAmount - 10 * mergeRecoil, body.y,
-            Math.max(1, body.width + extra - widthTaken - 4 * releaseRecoil + 20 * mergeRecoil),
+        const positionCompact = compactSlot.width > 0 && (compactWidth < cardWidth || compactX !== cardLeft(compactWidth))
+            ? coverAmount * (1 - detailAmount) : 0
+        const playerBounds = Qt.rect(Geometry.mix(body.x - extra / 2 + nudge * coverAmount - 10 * mergeRecoil,
+            compactX, positionCompact), body.y,
+            Geometry.mix(Math.max(1, body.width + extra - widthTaken - 4 * releaseRecoil + 20 * mergeRecoil),
+                compactWidth, positionCompact),
             Geometry.mix(body.height, height, coverAmount) + 9 * mergeRecoil)
         const housing = Geometry.mixRect(solo, playerBounds, attachment)
         return cardRetraction > 0 ? Geometry.pullToEdge(housing, cardRetraction, 0, 0) : housing
@@ -255,7 +277,7 @@ Item {
             body.y + 47 + 6 * miniStretch - 4 * releaseRecoil)
     }
     readonly property rect miniBounds: {
-        if (suspended)
+        if (suspended || (!usesCallLayout && (transferred || !lastEvent)))
             return Qt.rect(0, 0, 0, 0)
         if (miniPauseExpired)
             return retiringMini ? Geometry.pullToEdge(retiringBounds, miniRetreat, 0, 0) : Qt.rect(0, 0, 0, 0)
@@ -302,7 +324,7 @@ Item {
         width: notice.bodyBounds.width
         height: notice.bodyBounds.height
         opacity: 1 - Motion.smooth(notice.cardRetraction / 0.45)
-        visible: notice.cardEntrance > 0.27 && opacity > 0.001
+        visible: !notice.transferred && notice.cardEntrance > 0.27 && opacity > 0.001
         event: notice.lastEvent
         wifi: notice.wifi
         battery: notice.battery
@@ -316,7 +338,7 @@ Item {
         expansion: notice.detailAmount
         detailProgress: notice.detailProgress
         dismissible: notice.active && opacity > 0.75
-        onDismissed: notice.dismissed()
+        onDismissed: eventId => notice.dismissed(eventId)
     }
 
     DockMiniPlayer {
