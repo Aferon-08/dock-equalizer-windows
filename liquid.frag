@@ -36,6 +36,7 @@ layout(std140, binding = 0) uniform buf {
     float miniCallBlend;
     float noticeMix;
     vec4 backdropUv;
+    vec4 joinedPuck;
 };
 layout(binding = 1) uniform sampler2D backdrop;
 
@@ -58,6 +59,11 @@ float housingDistance(vec2 p) {
         float neck = mix(0.18, 1.0, smoothstep(0.0, 0.64, y));
         vec2 tapered = vec2(center.x + (p.x - center.x) / neck, p.y);
         mainBody = mix(mainBody, roundedBox(tapered, center, dockRect.zw, params.y) * neck, dropTaper);
+    }
+    if (joinedPuck.z > 0.001) {
+        vec2 size = joinedPuck.zw;
+        float puck = roundedBox(p, joinedPuck.xy + size * 0.5, size, min(size.x, size.y) * 0.5);
+        mainBody = liquidUnion(mainBody, puck, 18.0);
     }
     return mainBody;
 }

@@ -23,6 +23,7 @@ Item {
     property real hideProgress: 0
     property bool staggeredOpening: false
     property var notification: null
+    property rect joinedNoticePuck: Qt.rect(0, 0, 0, 0)
     property rect playerOverride: Qt.rect(0, 0, 0, 0)
     property real playerOverrideMix: 0
     property rect sideCallBounds: Qt.rect(0, 0, 0, 0)
@@ -311,6 +312,7 @@ Item {
             readonly property vector4d miniCall: inShader(root.sideCallBounds)
             readonly property real miniCallBlend: root.sideCallBlend
             readonly property real miniBlend: root.notification?.miniBlend ?? 0
+            readonly property vector4d joinedPuck: inShader(root.joinedNoticePuck)
             readonly property real noticeMix: root.noticeMix
             readonly property color noticeTint: root.noticeVisible ? root.notification.accent : "transparent"
             function inShader(rect) {

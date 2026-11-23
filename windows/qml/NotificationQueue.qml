@@ -8,6 +8,8 @@ QtObject {
     required property var motionCurve
 
     readonly property int recallDuration: 25000
+    readonly property int archiveHandoffDuration: 1900
+    readonly property int groupCloseDelay: 3500
     property var current: null
     property var pending: []
     property var recalls: []
@@ -19,26 +21,29 @@ QtObject {
     property int nextId: 0
     property int requestedRecall: 0
     property bool waitingForRecalls: false
-    readonly property bool closing: closeGroup.running
-    property real closeProgress: 0
+    property bool closing: false
+    property real mergeProgress: 0
 
     // The current event changes at the start of a handoff. The surfaces keep
     // rendering the outgoing event until it has folded into its icon.
     property var handoff: null
     property real progress: 1
-    readonly property real swapPoint: 0.4
+    readonly property bool archiving: (handoff?.archiveId ?? 0) > 0
+    readonly property real archiveLanding: 0.55
+    readonly property real swapPoint: archiving ? 0.52 : 0.4
+    readonly property real incomingLanding: archiving ? 0.89 : 0.86
     readonly property int queuedCount: pending.length + (resumeNotice ? 1 : 0)
     readonly property var displayedEvent: handoff && progress < swapPoint ? handoff.outgoing : current
     readonly property int displayedCount: handoff && progress < swapPoint ? handoff.counter : queuedCount
     readonly property real contentAmount: !handoff ? 1 : progress < swapPoint
         ? 1 - Motion.smooth(Geometry.phase(progress, 0.01, 0.28))
-        : Motion.smooth(Geometry.phase(progress, 0.65, 1))
+        : Motion.smooth(Geometry.phase(progress, archiving ? 0.73 : 0.65, 1))
     readonly property real iconAmount: !handoff ? 1 : progress < swapPoint
         ? 1 - Motion.smooth(Geometry.phase(progress, 0.06, 0.16))
-        : Motion.smooth(Geometry.phase(progress, 0.85, 0.98))
+        : Motion.smooth(Geometry.phase(progress, incomingLanding - 0.01, 0.98))
     readonly property real counterAmount: !handoff ? 1 : progress < swapPoint
-        ? 1 - Motion.smooth(Geometry.phase(progress, 0.30, swapPoint))
-        : Motion.smooth(Geometry.phase(progress, 0.78, 0.97))
+        ? 1 - Motion.smooth(Geometry.phase(progress, swapPoint - 0.10, swapPoint))
+        : Motion.smooth(Geometry.phase(progress, incomingLanding - 0.08, 0.97))
 
     onSuspendedChanged: updateExpiry()
     onRecallsChanged: {
@@ -98,8 +103,7 @@ QtObject {
 
     function replace(entry) {
         slide.stop()
-        closeGroup.stop()
-        closeProgress = 0
+        stopClosing()
         handoff = null
         requestedRecall = 0
         resumeNotice = null
@@ -127,7 +131,9 @@ QtObject {
         const next = pending.filter(event => !sharesSensor(event, entry))
         next.push(makeEvent(entry))
         pending = next.slice(-20)
-        if (waitingForRecalls)
+        if (closeDelay.running)
+            finishClosing()
+        else if (waitingForRecalls)
             updateExpiry()
         else if (!handoff && !closing)
             shortenForQueue()
@@ -161,7 +167,8 @@ QtObject {
             archiveId: archive ? outgoing.eventId : 0, recallIndex}
         setCurrent(next, recallIndex >= 0)
         if (archive) {
-            const first = {event: outgoing, expires: Date.now() + recallDuration + 650}
+            const arrival = Math.round(archiveHandoffDuration * archiveLanding)
+            const first = {event: outgoing, expires: Date.now() + recallDuration + arrival}
             recalls = [first].concat(recalls.filter(entry => entry.event.eventId !== outgoing.eventId)).slice(0, 3)
         }
         if (recallIndex >= 0)
@@ -173,8 +180,26 @@ QtObject {
         pauseExpiry()
         waitingForRecalls = false
         recallExpiry.stop()
-        closeProgress = 0
-        closeGroup.start()
+        mergeProgress = 0
+        closing = true
+        mergePucks.start()
+    }
+
+    function stopClosing() {
+        mergePucks.stop()
+        closeDelay.stop()
+        closing = false
+        mergeProgress = 0
+    }
+
+    function finishClosing() {
+        const count = queuedCount
+        const next = nextNotice()
+        stopClosing()
+        if (next)
+            beginHandoff(current, next, count, false, -1)
+        else
+            setCurrent(null, false)
     }
 
     function advance(expectedId, remember, animate) {
@@ -184,9 +209,8 @@ QtObject {
             if (animate)
                 return
             slide.stop()
-            closeGroup.stop()
+            stopClosing()
             handoff = null
-            closeProgress = 0
         }
         const count = queuedCount
         const next = nextNotice()
@@ -258,7 +282,7 @@ QtObject {
         property: "progress"
         from: 0
         to: 1
-        duration: 1340
+        duration: queue.archiving ? queue.archiveHandoffDuration : 1340
         curve: queue.motionCurve
         onFinished: {
             queue.handoff = null
@@ -271,22 +295,24 @@ QtObject {
         }
     }
 
-    readonly property DockTransition closeGroup: DockTransition {
+    readonly property DockTransition mergePucks: DockTransition {
         target: queue
-        property: "closeProgress"
+        property: "mergeProgress"
         from: 0
         to: 1
-        duration: 310
+        duration: 1560
         curve: queue.motionCurve
         onFinished: {
-            const count = queue.queuedCount
-            const next = queue.nextNotice()
             queue.recalls = []
-            if (next)
-                queue.beginHandoff(queue.current, next, count, false, -1)
+            if (queue.queuedCount)
+                queue.finishClosing()
             else
-                queue.setCurrent(null, false)
-            queue.closeProgress = 0
+                closeDelay.start()
         }
+    }
+
+    readonly property Timer closeDelay: Timer {
+        interval: queue.groupCloseDelay - queue.mergePucks.duration
+        onTriggered: queue.finishClosing()
     }
 }

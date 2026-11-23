@@ -11,6 +11,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 finish;
     vec4 accentColor;
     vec4 sceneUv;
+    vec4 joinedPuck;
 };
 layout(binding = 1) uniform sampler2D scene;
 
@@ -23,7 +24,16 @@ float distanceToGlass(vec2 p) {
     float taper = mix(1.0, mix(0.28, 1.0, smoothstep(0.0, 0.7, travel)), shape.y);
     local += across * dot(local, across) * (1.0 / taper - 1.0);
     vec2 q = abs(local) - halfSize + shape.x;
-    return (length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - shape.x) * taper;
+    float body = (length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - shape.x) * taper;
+    if (joinedPuck.z > 0.001) {
+        vec2 halfPuck = joinedPuck.zw * 0.5;
+        float radius = min(halfPuck.x, halfPuck.y);
+        vec2 edge = abs(p - joinedPuck.xy - halfPuck) - halfPuck + radius;
+        float puck = length(max(edge, 0.0)) + min(max(edge.x, edge.y), 0.0) - radius;
+        float join = max(18.0 - abs(body - puck), 0.0) / 18.0;
+        body = min(body, puck) - 4.5 * join * join;
+    }
+    return body;
 }
 
 void main() {

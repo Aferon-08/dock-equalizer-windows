@@ -126,7 +126,10 @@ Window {
     property bool smokeSawNoticeRetreat: false
     property bool smokeSawQueueMorph: false
     property bool smokeSawHeldNotice: false
-    property bool smokeSawPucksRetire: false
+    readonly property var smokeGatheredPucks: new Set()
+    property bool smokeSawGatherPause: false
+    property real smokeGatherStarted: 0
+    property real smokeGatherElapsed: 0
     property int smokeRecallId: 0
     property int smokeResumeTime: 0
     property bool smokeHoldOpen: true
@@ -602,6 +605,7 @@ Window {
             hideProgress: presence.hideProgress
             staggeredOpening: true
             notification: noticeLayer
+            joinedNoticePuck: dockQueue.joinedPuck
             playerOverride: callLayer.layoutBounds
             playerOverrideMix: callLayer.housingMix
             foldWings: callLayer.presenting && callLayer.expanded
@@ -704,6 +708,8 @@ Window {
             badge: hasFrame || queue.handoff ? noticeLayer.badgeBounds
                 : Qt.rect(frame.x + 24, frame.y + 16, 38, 38)
             counter: noticeLayer.counterBounds
+            frameRadius: wings.housingRadius
+            shaderHousing: wings.ownsHousing
             expanded: noticeLayer.detailAmount > 0.63 && noticeLayer.active
             leftObstacle: callLayer.sideBounds.width > 1 ? callLayer.sideBounds : wings.leftWingBounds
             viewportHeight: window.workArea.height / Math.max(0.01, stage.scale)
@@ -2123,18 +2129,34 @@ Window {
                 if (queue.waitingForRecalls || queue.closing) {
                     if (!noticeLayer.presenting || noticeLayer.reveal !== 1
                             || queue.current?.eventId !== window.smokeNotificationId || queue.handoff) {
-                        window.failSmoke("the final card moved before the recall pucks left")
+                        window.failSmoke("the final card moved before the recall pucks joined it")
                         return
                     }
                     if (queue.waitingForRecalls && queue.recalls.length > 0)
                         window.smokeSawHeldNotice = true
-                    if (queue.closing && dockQueue.pucks.some(item => item.opacity > 0.06 && item.opacity < 0.94))
-                        window.smokeSawPucksRetire = true
+                    if (queue.closing) {
+                        if (!window.smokeGatherStarted)
+                            window.smokeGatherStarted = Date.now()
+                        const body = noticeLayer.bodyBounds
+                        for (const puck of dockQueue.pucks) {
+                            const bounds = puck.shapeBounds
+                            if (puck.merge > 0.68 && puck.merge < 0.93 && bounds.x + bounds.width > body.x
+                                    && bounds.x < body.x + body.width && bounds.y < body.y + body.height
+                                    && bounds.y + bounds.height > body.y)
+                                window.smokeGatheredPucks.add(puck.event.eventId)
+                        }
+                        if (queue.closeDelay.running && dockQueue.regions.length === 0)
+                            window.smokeSawGatherPause = true
+                    }
                 }
+                if (!queue.current && !window.smokeGatherElapsed)
+                    window.smokeGatherElapsed = Date.now() - window.smokeGatherStarted
                 if (queue.current || noticeLayer.presenting)
                     return
-                if (!window.smokeSawHeldNotice || !window.smokeSawPucksRetire || queue.recalls.length || dockQueue.presenting) {
-                    window.failSmoke("the queue did not retire its pucks and final card together")
+                if (!window.smokeSawHeldNotice || window.smokeGatheredPucks.size !== 3 || !window.smokeSawGatherPause
+                        || window.smokeGatherElapsed < 3100 || window.smokeGatherElapsed > 4000
+                        || queue.recalls.length || dockQueue.presenting) {
+                    window.failSmoke("the final card did not gather the three pucks and wait before leaving")
                     return
                 }
                 window.appState.notificationPreferences.aboveWindows = false
@@ -2145,7 +2167,7 @@ Window {
                 console.log("PASS Discord preview, automatic folding, music detachment and return, connected notification split")
                 console.log("PASS custom transition curve and spring-free notification and player motion")
                 console.log("PASS positioned separate notifications, shared queue and expiry, and one card per monitor")
-                console.log("PASS continuous queue housing, recall and resumed expiry, coordinated final retreat")
+                console.log("PASS continuous queue housing, recall and resumed expiry, liquid puck merge and delayed retreat")
                 Qt.exit(0)
             }
         }

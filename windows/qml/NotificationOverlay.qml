@@ -230,6 +230,10 @@ Window {
             readonly property vector4d finish: Qt.vector4d(overlay.material.opacity, overlay.material.darkening,
                 overlay.material.light, backdrop.item?.hasFrame ? 1 : 0)
             readonly property vector4d sceneUv: Qt.vector4d(0, 0, 1, 1)
+            readonly property vector4d joinedPuck: {
+                const puck = overlayQueue.joinedPuck
+                return Qt.vector4d(puck.x, puck.y, puck.width, puck.height)
+            }
             readonly property color accentColor: overlay.accent
             readonly property var scene: glassBackdrop
             fragmentShader: Qt.resolvedUrl("notification-glass.frag.qsb")
@@ -317,6 +321,8 @@ Window {
             frame: overlay.layoutBody
             badge: overlay.badgeBounds
             counter: overlay.counterBounds
+            frameRadius: overlay.bodyRadius
+            shaderHousing: overlay.glass
             expanded: content.expansion > 0.6
             viewportHeight: height
             backdropTexture: glassBackdrop
