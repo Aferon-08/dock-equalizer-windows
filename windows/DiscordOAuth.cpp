@@ -26,6 +26,7 @@ namespace {
 constexpr quint16 callbackPort = 43827;
 constexpr qsizetype maxHeader = 8192;
 constexpr qint64 maxReply = 64 * 1024;
+constexpr int tokenTimeoutMs = 30000;
 const auto callbackPath = u"/discord/callback"_s;
 const auto grantKey = u"discord/grant"_s;
 
@@ -50,7 +51,22 @@ QByteArray formBody(const QUrlQuery &parameters)
     return body;
 }
 
-QString exchangeFailure(int status, QNetworkReply::NetworkError networkError, const QString &error, bool refreshing)
+QString routeName(QNetworkProxy::ProxyType type)
+{
+    switch (type) {
+    case QNetworkProxy::NoProxy:
+        return u"Прямое"_s;
+    case QNetworkProxy::HttpProxy:
+        return u"INCY HTTP"_s;
+    case QNetworkProxy::Socks5Proxy:
+        return u"INCY SOCKS5"_s;
+    default:
+        return u"Системное"_s;
+    }
+}
+
+QString exchangeFailure(int status, QNetworkReply::NetworkError networkError, const QString &error,
+                        bool refreshing, bool timedOut, QNetworkProxy::ProxyType route)
 {
     if (error == u"invalid_grant"_s) {
         return refreshing ? u"Срок сохранённого разрешения истёк. Нажмите «Подключить Discord»."_s
@@ -62,25 +78,27 @@ QString exchangeFailure(int status, QNetworkReply::NetworkError networkError, co
         return u"Discord отклонил запрос Sekai Soundbar (%1)."_s.arg(error);
     if (status == 429)
         return u"Discord ограничил частоту запросов (HTTP 429). Попробуйте подключиться чуть позже."_s;
+    const auto connection = u" Соединение «%1»."_s.arg(routeName(route));
+    if (timedOut || networkError == QNetworkReply::TimeoutError) {
+        return (refreshing ? u"Discord не ответил вовремя на обновление доступа."_s
+                           : u"Discord не ответил вовремя на обмен кода входа."_s) + connection;
+    }
     if (status && status != 200)
         return u"Запрос на вход в Discord завершился с ошибкой HTTP %1."_s.arg(status);
 
     switch (networkError) {
     case QNetworkReply::SslHandshakeFailedError:
-        return u"Док не смог установить защищённое соединение с Discord (TLS)."_s;
+        return u"Док не смог установить защищённое соединение с Discord (TLS)."_s + connection;
     case QNetworkReply::ProxyConnectionRefusedError:
     case QNetworkReply::ProxyConnectionClosedError:
     case QNetworkReply::ProxyNotFoundError:
     case QNetworkReply::ProxyTimeoutError:
     case QNetworkReply::ProxyAuthenticationRequiredError:
-        return u"Прокси не открыл соединение с Discord (сеть %1)."_s.arg(int(networkError));
-    case QNetworkReply::TimeoutError:
-    case QNetworkReply::OperationCanceledError:
-        return u"Истекло время ожидания ответа Discord (сеть %1)."_s.arg(int(networkError));
+        return u"Прокси не открыл соединение с Discord (сеть %1)."_s.arg(int(networkError)) + connection;
     case QNetworkReply::NoError:
         return u"Discord вернул некорректный ответ при входе (HTTP %1)."_s.arg(status);
     default:
-        return u"Док не смог связаться с Discord (сеть %1)."_s.arg(int(networkError));
+        return u"Док не смог связаться с Discord (сеть %1)."_s.arg(int(networkError)) + connection;
     }
 }
 
@@ -130,10 +148,16 @@ DiscordOAuth::DiscordOAuth(QSettings &settings, QObject *parent)
     m_callback.setProxy(QNetworkProxy::NoProxy);
     m_callback.setMaxPendingConnections(8);
     m_consentTimeout.setSingleShot(true);
+    m_exchangeTimeout.setSingleShot(true);
+    m_exchangeTimeout.setInterval(tokenTimeoutMs);
     connect(&m_callback, &QTcpServer::newConnection, this, &DiscordOAuth::acceptCallbacks);
     connect(&m_consentTimeout, &QTimer::timeout, this, [this] {
         cancel();
         emit failed(u"Время входа истекло. Подключите Discord ещё раз."_s);
+    });
+    connect(&m_exchangeTimeout, &QTimer::timeout, this, [this] {
+        if (m_reply)
+            m_reply->abort();
     });
 }
 
@@ -278,15 +302,20 @@ void DiscordOAuth::exchange(QUrlQuery parameters, bool refreshing)
     request.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
     request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
-    request.setTransferTimeout(15000);
+    // A new exchange should pick up changes to the Windows proxy or the INCY tunnel.
+    m_network.clearConnectionCache();
+    const auto route = m_network.proxy().type();
     auto *reply = m_network.post(request, formBody(parameters));
     m_reply = reply;
+    m_exchangeTimeout.start();
     reply->setReadBufferSize(maxReply + 1);
     connect(reply, &QNetworkReply::downloadProgress, this, [reply](qint64 received, qint64 total) {
         if (received > maxReply || total > maxReply)
             reply->abort();
     });
-    connect(reply, &QNetworkReply::finished, this, [this, reply, refreshing] {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, refreshing, route] {
+        const bool timedOut = !m_exchangeTimeout.isActive() && reply->error() == QNetworkReply::OperationCanceledError;
+        m_exchangeTimeout.stop();
         m_reply = nullptr;
         reply->deleteLater();
         const auto bytes = reply->readAll();
@@ -301,7 +330,7 @@ void DiscordOAuth::exchange(QUrlQuery parameters, bool refreshing)
             || access.size() > 4096 || refresh.size() > 4096 || lifetime <= 60) {
             if (refreshing && (error == u"invalid_grant"_s || error == u"invalid_client"_s))
                 forget();
-            emit failed(exchangeFailure(httpStatus, reply->error(), error, refreshing));
+            emit failed(exchangeFailure(httpStatus, reply->error(), error, refreshing, timedOut, route));
             return;
         }
         if (!grantedScopes.contains(u"rpc"_s) || !grantedScopes.contains(u"rpc.voice.read"_s)) {
@@ -323,6 +352,7 @@ void DiscordOAuth::cancel()
 {
     m_callback.close();
     m_consentTimeout.stop();
+    m_exchangeTimeout.stop();
     m_state.clear();
     m_verifier.clear();
     if (auto *reply = std::exchange(m_reply, nullptr)) {

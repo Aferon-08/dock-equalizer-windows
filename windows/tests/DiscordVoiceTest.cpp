@@ -243,6 +243,9 @@ public:
 
                 requestHeaders = buffer.left(headerEnd);
                 form.setQuery(QString::fromUtf8(buffer.mid(headerEnd + 4, length)));
+                ++requestCount;
+                if (holdResponse)
+                    return;
                 socket->write("HTTP/1.1 " + status + "\r\nContent-Type: application/json\r\nConnection: close\r\n"
                     "Content-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body);
                 socket->disconnectFromHost();
@@ -255,6 +258,8 @@ public:
     QByteArray body = "{}";
     QByteArray requestHeaders;
     QUrlQuery form;
+    int requestCount = 0;
+    bool holdResponse = false;
 };
 
 QByteArray callback(const QUrl &redirect, const QByteArray &query)
@@ -389,14 +394,76 @@ struct DiscordVoiceTest
                 "Discord must remember the selected proxy across restarts"))
             return false;
 
-        restarted.setProxyMode(u"system"_s);
-        restarted.setProxyMode(u"invalid"_s);
+        restarted.setProxyMode(u"direct"_s);
+        DiscordVoice direct(settings, true, applicationId);
+        if (!check(direct.proxyMode() == u"direct"_s && direct.m_oauth.m_network.proxy().type() == QNetworkProxy::NoProxy
+                && direct.m_avatarNetwork.proxy().type() == QNetworkProxy::NoProxy,
+                "The direct route must ignore the system proxy for OAuth and avatars after restart"))
+            return false;
+
+        direct.setProxyMode(u"system"_s);
+        direct.setProxyMode(u"invalid"_s);
         DiscordVoice system(settings, true, applicationId);
         const bool valid = check(system.proxyMode() == u"system"_s
                 && system.m_oauth.m_network.proxy().type() == QNetworkProxy::DefaultProxy
                 && system.m_avatarNetwork.proxy().type() == QNetworkProxy::DefaultProxy,
             "Switching back to the system route must clear the proxy override");
         settings.remove(u"discord/proxyMode"_s);
+        return valid;
+    }
+
+    static bool recoverFromTokenTimeout(QSettings &settings)
+    {
+        MockTokenEndpoint proxy;
+        MockTokenEndpoint server;
+        if (!check(proxy.server.listen(QHostAddress::LocalHost) && server.server.listen(QHostAddress::LocalHost),
+                "Could not start the mock proxy and direct endpoint"))
+            return false;
+
+        DiscordOAuth oauth(settings);
+        oauth.setClientId(applicationId);
+        QString failure;
+        int grants = 0;
+        QObject::connect(&oauth, &DiscordOAuth::failed, &oauth, [&](const QString &message) { failure = message; });
+        QObject::connect(&oauth, &DiscordOAuth::granted, &oauth, [&] { ++grants; });
+        QUrlQuery parameters;
+        parameters.addQueryItem(u"grant_type"_s, u"authorization_code"_s);
+        parameters.addQueryItem(u"code"_s, u"mock-code"_s);
+
+        proxy.holdResponse = true;
+        oauth.m_exchangeTimeout.setInterval(400);
+        oauth.m_tokenEndpoint = QUrl(u"http://discord.invalid/api/v10/oauth2/token"_s);
+        oauth.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s, proxy.server.serverPort()));
+        oauth.exchange(parameters, false);
+        if (!check(waitFor([&] { return !failure.isEmpty(); }) && !oauth.busy() && grants == 0
+                && proxy.requestCount == 1 && failure.contains(u"обмен кода входа"_s) && failure.contains(u"INCY HTTP"_s),
+                "A stalled proxy must report the login stage and route without replaying the authorization code"))
+            return false;
+
+        failure.clear();
+        oauth.m_exchangeTimeout.setInterval(1400);
+        oauth.setProxy(QNetworkProxy::NoProxy);
+        oauth.m_tokenEndpoint = QUrl(u"http://127.0.0.1:%1/api/v10/oauth2/token"_s.arg(server.server.serverPort()));
+        server.status = "200 OK";
+        server.body = R"({"access_token":"direct-access","refresh_token":"direct-refresh","expires_in":3600,
+            "scope":"identify rpc rpc.voice.read rpc.voice.write"})";
+        parameters.removeAllQueryItems(u"code"_s);
+        parameters.addQueryItem(u"code"_s, u"new-code"_s);
+        oauth.exchange(parameters, false);
+        if (!check(waitFor([&] { return grants == 1; }) && oauth.usable() && oauth.renewable()
+                && server.requestHeaders.startsWith("POST /api/v10/oauth2/token HTTP/1.1")
+                && server.form.queryItemValue(u"code"_s) == u"new-code"_s && proxy.requestCount == 1,
+                "A fresh direct request must reach the endpoint after a proxy timeout"))
+            return false;
+
+        server.holdResponse = true;
+        oauth.m_exchangeTimeout.setInterval(400);
+        oauth.refresh();
+        const bool valid = check(waitFor([&] { return !failure.isEmpty(); }) && !oauth.busy()
+                && failure.contains(u"обновление доступа"_s) && failure.contains(u"Прямое"_s)
+                && oauth.usable() && oauth.renewable() && server.requestCount == 2,
+                "A direct refresh timeout must keep the grant, report the route and avoid retransmission");
+        oauth.forget();
         return valid;
     }
 
@@ -649,7 +716,8 @@ int main(int argc, char **argv)
         return 1;
     QSettings settings(data.filePath(u"test.ini"_s), QSettings::IniFormat);
     return DiscordVoiceTest::oauth(settings) && DiscordVoiceTest::tokenExchange(settings)
-        && DiscordVoiceTest::proxyPreference(settings) && DiscordVoiceTest::avatarDownload(settings)
+        && DiscordVoiceTest::proxyPreference(settings) && DiscordVoiceTest::recoverFromTokenTimeout(settings)
+        && DiscordVoiceTest::avatarDownload(settings)
         && DiscordVoiceTest::storedGrant(settings)
         && DiscordVoiceTest::voice(settings) ? 0 : 1;
 }

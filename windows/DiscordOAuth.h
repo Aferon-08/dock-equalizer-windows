@@ -52,6 +52,7 @@ private:
     QNetworkAccessManager m_network;
     QTcpServer m_callback;
     QTimer m_consentTimeout;
+    QTimer m_exchangeTimeout;
     QNetworkReply *m_reply = nullptr;
     QUrl m_tokenEndpoint{QStringLiteral("https://discord.com/api/v10/oauth2/token")};
     QString m_clientId;

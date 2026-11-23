@@ -977,6 +977,7 @@ Window {
                     Repeater {
                         model: [
                             { mode: "system", label: "Системное" },
+                            { mode: "direct", label: "Прямое" },
                             { mode: "incy-socks5", label: "INCY SOCKS5" },
                             { mode: "incy-http", label: "INCY HTTP" }
                         ]

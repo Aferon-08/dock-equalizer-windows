@@ -17,6 +17,7 @@ namespace {
 const auto linkedKey = u"discord/linked"_s;
 const auto proxyModeKey = u"discord/proxyMode"_s;
 const auto systemProxy = u"system"_s;
+const auto direct = u"direct"_s;
 const auto incySocks5 = u"incy-socks5"_s;
 const auto incyHttp = u"incy-http"_s;
 const auto readyStatus = u"Discord подключён. Войдите в голосовой канал."_s;
@@ -39,11 +40,13 @@ bool validId(const QString &id)
 
 bool validProxyMode(const QString &mode)
 {
-    return mode == systemProxy || mode == incySocks5 || mode == incyHttp;
+    return mode == systemProxy || mode == direct || mode == incySocks5 || mode == incyHttp;
 }
 
 QNetworkProxy discordProxy(const QString &mode)
 {
+    if (mode == direct)
+        return QNetworkProxy(QNetworkProxy::NoProxy);
     if (mode == incySocks5)
         return QNetworkProxy(QNetworkProxy::Socks5Proxy, u"127.0.0.1"_s, 10808);
     if (mode == incyHttp)
