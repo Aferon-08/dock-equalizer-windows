@@ -5,6 +5,7 @@
 #include <QRect>
 #include <QRegion>
 #include <QWindow>
+#include <QVariant>
 
 class QEvent;
 class QScreen;
@@ -36,11 +37,13 @@ public:
     Q_INVOKABLE void setPanelRegion(QWindow *window, const QRectF &body, qreal radius,
                                     const QRectF &leftWing, const QRectF &rightWing,
                                     const QRectF &miniPlayer, const QRectF &neck,
-                                    const QRectF &sideCall, const QRectF &sideCallNeck);
+                                    const QRectF &sideCall, const QRectF &sideCallNeck,
+                                    const QVariantList &notificationParts);
     Q_INVOKABLE void setExpandedRegions(QWindow *window, const QRectF &player, qreal playerRadius,
                                        const QRectF &notification, qreal notificationRadius);
     Q_INVOKABLE void setCompactNotificationZone(QWindow *window, const QRectF &zone, const QSizeF &minimumSize);
-    Q_INVOKABLE void setNotificationRegion(QWindow *window, const QRectF &body, qreal radius);
+    Q_INVOKABLE void setNotificationRegion(QWindow *window, const QRectF &body, qreal radius,
+                                           const QVariantList &parts);
 
 signals:
     void screenAreaChanged();
@@ -75,6 +78,7 @@ private:
     qreal m_notificationRadius = 0;
     QRectF m_notificationBody;
     qreal m_notificationBodyRadius = 0;
+    QVariantList m_notificationParts;
     QRectF m_compactNotificationZone;
     QSizeF m_compactNotificationMinimum;
     QRectF m_compactNotificationArea;

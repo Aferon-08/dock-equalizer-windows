@@ -26,7 +26,8 @@ Window {
     height: Math.min(workArea.height, Math.ceil(stage.height * stage.scale))
     x: workArea.x + Math.floor((workArea.width - width) / 2)
     y: workArea.y
-    visible: workArea.width > 0 && !notificationFullscreen && (presence.showing || wings.noticeVisible)
+    visible: workArea.width > 0 && !notificationFullscreen
+        && (presence.showing || wings.noticeVisible || dockQueue.presenting)
     onVisibleChanged: {
         if (visible) {
             Qt.callLater(updateExpandedRegion)
@@ -123,6 +124,9 @@ Window {
     property real smokeNotificationExpiry: 0
     property bool smokeSawNoticeDrop: false
     property bool smokeSawNoticeRetreat: false
+    property bool smokeSawQueueMorph: false
+    property int smokeRecallId: 0
+    property int smokeResumeTime: 0
     property bool smokeHoldOpen: true
     property bool smokeSawGlassNeck: false
     property bool smokeSawPackedEntrance: false
@@ -179,6 +183,8 @@ Window {
     readonly property rect bodyRegion: {
         if (wings.noticeVisible && !desktop.fullscreenActive) {
             const body = wings.housingRect
+            if (body.width <= 0)
+                return Qt.rect(0, 0, 0, 0)
             const pad = noticeGlowMargin
             return scaledRect(body.x - pad, body.y - pad, body.width + 2 * pad, body.height + 2 * pad)
         }
@@ -226,6 +232,11 @@ Window {
         const body = noticeLayer.expandedEnvelope
         return scaledRect(body.x, body.y, body.width, body.height)
     }
+    readonly property var notificationParts: dockQueue.regions.map(part => ({
+        box: scaledRect(part.box.x, part.box.y, part.box.width, part.box.height),
+        radius: part.radius * stage.scale
+    }))
+    onNotificationPartsChanged: Qt.callLater(updatePanelRegion)
     onBodyRegionChanged: Qt.callLater(updatePanelRegion)
     onLeftRegionChanged: Qt.callLater(updatePanelRegion)
     onRightRegionChanged: Qt.callLater(updatePanelRegion)
@@ -258,7 +269,8 @@ Window {
 
     function updatePanelRegion() {
         desktop.setPanelRegion(window, bodyRegion, regionRadius, leftRegion, rightRegion,
-                               miniPlayerRegion, miniPlayerNeckRegion, sideCallRegion, sideCallNeckRegion)
+                               miniPlayerRegion, miniPlayerNeckRegion, sideCallRegion, sideCallNeckRegion,
+                               notificationParts)
     }
 
     function updateExpandedRegion() {
@@ -504,9 +516,10 @@ Window {
     Item {
         id: stage
         width: Math.max(760, window.width)
-        height: pill.y + Math.max(pill.height, wings.noticeVisible ? noticeLayer.maximumDetailsHeight : 0,
+        height: Math.max(dockQueue.requiredHeight + 12,
+            pill.y + Math.max(pill.height, wings.noticeVisible ? noticeLayer.maximumDetailsHeight : 0,
             callLayer.presenting ? callLayer.panelHeight + 4 : 0)
-            + 32 + Math.max(0, wings.lyricsView.swipeY)
+            + 32 + Math.max(0, wings.lyricsView.swipeY))
         scale: window.width / width
         transformOrigin: Item.TopLeft
 
@@ -620,12 +633,13 @@ Window {
             anchors.fill: parent
             motionCurve: window.motionCurve
             springMotion: window.springMotion
-            event: window.appState.dockNotification
+            queue: window.appState.notifications
+            event: queue.displayedEvent
             wifi: window.appState.wifiStatus.snapshot
             battery: window.appState.batteryStatus.snapshot
             renderer: wings
             media: window.media
-            allowed: !window.desktop.fullscreenActive
+            allowed: !window.notificationFullscreen
             clearForDetails: window.notificationSpaceReady
             suspended: callLayer.ringOnTop
             transferred: window.notificationDetached || notificationOverlay.presenting
@@ -673,6 +687,24 @@ Window {
                 && availableHeight >= minimumExpandedHeight
             musicProgress: wings.lyricsView.duration > 0 ? wings.lyricsView.position / wings.lyricsView.duration : 0
         }
+        NotificationQueueLayer {
+            id: dockQueue
+            objectName: "dockNotificationQueue"
+            width: stage.width
+            height: stage.height
+            queue: window.appState.notifications
+            appearance: window.appearance.values
+            available: !window.notificationFullscreen && !noticeLayer.transferred && !noticeLayer.suspended
+            hasFrame: noticeLayer.active && noticeLayer.reveal > 0.88
+            frame: hasFrame || queue.handoff ? noticeLayer.layoutBounds : Qt.rect(
+                (width - 432) / 2, noticeLayer.topInset, 432, noticeLayer.compactHeight)
+            badge: hasFrame || queue.handoff ? noticeLayer.badgeBounds
+                : Qt.rect(frame.x + 24, frame.y + 16, 38, 38)
+            counter: noticeLayer.counterBounds
+            expanded: noticeLayer.detailAmount > 0.63 && noticeLayer.active
+            leftObstacle: callLayer.sideBounds.width > 1 ? callLayer.sideBounds : wings.leftWingBounds
+            viewportHeight: window.workArea.height / Math.max(0.01, stage.scale)
+        }
     }
 
     NotificationOverlay {
@@ -685,7 +717,8 @@ Window {
         routed: window.notificationDetached
         fullscreen: window.notificationFullscreen
         allowed: !callLayer.ringOnTop
-        event: window.appState.dockNotification
+        queue: window.appState.notifications
+        event: queue.displayedEvent
         wifi: window.appState.wifiStatus.snapshot
         battery: window.appState.batteryStatus.snapshot
         onDismissed: eventId => window.appState.dismissNotification(eventId)
@@ -1857,7 +1890,7 @@ Window {
                 if (!overlay.visible || noticeLayer.presenting || overlay.transientParent
                         || !window.smokeSawNoticeDrop || overlay.glass !== wings.shaderAvailable
                         || !(overlay.flags & Qt.WindowStaysOnTopHint) || !(overlay.flags & Qt.WindowDoesNotAcceptFocus)
-                        || Math.abs(overlay.x + overlay.width / 2 - area.x - area.width / 2) > 1
+                        || Math.abs(overlay.x + overlay.body.x + overlay.body.width / 2 - area.x - area.width / 2) > 1
                         || overlay.y !== area.y || overlay.cardHeight > 134
                         || window.appState.dockNotification.eventId !== window.smokeNotificationId
                         || window.appState.notificationExpiresAt !== window.smokeNotificationExpiry) {
@@ -1876,10 +1909,10 @@ Window {
                     return
                 }
                 window.smokeNotificationId = window.appState.dockNotification.eventId
-                window.smokeNotificationExpiry = window.appState.notificationExpiresAt
                 window.smokePhase = 64
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 64 && notificationOverlay.reveal === 1
+                    && !window.appState.notifications.handoff
                     && notificationOverlay.presentedEvent?.eventId === window.smokeNotificationId
                     && notificationOverlay.presentedPlacement === "bottom-right") {
                 const overlay = notificationOverlay
@@ -1891,6 +1924,7 @@ Window {
                     window.failSmoke("the bottom-right layout did not wrap and scroll at the working-area corner")
                     return
                 }
+                window.smokeNotificationExpiry = window.appState.notificationExpiresAt
                 window.smokeNotificationFullscreen = true
                 window.smokeCompactObstructed = false
                 window.appState.notificationPreferences.notificationPosition = "bottom-center"
@@ -1902,7 +1936,7 @@ Window {
                 const area = window.desktop.screenArea
                 if (!overlay.visible || window.visible || noticeLayer.presenting || overlay.fromTaskbar
                         || overlay.y + overlay.height !== area.y + area.height
-                        || Math.abs(overlay.x + overlay.width / 2 - area.x - area.width / 2) > 1
+                        || Math.abs(overlay.x + overlay.body.x + overlay.body.width / 2 - area.x - area.width / 2) > 1
                         || window.appState.dockNotification.eventId !== window.smokeNotificationId
                         || window.appState.notificationExpiresAt !== window.smokeNotificationExpiry) {
                     window.failSmoke("the fullscreen notice did not stay centered along the bottom of the monitor")
@@ -1944,14 +1978,94 @@ Window {
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 68) {
                 const overlay = notificationOverlay
-                if (overlay.visible && overlay.withdrawing && overlay.reveal > 0.20 && overlay.reveal < 0.75
+                const queue = window.appState.notifications
+                if (overlay.visible && overlay.withdrawing && queue.progress > 0.10
+                        && queue.progress < 0.42 && overlay.queueAmount < 0.90
                         && overlay.presentedEvent?.eventId === window.smokeNotificationId
                         && !window.appState.dockNotification && !window.visible)
                     window.smokeSawNoticeRetreat = true
                 if (overlay.presenting)
                     return
-                if (!window.smokeSawNoticeRetreat || overlay.visible) {
+                if (!window.smokeSawNoticeRetreat || !overlay.visible || window.visible
+                        || queue.recalls[0]?.event.eventId !== window.smokeNotificationId) {
                     window.failSmoke("expiry of a fullscreen notice skipped its animated retreat")
+                    return
+                }
+                for (let i = 1; i <= 4; ++i) {
+                    window.appState.enqueueNotification({kind: "app", title: "Очередь " + i,
+                        summary: "Проверка очереди", detail: "Текст для развёрнутой карточки.",
+                        source: "Sekai Soundbar"})
+                }
+                window.smokePhase = 69
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 69 && notificationOverlay.reveal === 1) {
+                const queue = window.appState.notifications
+                if (queue.queuedCount !== 3 || queue.current?.title !== "Очередь 1") {
+                    window.failSmoke("the new notice did not retain the three waiting messages")
+                    return
+                }
+                queue.expiry.interval = 90
+                queue.expiry.restart()
+                window.smokePhase = 70
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 70 || window.smokePhase === 71) {
+                const queue = window.appState.notifications
+                if (queue.handoff && queue.progress > 0.44 && queue.progress < 0.74
+                        && notificationOverlay.visible && notificationOverlay.body.width < 42)
+                    window.smokeSawQueueMorph = true
+                const first = window.smokePhase === 70
+                if (queue.handoff || queue.current?.title !== (first ? "Очередь 2" : "Очередь 3"))
+                    return
+                if (!window.smokeSawQueueMorph || queue.recalls.length !== (first ? 2 : 3)
+                        || queue.queuedCount !== (first ? 2 : 1)) {
+                    window.failSmoke("the counter, moving icon or archived notification lost the queue order")
+                    return
+                }
+                if (first) {
+                    queue.expiry.interval = 90
+                    queue.expiry.restart()
+                } else {
+                    window.smokeNotificationExpiry = queue.expiresAt
+                    window.smokeNotificationId = queue.current.eventId
+                    window.smokeNotificationFullscreen = false
+                    window.smokeObstructed = false
+                }
+                window.smokePhase += 1
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 72 && !window.notificationDetached
+                    && noticeLayer.reveal === 1 && noticeLayer.detailProgress === 1 && wait >= 2350) {
+                const queue = window.appState.notifications
+                const pucks = dockQueue.pucks.filter(item => item.present).sort((a, b) => a.slot - b.slot)
+                if (notificationOverlay.visible || !dockQueue.presenting || pucks.length !== 3
+                        || Math.abs(pucks[0].x - pucks[2].x) > 1 || pucks[0].y >= pucks[1].y
+                        || pucks[1].y >= pucks[2].y || queue.expiresAt !== window.smokeNotificationExpiry) {
+                    window.failSmoke("the expanded dock did not keep the vertical recall tray and original timer")
+                    return
+                }
+                window.smokeRecallId = pucks[0].event.eventId
+                queue.restore(window.smokeRecallId)
+                window.smokeResumeTime = queue.resumeNotice?.remaining ?? 0
+                if (window.smokeResumeTime <= 0 || queue.resumeNotice?.event.eventId !== window.smokeNotificationId) {
+                    window.failSmoke("recalling a notification failed to suspend the current one")
+                    return
+                }
+                window.smokePhase = 73
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 73 && !window.appState.notifications.handoff) {
+                const queue = window.appState.notifications
+                if (queue.current?.eventId !== window.smokeRecallId || queue.recalls.length !== 2
+                        || !queue.reviewing) {
+                    window.failSmoke("clicking a puck did not reopen it and consume the puck")
+                    return
+                }
+                noticeLayer.dismissed(queue.current.eventId)
+                window.smokePhase = 74
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 74 && !window.appState.notifications.handoff) {
+                const queue = window.appState.notifications
+                if (queue.current?.eventId !== window.smokeNotificationId || queue.expiry.interval !== window.smokeResumeTime
+                        || queue.queuedCount !== 1) {
+                    window.failSmoke("closing a recalled notice lost the paused time or skipped the original")
                     return
                 }
                 window.appState.notificationPreferences.aboveWindows = false
@@ -1962,6 +2076,7 @@ Window {
                 console.log("PASS Discord preview, automatic folding, music detachment and return, connected notification split")
                 console.log("PASS custom transition curve and spring-free notification and player motion")
                 console.log("PASS positioned separate notifications, shared queue and expiry, and one card per monitor")
+                console.log("PASS notification counter morph, three recall pucks, transfer and exact resumed expiry")
                 Qt.exit(0)
             }
         }

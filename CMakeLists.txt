@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SekaiSoundbar VERSION 1.1.2 LANGUAGES CXX)
+project(SekaiSoundbar VERSION 1.2.0 LANGUAGES CXX)
 
 set(SOUNDBAR_DISCORD_APPLICATION_ID "1574039320355020830" CACHE STRING "Public Application ID for Discord OAuth")
 set(SOUNDBAR_NOTIFICATION_PUBLISHER "" CACHE STRING "Certificate subject for a signed Windows notification package")
@@ -65,8 +65,8 @@ set(shared_assets
     assets/discord-avatar-4.jpg assets/discord-avatar-5.jpg assets/discord-avatar-6.jpg)
 foreach(file IN ITEMS Main.qml ApplicationState.qml SettingsWindow.qml DiscordCall.qml DiscordCallPreview.qml
         DockDiscordCall.qml DockMiniPlayer.qml DockPresence.qml
-        DockNotification.qml DockNotificationContent.qml DockVoiceParticipants.qml MotionCurveEditor.qml
-        NotificationOverlay.qml WifiThroughput.qml)
+        DockNotification.qml DockNotificationContent.qml DockNotificationIcon.qml DockVoiceParticipants.qml
+        MotionCurveEditor.qml NotificationOverlay.qml NotificationQueue.qml NotificationQueueLayer.qml WifiThroughput.qml)
     set_source_files_properties("windows/qml/${file}"
         PROPERTIES QT_RESOURCE_ALIAS "${file}")
 endforeach()
@@ -93,10 +93,13 @@ qt_add_qml_module(SekaiSoundbar
         windows/qml/DockMiniPlayer.qml
         windows/qml/DockNotification.qml
         windows/qml/DockNotificationContent.qml
+        windows/qml/DockNotificationIcon.qml
         windows/qml/DockPresence.qml
         windows/qml/DockVoiceParticipants.qml
         windows/qml/MotionCurveEditor.qml
         windows/qml/NotificationOverlay.qml
+        windows/qml/NotificationQueue.qml
+        windows/qml/NotificationQueueLayer.qml
         windows/qml/SettingsWindow.qml
         windows/qml/WifiThroughput.qml
         ${shared_ui}

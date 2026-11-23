@@ -20,7 +20,16 @@ Item {
     required property bool springMotion
     property bool toastLayout: false
     property bool compactPopup: false
+    property int queuedCount: 0
+    property real badgeVisibility: 1
+    property real counterVisibility: 1
     signal dismissed(int eventId)
+
+    readonly property real counterWidth: Math.max(40, Math.ceil(counterText.implicitWidth) + 18)
+    readonly property real counterSpace: queuedCount > 0 ? counterWidth + 9 : 0
+    readonly property rect badgeRect: Qt.rect(inset, headerY, badgeSize, badgeSize)
+    readonly property rect counterRect: Qt.rect(width - inset - closeSize - counterWidth - 9
+        - (showsAction ? closeSize + 3 : 0), headerY + (badgeSize - 28) / 2, counterWidth, 28)
 
     readonly property string kind: event?.kind ?? "regular"
     readonly property var batteryDetailsData: event?.liveBattery && battery.state === event.state ? battery : event
@@ -29,8 +38,8 @@ Item {
     readonly property real badgeSize: toastLayout ? 26 : compactPopup ? 34 : 38
     readonly property real closeSize: 30
     readonly property real headerTextX: inset + badgeSize + (wrappedLayout ? 8 : 12)
-    readonly property real headerSpace: headerTextX + 8 + closeSize + inset
-    readonly property real centeredHeaderSpace: 2 * headerTextX
+    readonly property real headerSpace: headerTextX + 8 + closeSize + inset + counterSpace
+    readonly property real centeredHeaderSpace: 2 * Math.max(headerTextX, inset + closeSize + counterSpace)
     readonly property real expandedTop: wrappedLayout ? 13 : 19
     readonly property real headerY: wrappedLayout ? expandedTop
         : Math.max(0, Geometry.mix((height - badgeSize) / 2, expandedTop, expansion))
@@ -230,76 +239,20 @@ Item {
         color: Qt.alpha(card.accent, 0.13)
         border.color: Qt.alpha(card.accent, 0.37)
         antialiasing: true
-        opacity: badgeArrival.alpha
+        opacity: card.badgeVisibility * badgeArrival.alpha
         transform: Arrival {
             id: badgeArrival
             progress: Geometry.phase(card.entrance, 0.28, 0.77)
             offset: Qt.point(-28, -3)
         }
 
-        Canvas {
-            id: badgeIcon
+        DockNotificationIcon {
             anchors.centerIn: parent
-            width: 22
-            height: 22
-            Connections {
-                target: card
-                function onAccentChanged() { badgeIcon.requestPaint() }
-                function onEventChanged() { badgeIcon.requestPaint() }
-                function onBatteryDetailsDataChanged() { badgeIcon.requestPaint() }
-            }
-            onPaint: {
-                const ctx = getContext("2d")
-                ctx.clearRect(0, 0, width, height)
-                ctx.strokeStyle = card.accent
-                ctx.fillStyle = card.accent
-                ctx.lineWidth = 1.65
-                ctx.lineCap = "round"
-                ctx.lineJoin = "round"
-                ctx.beginPath()
-                if (card.kind === "wifi") {
-                    for (const radius of [11.5, 8, 4.5]) {
-                        ctx.moveTo(11 - radius / Math.SQRT2, 17 - radius / Math.SQRT2)
-                        ctx.arc(11, 17, radius, -3 * Math.PI / 4, -Math.PI / 4, false)
-                    }
-                    ctx.stroke()
-                    ctx.beginPath()
-                    ctx.arc(11, 17, 1.05, 0, 2 * Math.PI, false)
-                    ctx.fill()
-                    return
-                }
-                if (card.kind === "battery") {
-                    ctx.rect(2.5, 6, 15.5, 10)
-                    ctx.moveTo(20, 9)
-                    ctx.lineTo(20, 13)
-                    ctx.stroke()
-                    const charge = card.batteryDetailsData?.charge ?? -1
-                    if (charge >= 0)
-                        ctx.fillRect(5, 8.5, 10.5 * Math.min(1, charge / 100), 5)
-                    return
-                }
-                if (card.kind === "system") {
-                    ctx.arc(11, 11, 6.8, -0.6, 1.78 * Math.PI, false)
-                    ctx.moveTo(17.5, 4)
-                    ctx.lineTo(17.5, 8.8)
-                    ctx.lineTo(13, 8.8)
-                } else if (card.kind === "app") {
-                    ctx.moveTo(5, 5.5)
-                    ctx.lineTo(17, 5.5)
-                    ctx.lineTo(17, 14)
-                    ctx.lineTo(10, 14)
-                    ctx.lineTo(6, 17)
-                    ctx.lineTo(6, 14)
-                    ctx.lineTo(5, 14)
-                    ctx.closePath()
-                } else {
-                    ctx.moveTo(5.2, 11.7)
-                    ctx.lineTo(9, 15.4)
-                    ctx.lineTo(16.7, 6.6)
-                }
-                ctx.stroke()
-            }
+            tint: card.accent
+            kind: card.kind
+            charge: card.batteryDetailsData?.charge ?? -1
         }
+
     }
 
     NoticeText {
@@ -398,6 +351,31 @@ Item {
             id: messageArrival
             progress: Geometry.phase(card.entrance, 0.48, 0.97)
             offset: Qt.point(-13 * (1 - card.messageMove), 10 + 6 * card.messageMove)
+        }
+    }
+
+    Rectangle {
+        id: queueCounter
+        x: card.counterRect.x
+        y: card.counterRect.y
+        width: card.counterRect.width
+        height: card.counterRect.height
+        radius: height / 2
+        color: Qt.alpha(card.accent, 0.10)
+        border.color: Qt.alpha(card.accent, 0.26)
+        visible: card.queuedCount > 0 && opacity > 0.001
+        opacity: closeArrival.alpha * card.counterVisibility
+        antialiasing: true
+        Accessible.role: Accessible.StaticText
+        Accessible.name: "В очереди " + card.queuedCount
+
+        Text {
+            id: counterText
+            anchors.centerIn: parent
+            color: card.accent
+            text: "+" + card.queuedCount
+            font.pixelSize: 14
+            font.weight: Font.DemiBold
         }
     }
 

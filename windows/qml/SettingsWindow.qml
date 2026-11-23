@@ -663,7 +663,7 @@ Window {
                     notificationStatus.text = "Включите док хотя бы на одном мониторе."
                     return
                 }
-                panel.appState.postTestNotification(scenario)
+                panel.appState.postTestNotification(scenario, true)
                 notificationStatus.text = "Уведомление отправлено на включённые мониторы."
             }
 

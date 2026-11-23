@@ -5,6 +5,7 @@ import "MarkerMotion.js" as Motion
 Item {
     id: notice
     required property var event
+    required property NotificationQueue queue
     required property var wifi
     required property var battery
     required property var renderer
@@ -213,10 +214,11 @@ Item {
             Geometry.mix(Geometry.taper(1 - reveal), renderer.playerTaper, attachment))
     readonly property real bodyRadius: {
         const radius = Geometry.mix(compactHeight / 2, 36, detailAmount)
-        return usesCallLayout ? Geometry.mix(renderer.radius, radius, coverAmount)
+        const settled = usesCallLayout ? Geometry.mix(renderer.radius, radius, coverAmount)
             : Geometry.mix(radius, Geometry.mix(renderer.radius, radius, coverAmount), attachment)
+        return Geometry.mix(13, settled, queueAmount)
     }
-    readonly property rect bodyBounds: {
+    readonly property rect layoutBounds: {
         const height = Geometry.mix(compactHeight, expandedHeight, detailAmount) + 9 * detailSpring
         const cardWidth = (usesCallLayout ? Math.min(expandedWidth, maxCardWidth) : expandedWidth) + 14 * detailSpring
         const compactWidth = compactSlot.width > 0 ? Math.min(cardWidth, compactSlot.width) : cardWidth
@@ -244,6 +246,17 @@ Item {
         const housing = Geometry.mixRect(solo, playerBounds, attachment)
         return cardRetraction > 0 ? Geometry.pullToEdge(housing, cardRetraction, 0, 0) : housing
     }
+    readonly property real queueAmount: queue.handoff ? queue.cardAmount
+        : !event && queue.foldedEventId === lastEvent?.eventId ? 0 : 1
+    readonly property rect badgeBounds: inLayout(card.badgeRect)
+    readonly property rect counterBounds: inLayout(card.counterRect)
+    readonly property rect bodyBounds: queueAmount > 0.001
+        ? Geometry.mixRect(badgeBounds, layoutBounds, queueAmount)
+        : Qt.rect(badgeBounds.x, badgeBounds.y, 0, 0)
+
+    function inLayout(rect) {
+        return Qt.rect(layoutBounds.x + rect.x, layoutBounds.y + rect.y, rect.width, rect.height)
+    }
 
     function stretchAt(progress) {
         return Motion.smooth(Geometry.phase(progress, 0.34, 0.58))
@@ -266,9 +279,9 @@ Item {
             // The cover starts in the compact track row and stays with the
             // same capsule when an expanded call makes room for a notice.
             const travel = Motion.travel(Geometry.phase(miniAmount, 0.12, 0.94))
-            const edge = bodyBounds.x + bodyBounds.width + miniGap + miniDiameter / 2
+            const edge = layoutBounds.x + layoutBounds.width + miniGap + miniDiameter / 2
             return Qt.point(Geometry.mix(callArtworkCenter.x, edge, travel) + 10 * miniRecoil,
-                Geometry.mix(callArtworkCenter.y, bodyBounds.y + 35, travel) + 7 * miniStretch - 4 * miniRecoil)
+                Geometry.mix(callArtworkCenter.y, layoutBounds.y + 35, travel) + 7 * miniStretch - 4 * miniRecoil)
         }
         const body = renderer.playerHousing
         const right = body.x + body.width + extraPlayerWidth / 2
@@ -293,7 +306,7 @@ Item {
     readonly property rect neckBounds: connectingNeck(miniBounds, miniBlend, false)
 
     function connectingNeck(capsule, blend, left) {
-        const edge = left ? bodyBounds.x : bodyBounds.x + bodyBounds.width
+        const edge = left ? layoutBounds.x : layoutBounds.x + layoutBounds.width
         const gap = left ? edge - capsule.x - capsule.width : capsule.x - edge
         if (capsule.width <= 0 || blend <= 0 || gap > blend / 2)
             return Qt.rect(0, 0, 0, 0)
@@ -319,12 +332,19 @@ Item {
         id: card
         motionCurve: notice.motionCurve
         springMotion: notice.springMotion
-        x: notice.bodyBounds.x
-        y: notice.bodyBounds.y
-        width: notice.bodyBounds.width
-        height: notice.bodyBounds.height
-        opacity: 1 - Motion.smooth(notice.cardRetraction / 0.45)
+        x: notice.layoutBounds.x
+        y: notice.layoutBounds.y
+        width: notice.layoutBounds.width
+        height: notice.layoutBounds.height
+        opacity: (1 - Motion.smooth(notice.cardRetraction / 0.45))
+            * Motion.smooth(Geometry.phase(notice.queueAmount, 0.06, 0.65))
         visible: !notice.transferred && notice.cardEntrance > 0.27 && opacity > 0.001
+        transform: Scale {
+            origin.x: card.badgeRect.x + card.badgeSize / 2
+            origin.y: card.badgeRect.y + card.badgeSize / 2
+            xScale: Geometry.mix(0.04, 1, notice.queueAmount)
+            yScale: xScale
+        }
         event: notice.lastEvent
         wifi: notice.wifi
         battery: notice.battery
@@ -334,10 +354,14 @@ Item {
             ? Math.max(404, notice.renderer.lyricsView.expandedBodySize.width - notice.miniSpan)
             : notice.attached ? notice.compactPlayerWidth : 404
         availableHeight: notice.availableHeight
-        entrance: notice.cardEntrance
+        entrance: notice.queue.handoff && notice.queue.progress >= 0.43
+            ? Math.min(notice.cardEntrance, Geometry.mix(0.30, 1, notice.queueAmount)) : notice.cardEntrance
+        queuedCount: notice.queue.displayedCount
+        badgeVisibility: notice.queue.iconAmount
+        counterVisibility: notice.queue.iconAmount
         expansion: notice.detailAmount
         detailProgress: notice.detailProgress
-        dismissible: notice.active && opacity > 0.75
+        dismissible: notice.active && !notice.queue.handoff && opacity > 0.75
         onDismissed: eventId => notice.dismissed(eventId)
     }
 

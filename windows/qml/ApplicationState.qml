@@ -11,17 +11,20 @@ QtObject {
     required property var discordVoice
     required property var notificationPreferences
     property var localLyrics: null
-    property var dockNotification: null
-    property int nextNotificationId: 0
-    property int notificationRemaining: 0
-    property real notificationExpiresAt: 0
-    readonly property var pendingNotifications: []
+    required property var appearance
+    readonly property NotificationQueue notifications: NotificationQueue {
+        suspended: app.discordCall?.ringing ?? false
+        motionCurve: app.appearance.values.motionCurve
+    }
+    readonly property var dockNotification: notifications.current
+    readonly property real notificationExpiresAt: notifications.expiresAt
+    readonly property Timer notificationExpiry: notifications.expiry
+    onDockNotificationChanged: if (wifiStatus) wifiStatus.active = dockNotification?.kind === "wifi"
     readonly property string trackKey: mediaSessions.trackKey
     readonly property DiscordCallPreview discordPreview: DiscordCallPreview {}
     readonly property DiscordCall discordCall: DiscordCall {
         live: app.discordVoice
         testCall: app.discordPreview
-        onRingingChanged: app.updateNotificationExpiry()
     }
 
     signal alignmentFailed(string message)
@@ -60,68 +63,17 @@ QtObject {
         }
     })
 
-    function postTestNotification(scenario) {
+    function postTestNotification(scenario, queued) {
         const fixture = testScenarios[scenario] ?? testScenarios.regular
-        showNotification(Object.assign({}, fixture, {sentAt: new Date()}))
+        if (queued)
+            enqueueNotification(fixture)
+        else
+            showNotification(fixture)
     }
 
-    function sameSensor(first, second) {
-        return (first.liveBattery && second.liveBattery) || (first.liveWifi && second.liveWifi)
-    }
-
-    function enqueueNotification(event) {
-        const entry = Object.assign({sentAt: new Date()}, event)
-        if (!dockNotification || sameSensor(dockNotification, entry)) {
-            showNotification(entry)
-            return
-        }
-        const previous = pendingNotifications.findIndex(pending => sameSensor(pending, entry))
-        if (previous >= 0)
-            pendingNotifications.splice(previous, 1)
-        if (pendingNotifications.length >= 20)
-            pendingNotifications.shift()
-        pendingNotifications.push(entry)
-    }
-
-    function showNotification(entry) {
-        notificationExpiry.stop()
-        notificationExpiresAt = 0
-        notificationRemaining = 30000
-        wifiStatus.active = entry.kind === "wifi"
-        dockNotification = Object.assign({sentAt: new Date()}, entry, {eventId: ++nextNotificationId})
-        updateNotificationExpiry()
-    }
-
-    function updateNotificationExpiry() {
-        if (!dockNotification)
-            return
-        if (discordCall.ringing && notificationExpiry.running) {
-            notificationRemaining = Math.max(1, notificationExpiresAt - Date.now())
-            notificationExpiry.stop()
-            notificationExpiresAt = 0
-        } else if (!discordCall.ringing && !notificationExpiry.running) {
-            notificationExpiry.interval = notificationRemaining
-            notificationExpiresAt = Date.now() + notificationRemaining
-            notificationExpiry.start()
-        }
-    }
-
-    function dismissNotification(expectedId) {
-        if (expectedId !== undefined && dockNotification?.eventId !== expectedId)
-            return
-        if (pendingNotifications.length) {
-            showNotification(pendingNotifications.shift())
-            return
-        }
-        notificationExpiry.stop()
-        notificationExpiresAt = 0
-        wifiStatus.active = false
-        dockNotification = null
-    }
-
-    property Timer notificationExpiry: Timer {
-        onTriggered: app.dismissNotification(app.dockNotification?.eventId)
-    }
+    function enqueueNotification(event) { notifications.enqueue(event) }
+    function showNotification(event) { notifications.replace(event) }
+    function dismissNotification(eventId) { notifications.advance(eventId, false, eventId !== undefined) }
 
     property Connections batteryEvents: Connections {
         target: app.batteryStatus

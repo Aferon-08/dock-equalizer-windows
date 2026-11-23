@@ -1,12 +1,14 @@
-# Sekai Soundbar 1.1.2 Preview for Windows 11
+# Sekai Soundbar 1.2.0 Preview for Windows 11
 
 A standalone music dock at the top of the desktop. It expands when its area is clear, and application windows can cover it. The dock keeps its layout for one minute after playback pauses, then folds into a drop and leaves through the top edge. Open the dock or its settings while paused from the **Sekai Soundbar** system tray icon.
 
 The dock shows track information and playback controls from Windows media sessions and visualizes the left and right channels of system audio. It imports LRC and Wordtime files and searches for existing lyrics using Windows curl.exe.
 
-[1.1.2 Preview installer for Windows 11 x64](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.1.2-preview/SekaiSoundbar-1.1.2-Windows11-x64-Preview-Setup.exe) · [Release notes](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.1.2-preview) · [Version 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0)
+[1.2.0 Preview installer for Windows 11 x64](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.2.0-preview/SekaiSoundbar-1.2.0-Windows11-x64-Preview-Setup.exe) · [Release notes](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.2.0-preview) · [Version 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0)
 
 The installer includes a signed identity package for reading Windows app notifications. In notification settings, enable **Уведомления поверх окон** to show a standalone card when the dock area is covered and choose where that card appears. Power and Wi-Fi events are available without app notification access.
+
+The **+N** counter shows waiting notifications. Up to three recent notifications stay in the disks to the left for 25 seconds. Click a disk to reopen it or swipe it away with the left mouse button held. The paused notification resumes with the time it had left.
 
 Quit the dock from the system tray before running the installer. On first install, Windows may request administrator rights to add the test signing certificate. The [Windows x64 workflow](https://github.com/Aferon-08/dock-equalizer-windows/actions/workflows/windows.yml) also produces an installer, a portable ZIP and a source archive.
 

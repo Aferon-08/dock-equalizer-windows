@@ -98,7 +98,7 @@ Item {
         const growth = Motion.smooth(Geometry.phase(split, 0.09, 0.65))
         if (growth <= 0)
             return Qt.rect(0, 0, 0, 0)
-        const body = notification.bodyBounds
+        const body = notification.layoutBounds
         const travel = Motion.travel(Geometry.phase(split, 0.15, 0.94))
         const stretch = notification.splitStretch
         const recoil = notification.releaseRecoil
@@ -111,7 +111,7 @@ Item {
     }
     readonly property rect sideNeck: notification.connectingNeck(sideBounds, sideBlend, true)
 
-    readonly property rect frame: split > 0 ? notification.bodyBounds : housing
+    readonly property rect frame: split > 0 ? notification.layoutBounds : housing
     readonly property real inset: Math.min(18, frame.width * 0.18)
     readonly property real deckLeft: frame.x + inset
     readonly property real deckRight: frame.x + frame.width - inset

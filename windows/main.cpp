@@ -201,6 +201,7 @@ int main(int argc, char *argv[])
     QObject::connect(&engine, &QQmlEngine::exit, &app, requestExit, Qt::QueuedConnection);
     QQmlComponent stateComponent(&engine, u"Sekai.Soundbar", u"ApplicationState");
     std::unique_ptr<QObject> appState(stateComponent.createWithInitialProperties({
+        {QStringLiteral("appearance"), QVariant::fromValue(&appearance)},
         {QStringLiteral("mediaSessions"), QVariant::fromValue(&media)},
         {QStringLiteral("lyricsAlignment"), QVariant::fromValue(&alignment)},
         {QStringLiteral("batteryStatus"), QVariant::fromValue(&batteryStatus)},

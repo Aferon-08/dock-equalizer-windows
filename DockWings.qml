@@ -191,7 +191,7 @@ Item {
         (staggeredOpening ? Geometry.arrival(reveal, springMotion ? 0.11 : 0) : reveal) * (1 - fusion)))
         * (1 - Motion.smooth(hideProgress / 0.44))
     readonly property real wingLength: noticeVisible ? Math.max(0, Math.min(host.settings.width,
-        Math.min(housingRect.x, parent.width - housingRect.x - housingRect.width) - gap - 14)) : length
+        Math.min(wingHousing.x, parent.width - wingHousing.x - wingHousing.width) - gap - 14)) : length
     readonly property real dropletLength: thickness + (wingLength - thickness) * phase
     readonly property real radius: Geometry.mix(
         host.dock.radius + (40 - host.dock.radius) * lyricLayer.musicLayout, 36, playerOverrideMix)
@@ -214,11 +214,12 @@ Item {
             : Geometry.pullToEdge(restHousing, hideProgress, playerOffsetX, playerOffsetY)
     }
     readonly property rect housingRect: noticeVisible ? notification.bodyBounds : playerHousing
+    readonly property rect wingHousing: noticeVisible ? (notification.layoutBounds ?? housingRect) : housingRect
     readonly property rect leftWingBounds: wingBounds(-1)
     readonly property rect rightWingBounds: wingBounds(1)
     function wingBounds(side) {
-        const edge = side < 0 ? housingRect.x : housingRect.x + housingRect.width
-        const centerY = housingRect.y + Math.min(playerHousing.height, housingRect.height) / 2
+        const edge = side < 0 ? wingHousing.x : wingHousing.x + wingHousing.width
+        const centerY = wingHousing.y + Math.min(playerHousing.height, wingHousing.height) / 2
         return Qt.rect(edge + side * outward - wingSpan / 2, centerY - wingHeight / 2, wingSpan, wingHeight)
     }
     readonly property real housingRadius: Math.min(noticeVisible ? notification.bodyRadius : radius,

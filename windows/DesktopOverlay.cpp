@@ -30,6 +30,17 @@ QRegion roundedRegion(const QRectF &rect, qreal radius)
     return QRegion(outline.toFillPolygon().toPolygon());
 }
 
+QRegion notificationPartsRegion(const QVariantList &parts)
+{
+    QRegion region;
+    for (const auto &part : parts) {
+        const auto shape = part.toMap();
+        region |= roundedRegion(shape.value(QStringLiteral("box")).toRectF(),
+                                shape.value(QStringLiteral("radius")).toReal());
+    }
+    return region;
+}
+
 #ifdef Q_OS_WIN
 QRect windowBounds(HWND window)
 {
@@ -218,16 +229,32 @@ QRect logicalWorkArea(const QRect &logicalArea, const QRect &workArea, const QRe
         -qCeil((workArea.bottom() - visibleArea.bottom()) / scale));
 }
 
-void setNotificationMask(HWND window, const QRectF &body, qreal radius, qreal scale)
+HRGN notificationShape(const QRectF &body, qreal radius, qreal scale)
 {
     const QRect bounds = body.isEmpty() ? QRect{} : QRectF(body.topLeft() * scale, body.size() * scale).toAlignedRect();
     const int diameter = qBound(0, qRound(2 * radius * scale), qMin(bounds.width(), bounds.height()));
-    // The notification surface has the same contour for rendering and input.
-    const HRGN mask = diameter > 0
+    return diameter > 0
         ? CreateRoundRectRgn(bounds.x(), bounds.y(), bounds.x() + bounds.width(), bounds.y() + bounds.height(),
                              diameter, diameter)
         : CreateRectRgn(bounds.x(), bounds.y(), bounds.x() + bounds.width(), bounds.y() + bounds.height());
-    if (mask && !SetWindowRgn(window, mask, TRUE))
+}
+
+void setNotificationMask(HWND window, const QRectF &body, qreal radius, const QVariantList &parts, qreal scale)
+{
+    // The card, pucks and moving icons use the same contour for rendering and input.
+    const HRGN mask = notificationShape(body, radius, scale);
+    if (!mask)
+        return;
+    for (const auto &part : parts) {
+        const auto shape = part.toMap();
+        const HRGN piece = notificationShape(shape.value(QStringLiteral("box")).toRectF(),
+            shape.value(QStringLiteral("radius")).toReal(), scale);
+        if (piece) {
+            CombineRgn(mask, mask, piece, RGN_OR);
+            DeleteObject(piece);
+        }
+    }
+    if (!SetWindowRgn(window, mask, TRUE))
         DeleteObject(mask);
 }
 #endif
@@ -396,7 +423,8 @@ void DesktopOverlay::setExpandedRegions(QWindow *window, const QRectF &player, q
     updateDesktopState();
 }
 
-void DesktopOverlay::setNotificationRegion(QWindow *window, const QRectF &body, qreal radius)
+void DesktopOverlay::setNotificationRegion(QWindow *window, const QRectF &body, qreal radius,
+                                           const QVariantList &parts)
 {
     if (!window || window == m_panel)
         return;
@@ -407,12 +435,13 @@ void DesktopOverlay::setNotificationRegion(QWindow *window, const QRectF &body, 
             m_notificationWindow->removeEventFilter(this);
         m_notificationWindow = window;
         window->installEventFilter(this);
-    } else if (body == m_notificationBody && radius == m_notificationBodyRadius) {
+    } else if (body == m_notificationBody && radius == m_notificationBodyRadius && parts == m_notificationParts) {
         return;
     }
 
     m_notificationBody = body;
     m_notificationBodyRadius = radius;
+    m_notificationParts = parts;
     updateNotificationWindow(changedWindow);
 }
 
@@ -446,10 +475,10 @@ void DesktopOverlay::updateNotificationWindow(bool promote)
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
-    setNotificationMask(hwnd, m_notificationBody, m_notificationBodyRadius, window->devicePixelRatio());
+    setNotificationMask(hwnd, m_notificationBody, m_notificationBodyRadius, m_notificationParts, window->devicePixelRatio());
 #else
     Q_UNUSED(promote);
-    QRegion mask = roundedRegion(m_notificationBody, m_notificationBodyRadius);
+    QRegion mask = roundedRegion(m_notificationBody, m_notificationBodyRadius) | notificationPartsRegion(m_notificationParts);
     if (mask.isEmpty())
         mask = QRegion(-2, -2, 1, 1);
     if (window->mask() != mask)
@@ -460,7 +489,8 @@ void DesktopOverlay::updateNotificationWindow(bool promote)
 void DesktopOverlay::setPanelRegion(QWindow *window, const QRectF &body, qreal radius,
                                     const QRectF &leftWing, const QRectF &rightWing,
                                     const QRectF &miniPlayer, const QRectF &neck,
-                                    const QRectF &sideCall, const QRectF &sideCallNeck)
+                                    const QRectF &sideCall, const QRectF &sideCallNeck,
+                                    const QVariantList &notificationParts)
 {
     if (!window)
         return;
@@ -470,6 +500,7 @@ void DesktopOverlay::setPanelRegion(QWindow *window, const QRectF &body, qreal r
         shape |= roundedRegion(capsule, capsule.height() / 2);
     if (!miniPlayer.isEmpty())
         shape |= QRegion(miniPlayer.toAlignedRect(), QRegion::Ellipse);
+    shape |= notificationPartsRegion(notificationParts);
     shape &= QRect(QPoint(), window->size());
 #ifdef Q_OS_WIN
     // A native window region also clips the accelerated swapchain. Keep the
