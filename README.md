@@ -1,6 +1,6 @@
-# Sekai Soundbar 1.2.3 Preview для Windows 11
+# Sekai Soundbar 1.3 для Windows 11
 
-1. Скачайте установщик для Windows 11 x64. [Скачать 1.2.3 Preview](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.2.3-preview/SekaiSoundbar-1.2.3-Windows11-x64-Preview-Setup.exe)
+1. Скачайте установщик для Windows 11 x64. [Скачать 1.3](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.3.0/SekaiSoundbar-1.3-Windows11-x64-Setup.exe)
 2. Если док уже запущен, закройте его через значок в области уведомлений Windows.
 3. Запустите установщик. При первой установке он может запросить права администратора, чтобы добавить встроенный сертификат Sekai Soundbar Test.
 4. После установки откройте **Sekai Soundbar** из меню **Пуск**.
@@ -13,4 +13,4 @@
 
 Если вход в Discord зависает при выключенном INCY, выберите **Настройки → Discord → Соединение для входа → Прямое** и подключитесь снова.
 
-[Релиз 1.2.3 Preview](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.2.3-preview) · [Выпуск 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0) · [Исходный код и лицензия GPL-3.0](https://github.com/Aferon-08/dock-equalizer-windows/tree/v1.2.3-preview)
+[Релиз 1.3](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.3.0) · [Выпуск 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0) · [Исходный код и лицензия GPL-3.0](https://github.com/Aferon-08/dock-equalizer-windows/tree/v1.3.0)
