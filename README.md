@@ -1,10 +1,10 @@
-# Sekai Soundbar 0.22.0 для Windows 11
+# Sekai Soundbar 1.1.0 Preview для Windows 11
 
-1. Скачайте установщик для Windows 11 x64. [Скачать SekaiSoundbar-Windows11-x64-Setup.exe](SekaiSoundbar-Windows11-x64-Setup.exe?raw=true)
+1. Скачайте установщик для Windows 11 x64. [Скачать 1.1.0 Preview](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.1.0-preview/SekaiSoundbar-1.1.0-Windows11-x64-Preview-Setup.exe)
 2. Если док уже запущен, закройте его через значок в области уведомлений Windows.
 3. Запустите установщик. При первой установке он может запросить права администратора, чтобы добавить встроенный сертификат Sekai Soundbar Test.
 4. После установки откройте **Sekai Soundbar** из меню **Пуск**.
 
-Редактор кривой и переключатель пружинности находятся в **Настройки → Оформление → Анимации дока**.
+Переключатель **«Уведомления поверх окон»** и выбор позиции карточки находятся в **Настройки → Уведомления**. Редактор кривой и переключатель пружинности находятся в **Настройки → Оформление → Анимации дока**.
 
-[Исходный код этой сборки и лицензия GPL-3.0](https://github.com/Aferon-08/sekaipop-dock-equalizer-windows/tree/383479e0a2691b270e0c7ba8f1e1d37c4b6f5996)
+[Релиз 1.1.0 Preview](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.1.0-preview) · [Выпуск 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0) · [Исходный код и лицензия GPL-3.0](https://github.com/Aferon-08/dock-equalizer-windows/tree/v1.1.0-preview)
