@@ -18,23 +18,34 @@ QtObject {
     property real expiresAt: 0
     property int nextId: 0
     property int requestedRecall: 0
-    property int foldedEventId: 0
+    property bool waitingForRecalls: false
+    readonly property bool closing: closeGroup.running
+    property real closeProgress: 0
 
     // The current event changes at the start of a handoff. The surfaces keep
     // rendering the outgoing event until it has folded into its icon.
     property var handoff: null
     property real progress: 1
+    readonly property real swapPoint: 0.4
     readonly property int queuedCount: pending.length + (resumeNotice ? 1 : 0)
-    readonly property var displayedEvent: handoff && progress < 0.43
-        ? handoff.outgoing : current ?? handoff?.outgoing ?? null
-    readonly property int displayedCount: handoff && progress < 0.43 ? handoff.counter : queuedCount
-    readonly property real cardAmount: !handoff ? 1 : progress < 0.43
-        ? (handoff.outgoing ? 1 - Motion.smooth(Geometry.phase(progress, 0.01, 0.25)) : 0)
-        : (handoff.incoming ? Motion.smooth(Geometry.phase(progress, 0.74, 0.99)) : 0)
-    readonly property real iconAmount: handoff ? Geometry.phase(progress, 0.92, 1) : 1
+    readonly property var displayedEvent: handoff && progress < swapPoint ? handoff.outgoing : current
+    readonly property int displayedCount: handoff && progress < swapPoint ? handoff.counter : queuedCount
+    readonly property real contentAmount: !handoff ? 1 : progress < swapPoint
+        ? 1 - Motion.smooth(Geometry.phase(progress, 0.01, 0.28))
+        : Motion.smooth(Geometry.phase(progress, 0.65, 1))
+    readonly property real iconAmount: !handoff ? 1 : progress < swapPoint
+        ? 1 - Motion.smooth(Geometry.phase(progress, 0.06, 0.16))
+        : Motion.smooth(Geometry.phase(progress, 0.85, 0.98))
+    readonly property real counterAmount: !handoff ? 1 : progress < swapPoint
+        ? 1 - Motion.smooth(Geometry.phase(progress, 0.30, swapPoint))
+        : Motion.smooth(Geometry.phase(progress, 0.78, 0.97))
 
     onSuspendedChanged: updateExpiry()
-    onRecallsChanged: scheduleRecallExpiry()
+    onRecallsChanged: {
+        scheduleRecallExpiry()
+        if (waitingForRecalls && recalls.length === 0)
+            updateExpiry()
+    }
 
     function makeEvent(entry) {
         return Object.assign({sentAt: new Date()}, entry, {eventId: ++nextId})
@@ -61,15 +72,24 @@ QtObject {
     function updateExpiry() {
         if (suspended) {
             pauseExpiry()
-        } else if (current && !handoff && !expiry.running) {
-            expiry.interval = Math.max(1, remaining)
-            expiresAt = Date.now() + expiry.interval
-            expiry.start()
+            return
         }
+        if (!current || handoff || closing || expiry.running)
+            return
+        if (waitingForRecalls) {
+            if (queuedCount > 0)
+                advance(current.eventId, true, true)
+            else if (recalls.length === 0)
+                startClosing()
+            return
+        }
+        expiry.interval = Math.max(1, remaining)
+        expiresAt = Date.now() + expiry.interval
+        expiry.start()
     }
 
     function shortenForQueue() {
-        if (!current || reviewing || preserveRemaining || timeLeft() <= timeFor(current))
+        if (!current || !queuedCount || reviewing || preserveRemaining || timeLeft() <= timeFor(current))
             return
         pauseExpiry()
         remaining = timeFor(current)
@@ -78,15 +98,15 @@ QtObject {
 
     function replace(entry) {
         slide.stop()
+        closeGroup.stop()
+        closeProgress = 0
         handoff = null
-        progress = 1
         requestedRecall = 0
         resumeNotice = null
         pauseExpiry()
-        current = makeEvent(entry)
-        reviewing = false
-        preserveRemaining = false
-        remaining = pending.length > 0 ? timeFor(current) : 30000
+        const event = makeEvent(entry)
+        setCurrent({event, remaining: pending.length > 0 ? timeFor(event) : 30000}, false)
+        scheduleRecallExpiry()
         updateExpiry()
     }
 
@@ -95,7 +115,7 @@ QtObject {
             replace(entry)
             return
         }
-        if (current && !handoff && !reviewing && sharesSensor(current, entry)) {
+        if (current && !handoff && !closing && !reviewing && sharesSensor(current, entry)) {
             current = Object.assign({}, current, entry, {eventId: current.eventId})
             return
         }
@@ -107,7 +127,10 @@ QtObject {
         const next = pending.filter(event => !sharesSensor(event, entry))
         next.push(makeEvent(entry))
         pending = next.slice(-20)
-        shortenForQueue()
+        if (waitingForRecalls)
+            updateExpiry()
+        else if (!handoff && !closing)
+            shortenForQueue()
     }
 
     function nextNotice() {
@@ -124,6 +147,7 @@ QtObject {
     }
 
     function setCurrent(next, recalled) {
+        waitingForRecalls = false
         current = next?.event ?? null
         remaining = next?.remaining ?? 0
         preserveRemaining = next?.preserve ?? false
@@ -132,9 +156,8 @@ QtObject {
 
     function beginHandoff(outgoing, next, count, archive, recallIndex) {
         pauseExpiry()
-        const start = outgoing ? 0 : 0.43
-        progress = start
-        handoff = {outgoing, incoming: next?.event ?? null, counter: count,
+        progress = 0
+        handoff = {outgoing, incoming: next.event, counter: count,
             archiveId: archive ? outgoing.eventId : 0, recallIndex}
         setCurrent(next, recallIndex >= 0)
         if (archive) {
@@ -143,37 +166,54 @@ QtObject {
         }
         if (recallIndex >= 0)
             removeRecall(next.event.eventId)
-        slide.from = start
-        slide.to = next ? 1 : 0.44
-        slide.duration = outgoing ? (next ? 1560 : 660) : 870
         slide.start()
+    }
+
+    function startClosing() {
+        pauseExpiry()
+        waitingForRecalls = false
+        recallExpiry.stop()
+        closeProgress = 0
+        closeGroup.start()
     }
 
     function advance(expectedId, remember, animate) {
         if (!current || (expectedId !== undefined && current.eventId !== expectedId))
             return
-        if (handoff) {
+        if (handoff || closing) {
             if (animate)
                 return
             slide.stop()
+            closeGroup.stop()
             handoff = null
+            closeProgress = 0
         }
-        const outgoing = current
         const count = queuedCount
-        const archive = remember && !reviewing
         const next = nextNotice()
-        if (animate && (archive || next)) {
-            beginHandoff(outgoing, next, count, archive, -1)
+        if (animate && next) {
+            beginHandoff(current, next, count, remember && !reviewing, -1)
+        } else if (animate && recalls.length > 0) {
+            if (remember) {
+                pauseExpiry()
+                remaining = 0
+                waitingForRecalls = true
+            } else {
+                startClosing()
+            }
         } else {
             pauseExpiry()
             setCurrent(next, false)
+            if (!next)
+                recalls = []
+            else
+                scheduleRecallExpiry()
             updateExpiry()
         }
     }
 
     function restore(eventId) {
         const index = recalls.findIndex(entry => entry.event.eventId === eventId && entry.expires > Date.now())
-        if (index < 0)
+        if (index < 0 || closing)
             return
         if (handoff) {
             requestedRecall = eventId
@@ -182,7 +222,7 @@ QtObject {
         const count = queuedCount
         const event = recalls[index].event
         if (current && !reviewing)
-            resumeNotice = {event: current, remaining: timeLeft()}
+            resumeNotice = {event: current, remaining: waitingForRecalls ? timeFor(current) : timeLeft()}
         beginHandoff(current, {event, remaining: timeFor(event)}, count, false, index)
     }
 
@@ -192,7 +232,7 @@ QtObject {
 
     function scheduleRecallExpiry() {
         recallExpiry.stop()
-        if (recalls.length) {
+        if (!closing && recalls.length) {
             recallExpiry.interval = Math.max(1, Math.ceil(Math.min(...recalls.map(entry => entry.expires)) - Date.now()))
             recallExpiry.start()
         }
@@ -203,25 +243,50 @@ QtObject {
     }
 
     readonly property Timer recallExpiry: Timer {
-        onTriggered: queue.recalls = queue.recalls.filter(entry => entry.expires > Date.now())
+        onTriggered: {
+            const now = Date.now()
+            const live = queue.recalls.filter(entry => entry.expires > now)
+            if (live.length === 0 && queue.waitingForRecalls && !queue.suspended)
+                queue.startClosing()
+            else
+                queue.recalls = live
+        }
     }
 
     readonly property DockTransition slide: DockTransition {
         target: queue
         property: "progress"
+        from: 0
+        to: 1
+        duration: 1340
         curve: queue.motionCurve
         onFinished: {
-            if (!queue.current)
-                queue.foldedEventId = queue.handoff?.outgoing?.eventId ?? 0
             queue.handoff = null
-            queue.progress = 1
-            if (!queue.current)
-                queue.setCurrent(queue.nextNotice(), false)
+            queue.shortenForQueue()
             queue.updateExpiry()
             const requested = queue.requestedRecall
             queue.requestedRecall = 0
             if (requested)
                 queue.restore(requested)
+        }
+    }
+
+    readonly property DockTransition closeGroup: DockTransition {
+        target: queue
+        property: "closeProgress"
+        from: 0
+        to: 1
+        duration: 310
+        curve: queue.motionCurve
+        onFinished: {
+            const count = queue.queuedCount
+            const next = queue.nextNotice()
+            queue.recalls = []
+            if (next)
+                queue.beginHandoff(queue.current, next, count, false, -1)
+            else
+                queue.setCurrent(null, false)
+            queue.closeProgress = 0
         }
     }
 }

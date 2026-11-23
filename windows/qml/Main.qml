@@ -125,6 +125,8 @@ Window {
     property bool smokeSawNoticeDrop: false
     property bool smokeSawNoticeRetreat: false
     property bool smokeSawQueueMorph: false
+    property bool smokeSawHeldNotice: false
+    property bool smokeSawPucksRetire: false
     property int smokeRecallId: 0
     property int smokeResumeTime: 0
     property bool smokeHoldOpen: true
@@ -609,6 +611,7 @@ Window {
             backdropComponent: window.desktopGlassAvailable ? monitorBackdrop : null
             backdropEnabled: window.visible && window.appearance.values.desktopGlass
             desktopLens: backdropEnabled && (backdropItem?.hasFrame === true)
+            extendBackdrop: window.desktopGlassAvailable && backdropEnabled && dockQueue.presenting
         }
         Component {
             id: monitorBackdrop
@@ -694,7 +697,7 @@ Window {
             height: stage.height
             queue: window.appState.notifications
             appearance: window.appearance.values
-            available: !window.notificationFullscreen && !noticeLayer.transferred && !noticeLayer.suspended
+            available: noticeLayer.active
             hasFrame: noticeLayer.active && noticeLayer.reveal > 0.88
             frame: hasFrame || queue.handoff ? noticeLayer.layoutBounds : Qt.rect(
                 (width - 432) / 2, noticeLayer.topInset, 432, noticeLayer.compactHeight)
@@ -704,6 +707,9 @@ Window {
             expanded: noticeLayer.detailAmount > 0.63 && noticeLayer.active
             leftObstacle: callLayer.sideBounds.width > 1 ? callLayer.sideBounds : wings.leftWingBounds
             viewportHeight: window.workArea.height / Math.max(0.01, stage.scale)
+            backdropTexture: wings.backdropTexture
+            backdropBounds: wings.backdropBounds
+            backdropHasFrame: wings.desktopLens
         }
     }
 
@@ -1979,19 +1985,17 @@ Window {
             } else if (window.smokePhase === 68) {
                 const overlay = notificationOverlay
                 const queue = window.appState.notifications
-                if (overlay.visible && overlay.withdrawing && queue.progress > 0.10
-                        && queue.progress < 0.42 && overlay.queueAmount < 0.90
+                if (overlay.visible && overlay.withdrawing && overlay.reveal > 0.1 && overlay.reveal < 0.85
                         && overlay.presentedEvent?.eventId === window.smokeNotificationId
                         && !window.appState.dockNotification && !window.visible)
                     window.smokeSawNoticeRetreat = true
                 if (overlay.presenting)
                     return
-                if (!window.smokeSawNoticeRetreat || !overlay.visible || window.visible
-                        || queue.recalls[0]?.event.eventId !== window.smokeNotificationId) {
-                    window.failSmoke("expiry of a fullscreen notice skipped its animated retreat")
+                if (!window.smokeSawNoticeRetreat || overlay.visible || window.visible || queue.recalls.length) {
+                    window.failSmoke("the last fullscreen notice skipped its retreat or left an orphaned puck")
                     return
                 }
-                for (let i = 1; i <= 4; ++i) {
+                for (let i = 1; i <= 5; ++i) {
                     window.appState.enqueueNotification({kind: "app", title: "Очередь " + i,
                         summary: "Проверка очереди", detail: "Текст для развёрнутой карточки.",
                         source: "Sekai Soundbar"})
@@ -2000,30 +2004,37 @@ Window {
                 window.smokeStarted = Date.now()
             } else if (window.smokePhase === 69 && notificationOverlay.reveal === 1) {
                 const queue = window.appState.notifications
-                if (queue.queuedCount !== 3 || queue.current?.title !== "Очередь 1") {
-                    window.failSmoke("the new notice did not retain the three waiting messages")
+                if (queue.queuedCount !== 4 || queue.current?.title !== "Очередь 1") {
+                    window.failSmoke("the new notice did not retain the four waiting messages")
                     return
                 }
                 queue.expiry.interval = 90
                 queue.expiry.restart()
                 window.smokePhase = 70
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 70 || window.smokePhase === 71) {
+            } else if (window.smokePhase >= 70 && window.smokePhase <= 72) {
                 const queue = window.appState.notifications
-                if (queue.handoff && queue.progress > 0.44 && queue.progress < 0.74
-                        && notificationOverlay.visible && notificationOverlay.body.width < 42)
-                    window.smokeSawQueueMorph = true
-                const first = window.smokePhase === 70
-                if (queue.handoff || queue.current?.title !== (first ? "Очередь 2" : "Очередь 3"))
+                if (queue.handoff) {
+                    if (!notificationOverlay.visible || notificationOverlay.reveal !== 1
+                            || notificationOverlay.body.width < 0.95 * notificationOverlay.cardWidth) {
+                        window.failSmoke("the fullscreen housing disappeared during the handoff")
+                        return
+                    }
+                    if (queue.progress > 0.4 && queue.progress < 0.65 && queue.contentAmount === 0)
+                        window.smokeSawQueueMorph = true
                     return
-                if (!window.smokeSawQueueMorph || queue.recalls.length !== (first ? 2 : 3)
-                        || queue.queuedCount !== (first ? 2 : 1)) {
+                }
+                const rotations = window.smokePhase - 69
+                if (queue.current?.title !== "Очередь " + (rotations + 1))
+                    return
+                if (!window.smokeSawQueueMorph || queue.recalls.length !== rotations || queue.queuedCount !== 4 - rotations) {
                     window.failSmoke("the counter, moving icon or archived notification lost the queue order")
                     return
                 }
-                if (first) {
+                if (rotations < 3) {
                     queue.expiry.interval = 90
                     queue.expiry.restart()
+                    window.smokeSawQueueMorph = false
                 } else {
                     window.smokeNotificationExpiry = queue.expiresAt
                     window.smokeNotificationId = queue.current.eventId
@@ -2032,7 +2043,7 @@ Window {
                 }
                 window.smokePhase += 1
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 72 && !window.notificationDetached
+            } else if (window.smokePhase === 73 && !window.notificationDetached
                     && noticeLayer.reveal === 1 && noticeLayer.detailProgress === 1 && wait >= 2350) {
                 const queue = window.appState.notifications
                 const pucks = dockQueue.pucks.filter(item => item.present).sort((a, b) => a.slot - b.slot)
@@ -2049,23 +2060,66 @@ Window {
                     window.failSmoke("recalling a notification failed to suspend the current one")
                     return
                 }
-                window.smokePhase = 73
+                window.smokeSawQueueMorph = false
+                window.smokePhase = 74
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 73 && !window.appState.notifications.handoff) {
+            } else if (window.smokePhase === 74) {
                 const queue = window.appState.notifications
+                if (queue.handoff) {
+                    if (!noticeLayer.presenting || noticeLayer.reveal !== 1 || noticeLayer.bodyBounds.width < 260) {
+                        window.failSmoke("the dock housing disappeared while recalling a puck")
+                        return
+                    }
+                    if (queue.progress > 0.38 && queue.progress < 0.64 && queue.contentAmount === 0)
+                        window.smokeSawQueueMorph = true
+                    return
+                }
                 if (queue.current?.eventId !== window.smokeRecallId || queue.recalls.length !== 2
-                        || !queue.reviewing) {
+                        || !queue.reviewing || !window.smokeSawQueueMorph) {
                     window.failSmoke("clicking a puck did not reopen it and consume the puck")
                     return
                 }
                 noticeLayer.dismissed(queue.current.eventId)
-                window.smokePhase = 74
+                window.smokePhase = 75
                 window.smokeStarted = Date.now()
-            } else if (window.smokePhase === 74 && !window.appState.notifications.handoff) {
+            } else if (window.smokePhase === 75 && !window.appState.notifications.handoff) {
                 const queue = window.appState.notifications
                 if (queue.current?.eventId !== window.smokeNotificationId || queue.expiry.interval !== window.smokeResumeTime
                         || queue.queuedCount !== 1) {
                     window.failSmoke("closing a recalled notice lost the paused time or skipped the original")
+                    return
+                }
+                queue.expiry.interval = 90
+                queue.expiry.restart()
+                window.smokePhase = 76
+                window.smokeStarted = Date.now()
+            } else if (window.smokePhase === 76 && !window.appState.notifications.handoff
+                    && window.appState.notifications.current?.title === "Очередь 5") {
+                const queue = window.appState.notifications
+                const now = Date.now()
+                queue.recalls = queue.recalls.map(entry => ({event: entry.event, expires: now + 1000}))
+                queue.expiry.interval = 100
+                queue.expiry.restart()
+                window.smokeNotificationId = queue.current.eventId
+                window.smokePhase = 77
+                window.smokeStarted = now
+            } else if (window.smokePhase === 77) {
+                const queue = window.appState.notifications
+                if (queue.waitingForRecalls || queue.closing) {
+                    if (!noticeLayer.presenting || noticeLayer.reveal !== 1
+                            || queue.current?.eventId !== window.smokeNotificationId || queue.handoff) {
+                        window.failSmoke("the final card moved before the recall pucks left")
+                        return
+                    }
+                    if (queue.waitingForRecalls && queue.recalls.length > 0)
+                        window.smokeSawHeldNotice = true
+                    if (queue.closing && dockQueue.pucks.some(item => item.opacity > 0.06 && item.opacity < 0.94))
+                        window.smokeSawPucksRetire = true
+                }
+                if (queue.current || noticeLayer.presenting)
+                    return
+                if (!window.smokeSawHeldNotice || !window.smokeSawPucksRetire || queue.recalls.length || dockQueue.presenting) {
+                    window.failSmoke("the queue did not retire its pucks and final card together")
                     return
                 }
                 window.appState.notificationPreferences.aboveWindows = false
@@ -2076,7 +2130,7 @@ Window {
                 console.log("PASS Discord preview, automatic folding, music detachment and return, connected notification split")
                 console.log("PASS custom transition curve and spring-free notification and player motion")
                 console.log("PASS positioned separate notifications, shared queue and expiry, and one card per monitor")
-                console.log("PASS notification counter morph, three recall pucks, transfer and exact resumed expiry")
+                console.log("PASS continuous queue housing, recall and resumed expiry, coordinated final retreat")
                 Qt.exit(0)
             }
         }

@@ -21,7 +21,7 @@ Window {
 
     readonly property bool eventActive: routed && allowed && !!event
     readonly property bool presenting: presentedEvent !== null
-    readonly property bool withdrawing: exit.running || (presenting && !!queue.handoff && !queue.current)
+    readonly property bool withdrawing: exit.running || queue.closing
     readonly property bool topCenter: presentedPlacement === "top-center"
     readonly property bool bottomRight: presentedPlacement === "bottom-right"
     readonly property bool fromTaskbar: presentedPlacement === "bottom-center"
@@ -31,9 +31,21 @@ Window {
     readonly property real availableWidth: Math.max(1, Math.min(bottomRight ? 480 : 620,
         placementArea.width - 2 * margin, Math.max(330, placementArea.width - 2 * margin - (bottomRight ? 156 : 312))))
     readonly property real availableHeight: Math.max(1, placementArea.height - 2 * margin)
-    readonly property real cardWidth: content.preferredWidth
-    readonly property real cardHeight: content.preferredHeight
-    readonly property color accent: presentedEvent?.accent ?? "#a4e7cc"
+    property real cardWidth: content.preferredWidth
+    property real cardHeight: content.preferredHeight
+    Behavior on cardWidth {
+        enabled: overlay.presenting && overlay.queueHandoff
+        DockTransition { duration: 360; curve: overlay.motionCurve; standardEasing: Easing.InOutCubic }
+    }
+    Behavior on cardHeight {
+        enabled: overlay.presenting && overlay.queueHandoff
+        DockTransition { duration: 340; curve: overlay.motionCurve; standardEasing: Easing.InOutCubic }
+    }
+    property color accent: presentedEvent?.accent ?? "#a4e7cc"
+    Behavior on accent {
+        enabled: overlay.queueHandoff
+        DockTransition { duration: 260; curve: overlay.motionCurve; standardEasing: Easing.InOutSine }
+    }
     readonly property var material: Material.read(appearance)
     readonly property var motionCurve: appearance.motionCurve
     readonly property bool springMotion: appearance.springMotion
@@ -41,8 +53,6 @@ Window {
         && glassSurface.status !== ShaderEffect.Error
     readonly property bool queueHandoff: !!queue.handoff && !exit.running
         && presentedPlacement === placement && presentedFullscreen === fullscreen
-    readonly property real queueAmount: queueHandoff ? queue.cardAmount
-        : queue.foldedEventId === presentedEvent?.eventId ? 0 : 1
     readonly property real cardViewportWidth: Math.min(placementArea.width, Math.ceil(cardWidth + 2 * margin))
     readonly property real leftOffset: Math.round(bottomRight ? placementArea.width - cardViewportWidth
         : (placementArea.width - cardViewportWidth) / 2)
@@ -72,11 +82,9 @@ Window {
             return Qt.rect(width - drop.y - drop.height, drop.x, drop.height, drop.width)
         return Qt.rect(historyGutter + drop.x, height - drop.y - drop.height, drop.width, drop.height)
     }
-    readonly property rect body: queueAmount > 0.001
-        ? Geometry.mixRect(badgeBounds, layoutBody, queueAmount)
-        : Qt.rect(badgeBounds.x, badgeBounds.y, 0, 0)
+    readonly property rect body: layoutBody
     readonly property real bodyRadius: Math.min(body.width / 2, body.height / 2,
-        Geometry.mix(14, bottomRight ? 18 : 32, Motion.smooth(Geometry.phase(reveal, 0.35, 0.9)) * queueAmount))
+        Geometry.mix(14, bottomRight ? 18 : 32, Motion.smooth(Geometry.phase(reveal, 0.35, 0.9))))
     readonly property real bodyOpacity: presenting && body.width > 0 ? Motion.smooth(Geometry.phase(reveal, 0.04, 0.29)) : 0
 
     transientParent: null
@@ -88,7 +96,7 @@ Window {
     x: placementArea.x + leftOffset - historyGutter
     y: placementArea.y + (topCenter ? 0 : placementArea.height - height)
     // Keep the native window and the old event alive during the entire retreat.
-    visible: width > 0 && height > 0 && (presenting || overlayQueue.presenting)
+    visible: width > 0 && height > 0 && presenting
 
     function inLayout(rect) {
         return Qt.rect(contentX + rect.x, contentY + rect.y, rect.width, rect.height)
@@ -116,12 +124,7 @@ Window {
             return
         const nextEvent = eventActive ? event : null
         if (presenting) {
-            if (!nextEvent && queue.foldedEventId === presentedEvent.eventId) {
-                enter.stop()
-                exit.stop()
-                presentedEvent = null
-                reveal = 0
-            } else if (nextEvent && (presentedEvent.eventId === nextEvent.eventId || queueHandoff)
+            if (nextEvent && (presentedEvent.eventId === nextEvent.eventId || queueHandoff)
                     && presentedPlacement === placement && presentedFullscreen === fullscreen) {
                 presentedEvent = nextEvent
                 sizeEvent = nextEvent
@@ -133,18 +136,15 @@ Window {
                 exit.duration = Math.max(120, Math.round(650 * reveal))
                 exit.start()
             }
-        } else if ((nextEvent || (routed && allowed && queue.recalls.length > 0))
-                && targetArea.width > 0 && targetArea.height > 0) {
+        } else if (nextEvent && targetArea.width > 0 && targetArea.height > 0) {
             presentedPlacement = placement
             presentedFullscreen = fullscreen
             placementArea = targetArea
-            if (nextEvent) {
-                reveal = queueHandoff ? 1 : 0
-                presentedEvent = nextEvent
-                sizeEvent = nextEvent
-                if (!queueHandoff)
-                    openFromCurrentPosition()
-            }
+            reveal = queueHandoff ? 1 : 0
+            presentedEvent = nextEvent
+            sizeEvent = nextEvent
+            if (!queueHandoff)
+                openFromCurrentPosition()
         }
     }
 
@@ -163,10 +163,6 @@ Window {
     onBodyChanged: Qt.callLater(updateRegion)
     onBodyRadiusChanged: Qt.callLater(updateRegion)
     onBodyOpacityChanged: Qt.callLater(updateRegion)
-    Connections {
-        target: overlay.queue
-        function onRecallsChanged() { Qt.callLater(overlay.updatePresentation) }
-    }
     Component.onCompleted: {
         motionReady = true
         updateRegion()
@@ -233,6 +229,7 @@ Window {
                 overlay.material.refraction, overlay.material.blur)
             readonly property vector4d finish: Qt.vector4d(overlay.material.opacity, overlay.material.darkening,
                 overlay.material.light, backdrop.item?.hasFrame ? 1 : 0)
+            readonly property vector4d sceneUv: Qt.vector4d(0, 0, 1, 1)
             readonly property color accentColor: overlay.accent
             readonly property var scene: glassBackdrop
             fragmentShader: Qt.resolvedUrl("notification-glass.frag.qsb")
@@ -295,19 +292,11 @@ Window {
                 availableHeight: overlay.availableHeight
                 toastLayout: overlay.bottomRight
                 compactPopup: !toastLayout && (kind === "app" || kind === "regular" || availableHeight < 138)
-                entrance: Math.min(Geometry.phase(overlay.reveal, 0.44, 1),
-                    overlay.queueHandoff && overlay.queue.progress >= 0.43
-                        ? Geometry.mix(0.30, 1, overlay.queueAmount) : 1)
-                opacity: Motion.smooth(Geometry.phase(overlay.queueAmount, 0.06, 0.65))
-                transform: Scale {
-                    origin.x: content.badgeRect.x + content.badgeSize / 2
-                    origin.y: content.badgeRect.y + content.badgeSize / 2
-                    xScale: Geometry.mix(0.04, 1, overlay.queueAmount)
-                    yScale: xScale
-                }
+                entrance: Geometry.phase(overlay.reveal, 0.44, 1)
                 queuedCount: overlay.queue.displayedCount
+                contentAmount: overlay.queueHandoff ? overlay.queue.contentAmount : 1
                 badgeVisibility: overlay.queueHandoff ? overlay.queue.iconAmount : 1
-                counterVisibility: badgeVisibility
+                counterVisibility: overlay.queueHandoff ? overlay.queue.counterAmount : 1
                 expansion: compactPopup ? 0 : 1
                 detailProgress: expansion
                 dismissible: overlay.eventActive && !overlay.withdrawing && !overlay.queue.handoff && overlay.reveal > 0.9
@@ -323,13 +312,16 @@ Window {
             anchors.fill: parent
             queue: overlay.queue
             appearance: overlay.appearance
-            available: overlay.routed && overlay.allowed
+            available: overlay.eventActive && overlay.presenting && !exit.running
             hasFrame: overlay.presenting && overlay.reveal > 0.88 && !exit.running
             frame: overlay.layoutBody
             badge: overlay.badgeBounds
             counter: overlay.counterBounds
             expanded: content.expansion > 0.6
             viewportHeight: height
+            backdropTexture: glassBackdrop
+            backdropBounds: Qt.rect(0, 0, backdropScene.width, backdropScene.height)
+            backdropHasFrame: backdrop.item?.hasFrame === true
             onRegionsChanged: Qt.callLater(overlay.updateRegion)
         }
     }

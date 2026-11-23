@@ -5,7 +5,7 @@ import "DockMaterial.js" as Material
 import "MarkerMotion.js" as Motion
 
 Item {
-    id: layer
+    id: queueLayer
     required property NotificationQueue queue
     required property var appearance
     required property rect frame
@@ -16,6 +16,9 @@ Item {
     required property bool available
     required property real viewportHeight
     property rect leftObstacle: Qt.rect(0, 0, 0, 0)
+    property var backdropTexture: null
+    property rect backdropBounds: Qt.rect(0, 0, 0, 0)
+    property bool backdropHasFrame: false
 
     readonly property int diameter: 43
     readonly property int gap: 8
@@ -39,13 +42,9 @@ Item {
         if (!presenting)
             return []
         const result = []
-        for (const item of pucks) {
-            if (item.visible && item.opacity > 0.05)
-                result.push({box: Qt.rect(item.x, item.y, item.width, item.height), radius: diameter / 2})
-        }
-        for (const item of [outgoing, incoming]) {
-            if (item.opacity > 0.04 && item.width > 0 && item.height > 0)
-                result.push({box: Qt.rect(item.x, item.y, item.width, item.height), radius: item.cornerRadius})
+        for (const item of pucks.concat([outgoing, incoming])) {
+            if (item.visible && item.opacity > 0.04 && item.width > 0 && item.height > 0)
+                result.push({box: item.shapeBounds, radius: item.cornerRadius * item.scale})
         }
         return result
     }
@@ -62,12 +61,12 @@ Item {
         sourceCounter = counter.width > 0 ? counter
             : Qt.rect(frame.x + frame.width - 76, badge.y + 5, 40, 28)
         const recall = pucks.find(item => item.event.eventId === transition.incoming?.eventId)
-        sourceRecall = recall ? Qt.rect(recall.x, recall.y, recall.width, recall.height)
+        sourceRecall = recall ? recall.shapeBounds
             : transition.recallIndex >= 0 ? slotRect(transition.recallIndex) : Qt.rect(0, 0, 0, 0)
     }
     Connections {
-        target: layer.queue
-        function onRecallsChanged() { layer.syncPucks() }
+        target: queueLayer.queue
+        function onRecallsChanged() { queueLayer.syncPucks() }
     }
     Component.onCompleted: {
         rememberBounds()
@@ -111,7 +110,7 @@ Item {
         queue.recalls.forEach((entry, index) => {
             let item = items.find(candidate => candidate.event.eventId === entry.event.eventId)
             if (!item) {
-                item = puck.createObject(layer, {event: entry.event, slot: index})
+                item = puck.createObject(queueLayer, {event: entry.event, slot: index})
                 if (!item)
                     return
                 items.push(item)
@@ -121,7 +120,8 @@ Item {
         })
         for (const item of items) {
             if (!queue.recalls.some(entry => entry.event.eventId === item.event.eventId)) {
-                if (transition?.incoming?.eventId === item.event.eventId && transition.recallIndex >= 0)
+                if (queue.closeProgress >= 0.99
+                        || (transition?.incoming?.eventId === item.event.eventId && transition.recallIndex >= 0))
                     item.visible = false
                 item.present = false
             }
@@ -136,9 +136,10 @@ Item {
 
     function glide(from, to, amount, stretch) {
         const settle = Geometry.recoil(Geometry.phase(amount, 0.72, 1), springMotion)
-        const box = Geometry.mixRect(from, to, Motion.travel(amount) + 0.044 * settle)
-        const pull = Math.sin(Math.PI * amount) * stretch
-        return Qt.rect(box.x - box.width * pull / 2, box.y + box.height * pull / 3 - 9 * Math.sin(Math.PI * amount),
+        const box = Geometry.mixRect(from, to, Motion.travel(amount) + 0.035 * settle)
+        const arc = Math.pow(Math.sin(Math.PI * amount), 2)
+        const pull = arc * stretch - 0.10 * settle
+        return Qt.rect(box.x - box.width * pull / 2, box.y + box.height * pull / 3 - Math.min(box.y, 12) * arc,
             box.width * (1 + pull), box.height * (1 - pull * 0.65))
     }
 
@@ -149,34 +150,56 @@ Item {
         property real iconOpacity: 1
         property real labelOpacity: 0
         property string label: ""
+        property real glassMix: 1
         readonly property color accent: event?.accent ?? "#a4e7cc"
-        readonly property var finish: layer.material ?? Material.read(null)
+        readonly property rect shapeBounds: Qt.rect(x + width * (1 - scale) / 2, y + height * (1 - scale) / 2,
+            width * scale, height * scale)
+        readonly property var material: queueLayer.material
+        readonly property real lensAmount: material.enabled && GraphicsInfo.api !== GraphicsInfo.Software
+            && glass.status !== ShaderEffect.Error ? glassMix : 0
 
         Rectangle {
             anchors.fill: parent
             radius: token.cornerRadius
             antialiasing: true
-            border.color: Qt.alpha(token.accent, token.finish.enabled ? 0.48 : 0.27)
+            opacity: 1 - token.lensAmount
+            visible: opacity > 0.001
+            border.color: Qt.alpha(token.accent, token.material.enabled ? 0.37 : 0.27)
             gradient: Gradient {
                 GradientStop {
                     position: 0
-                    color: Qt.alpha(Qt.tint("#263936", Qt.alpha(token.accent, 0.13 * token.finish.light)),
-                        token.finish.enabled ? 0.76 + 0.20 * token.finish.opacity : 1)
+                    color: Qt.alpha(Qt.tint("#263936", Qt.alpha(token.accent, 0.13 * token.material.light)),
+                        Geometry.mix(0.52, token.material.enabled ? 0.76 + 0.20 * token.material.opacity : 1, token.glassMix))
                 }
                 GradientStop {
                     position: 1
-                    color: Qt.alpha("#101b18", token.finish.enabled ? 0.85 + 0.13 * token.finish.opacity : 1)
+                    color: Qt.alpha("#101b18", Geometry.mix(0.48,
+                        token.material.enabled ? 0.85 + 0.13 * token.material.opacity : 1, token.glassMix))
                 }
             }
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: 2
-                visible: width > 0 && height > 0 && token.finish.light > 0
-                radius: Math.max(0, token.cornerRadius - 2)
-                antialiasing: true
-                color: "transparent"
-                border.color: Qt.alpha("#e1f5ed", Math.min(0.19, 0.11 * token.finish.light))
+        }
+        ShaderEffect {
+            id: glass
+            anchors.fill: parent
+            visible: opacity > 0.001
+            opacity: token.lensAmount
+            readonly property vector2d resolution: Qt.vector2d(Math.max(1, width), Math.max(1, height))
+            readonly property vector4d bodyRect: Qt.vector4d(0, 0, width, height)
+            readonly property vector2d inward: Qt.vector2d(0, 1)
+            readonly property vector4d shape: Qt.vector4d(token.cornerRadius, 0,
+                token.material.refraction, token.material.blur)
+            readonly property vector4d finish: Qt.vector4d(token.material.opacity, token.material.darkening,
+                token.material.light, queueLayer.backdropHasFrame ? 1 : 0)
+            readonly property vector4d sceneUv: {
+                const source = queueLayer.backdropBounds
+                const box = token.shapeBounds
+                const w = Math.max(1, source.width)
+                const h = Math.max(1, source.height)
+                return Qt.vector4d((box.x - source.x) / w, (box.y - source.y) / h, box.width / w, box.height / h)
             }
+            readonly property color accentColor: token.accent
+            readonly property var scene: queueLayer.backdropTexture
+            fragmentShader: Qt.resolvedUrl("notification-glass.frag.qsb")
         }
         DockNotificationIcon {
             anchors.centerIn: parent
@@ -202,29 +225,37 @@ Item {
             required property int slot
             property bool present: false
             property point displacement: Qt.point(0, 0)
-            readonly property rect home: layer.slotRect(slot)
-            readonly property bool leavingCard: layer.transition?.archiveId === event?.eventId
-                && layer.progress < 0.43
+            readonly property rect home: queueLayer.slotRect(slot)
+            readonly property bool leavingCard: queueLayer.transition?.archiveId === event?.eventId
+                && queueLayer.progress < 0.43
+            readonly property real exitDelay: 0.1 * Math.max(0, queueLayer.queue.recalls.length - 1 - slot)
+            readonly property real retirement: Motion.smooth(Geometry.phase(queueLayer.queue.closeProgress,
+                exitDelay, exitDelay + 0.78))
+            property real shown: present && !leavingCard ? 1 : 0
             property real homeX: home.x
             property real homeY: home.y
-            x: homeX + displacement.x
-            y: homeY + displacement.y
-            width: layer.diameter
+            x: homeX + displacement.x + 13 * retirement
+            y: homeY + displacement.y - 4 * retirement
+            width: queueLayer.diameter
             height: width
             cornerRadius: width / 2
-            opacity: present && !leavingCard ? 1 : 0
-            scale: Geometry.mix(0.78, 1, opacity)
+            opacity: shown * (1 - retirement)
+            scale: Geometry.mix(0.70, 1, opacity)
             z: drag.pressed ? 2 : 0
             Accessible.role: Accessible.Button
             Accessible.name: event?.title ?? "Вернуть уведомление"
-            Accessible.onPressAction: if (present) layer.queue.restore(event.eventId)
+            Accessible.onPressAction: if (drag.enabled) queueLayer.queue.restore(event.eventId)
 
-            Behavior on homeX { DockTransition { duration: 310; curve: layer.appearance.motionCurve } }
-            Behavior on homeY { DockTransition { duration: 310; curve: layer.appearance.motionCurve } }
-            Behavior on opacity { DockTransition { duration: 190; curve: layer.appearance.motionCurve } }
+            Behavior on homeX {
+                DockTransition { duration: 310; curve: queueLayer.appearance.motionCurve; standardEasing: Easing.InOutCubic }
+            }
+            Behavior on homeY {
+                DockTransition { duration: 310; curve: queueLayer.appearance.motionCurve; standardEasing: Easing.InOutCubic }
+            }
+            Behavior on shown { DockTransition { duration: 160; curve: queueLayer.appearance.motionCurve } }
             Behavior on displacement {
                 enabled: !drag.pressed
-                DockTransition { duration: 180; curve: layer.appearance.motionCurve; standardEasing: Easing.OutCubic }
+                DockTransition { duration: 180; curve: queueLayer.appearance.motionCurve; standardEasing: Easing.OutCubic }
             }
             onPresentChanged: {
                 if (!present)
@@ -235,7 +266,7 @@ Item {
             Timer {
                 id: removal
                 interval: 225
-                onTriggered: layer.forget(recall)
+                onTriggered: queueLayer.forget(recall)
             }
 
             MouseArea {
@@ -243,7 +274,7 @@ Item {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
                 preventStealing: true
-                enabled: recall.present && !recall.leavingCard && recall.opacity > 0.65
+                enabled: recall.present && !recall.leavingCard && !queueLayer.queue.closing && recall.opacity > 0.65
                 cursorShape: pressed ? Qt.ClosedHandCursor : Qt.PointingHandCursor
                 property point start: Qt.point(0, 0)
                 function delta(mouse) {
@@ -259,11 +290,11 @@ Item {
                     const move = delta(mouse)
                     const distance = Math.hypot(move.x, move.y)
                     if (distance >= 27)
-                        layer.queue.removeRecall(recall.event.eventId)
+                        queueLayer.queue.removeRecall(recall.event.eventId)
                     else {
                         recall.displacement = Qt.point(0, 0)
                         if (distance <= 7)
-                            layer.queue.restore(recall.event.eventId)
+                            queueLayer.queue.restore(recall.event.eventId)
                     }
                 }
                 onCanceled: recall.displacement = Qt.point(0, 0)
@@ -273,45 +304,47 @@ Item {
 
     Token {
         id: outgoing
-        event: layer.transition?.outgoing ?? null
-        readonly property bool archive: (layer.transition?.archiveId ?? 0) > 0
-        readonly property real travel: Geometry.phase(layer.progress, 0.20, 0.43)
-        readonly property rect box: archive ? layer.glide(layer.sourceBadge, layer.slotRect(0), travel, 0.18)
-            : layer.sourceBadge
+        event: queueLayer.transition?.outgoing ?? null
+        readonly property bool archive: (queueLayer.transition?.archiveId ?? 0) > 0
+        readonly property real travel: Geometry.phase(queueLayer.progress, 0.15, 0.43)
+        readonly property rect box: archive ? queueLayer.glide(queueLayer.sourceBadge, queueLayer.slotRect(0), travel, 0.18)
+            : queueLayer.sourceBadge
         x: box.x
         y: box.y
         width: box.width
         height: box.height
         z: 3
         cornerRadius: Geometry.mix(12, Math.min(width, height) / 2, travel)
-        opacity: !event || !layer.transition ? 0 : archive
-            ? 1 - Motion.smooth(Geometry.phase(layer.progress, 0.40, 0.47))
-            : 1 - Motion.smooth(Geometry.phase(layer.progress, 0.19, 0.39))
+        glassMix: archive ? Motion.smooth(travel / 0.72) : 0
+        opacity: !event || !queueLayer.transition ? 0 : (1 - queueLayer.queue.iconAmount)
+            * (1 - Motion.smooth(Geometry.phase(queueLayer.progress, archive ? 0.43 : 0.20, archive ? 0.55 : 0.38)))
         visible: opacity > 0.001
     }
 
     Token {
         id: incoming
-        event: layer.transition?.incoming ?? null
-        readonly property bool fromRecall: (layer.transition?.recallIndex ?? -1) >= 0
-        readonly property real morph: fromRecall ? 1 : Motion.smooth(Geometry.phase(layer.progress, 0.43, 0.61))
-        readonly property real travel: Geometry.phase(layer.progress, fromRecall ? 0.43 : 0.57, 0.86)
-        readonly property real tileSize: Math.max(1, layer.badge.width)
-        readonly property rect atCounter: Qt.rect(layer.sourceCounter.x + (layer.sourceCounter.width - tileSize) / 2,
-            layer.sourceCounter.y + (layer.sourceCounter.height - tileSize) / 2, tileSize, tileSize)
-        readonly property rect box: layer.glide(fromRecall ? layer.sourceRecall
-            : Geometry.mixRect(layer.sourceCounter, atCounter, morph), layer.badge, travel, 0.26)
+        event: queueLayer.transition?.incoming ?? null
+        readonly property bool fromRecall: (queueLayer.transition?.recallIndex ?? -1) >= 0
+        readonly property real morph: fromRecall ? 1 : Motion.smooth(Geometry.phase(queueLayer.progress, 0.34, 0.54))
+        readonly property real travel: Geometry.phase(queueLayer.progress, fromRecall ? 0.17 : 0.49, 0.86)
+        readonly property real tileSize: Math.max(1, queueLayer.badge.width)
+        readonly property rect atCounter: Qt.rect(queueLayer.sourceCounter.x + (queueLayer.sourceCounter.width - tileSize) / 2,
+            queueLayer.sourceCounter.y + (queueLayer.sourceCounter.height - tileSize) / 2, tileSize, tileSize)
+        readonly property rect box: queueLayer.glide(fromRecall ? queueLayer.sourceRecall
+            : Geometry.mixRect(queueLayer.sourceCounter, atCounter, morph), queueLayer.badge, travel, 0.26)
         x: box.x
         y: box.y
         width: box.width
         height: box.height
         z: 4
-        cornerRadius: fromRecall ? Geometry.mix(layer.diameter / 2, 13, travel) : Geometry.mix(14, 12, morph)
-        label: "+" + (layer.transition?.counter ?? 0)
-        labelOpacity: fromRecall || (layer.transition?.counter ?? 0) === 0 ? 0 : 1 - morph
-        iconOpacity: fromRecall ? 1 : Motion.smooth(Geometry.phase(layer.progress, 0.50, 0.63))
-        opacity: !event || !layer.transition || (fromRecall && layer.progress < 0.43) ? 0
-            : 1 - Motion.smooth(Geometry.phase(layer.progress, 0.92, 1))
+        cornerRadius: fromRecall ? Geometry.mix(queueLayer.diameter / 2, 13, travel) : Geometry.mix(14, 12, morph)
+        glassMix: fromRecall ? 1 - Motion.smooth(Geometry.phase(travel, 0.6, 1))
+            : 0.65 * morph * (1 - Motion.smooth(Geometry.phase(travel, 0.55, 1)))
+        label: "+" + (queueLayer.transition?.counter ?? 0)
+        labelOpacity: fromRecall || (queueLayer.transition?.counter ?? 0) === 0 ? 0 : 1 - morph
+        iconOpacity: fromRecall ? 1 : Motion.smooth(Geometry.phase(queueLayer.progress, 0.40, 0.54))
+        opacity: !event || !queueLayer.transition ? 0 : (fromRecall ? 1 : Motion.smooth(Geometry.phase(queueLayer.progress, 0.30, 0.40)))
+            * (1 - Motion.smooth(Geometry.phase(queueLayer.progress, 0.85, 0.98)))
         visible: opacity > 0.001
     }
 }

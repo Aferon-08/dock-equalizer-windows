@@ -21,13 +21,14 @@ Item {
     property bool toastLayout: false
     property bool compactPopup: false
     property int queuedCount: 0
+    property real contentAmount: 1
     property real badgeVisibility: 1
     property real counterVisibility: 1
     signal dismissed(int eventId)
 
     readonly property real counterWidth: Math.max(40, Math.ceil(counterText.implicitWidth) + 18)
     readonly property real counterSpace: queuedCount > 0 ? counterWidth + 9 : 0
-    readonly property rect badgeRect: Qt.rect(inset, headerY, badgeSize, badgeSize)
+    readonly property rect badgeRect: Qt.rect(inset, headerY - (wrappedLayout ? 0 : viewport.contentY), badgeSize, badgeSize)
     readonly property rect counterRect: Qt.rect(width - inset - closeSize - counterWidth - 9
         - (showsAction ? closeSize + 3 : 0), headerY + (badgeSize - 28) / 2, counterWidth, 28)
 
@@ -122,6 +123,7 @@ Item {
     readonly property real headerHeight: Math.max(badgeSize, headerGroupHeight)
     readonly property real bodyWidth: Math.max(1, width - 2 * inset)
     readonly property real expandedEntrance: Math.min(entrance, detailProgress)
+    readonly property real contentOpacity: Motion.smooth(Geometry.phase(contentAmount, 0.05, 0.75))
     readonly property real dividerY: headerY + headerHeight + 16
     readonly property real detailY: wrappedLayout ? headlineFrame.y + headlineFrame.height + 6 : dividerY + 18
     readonly property real accessoryY: detailY + (wrappedLayout ? (wrappedMessage ? description.height : 0)
@@ -221,10 +223,25 @@ Item {
         clip: card.wrappedLayout
         flickableDirection: Flickable.VerticalFlick
         boundsBehavior: Flickable.StopAtBounds
-        interactive: (card.wrappedLayout ? card.entrance > 0.91 && card.dismissible : card.expansion >= 0.99)
+        interactive: card.contentAmount === 1
+            && (card.wrappedLayout ? card.entrance > 0.91 && card.dismissible : card.expansion >= 0.99)
             && contentHeight > height + 1
         ScrollBar.vertical: ScrollBar {
             policy: viewport.interactive ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+        }
+    }
+
+    Item {
+        id: messageLayer
+        parent: viewport.contentItem
+        width: viewport.width
+        height: viewport.contentHeight
+        opacity: card.contentOpacity
+        transform: Scale {
+            origin.x: card.inset + card.badgeSize / 2
+            origin.y: card.headerY + card.badgeSize / 2 - viewport.y
+            xScale: Geometry.mix(0.14, 1, card.contentAmount)
+            yScale: Geometry.mix(0.62, 1, card.contentAmount)
         }
     }
 
@@ -257,7 +274,7 @@ Item {
 
     NoticeText {
         id: sourceText
-        x: card.headerTextX
+        x: Geometry.mix(card.inset + card.badgeSize / 2, card.headerTextX, card.contentAmount)
         y: card.headerY + (card.badgeSize - height) / 2
         width: Math.max(1, card.headerWidth - (card.showsAction ? card.closeSize + 3 : 0))
         visible: card.toastLayout
@@ -266,12 +283,12 @@ Item {
         elide: Text.ElideRight
         font.pixelSize: 12
         font.weight: Font.DemiBold
-        opacity: badgeArrival.alpha
+        opacity: badgeArrival.alpha * card.contentOpacity
     }
 
     Item {
         id: headlineFrame
-        parent: viewport.contentItem
+        parent: messageLayer
         x: card.wrappedLayout ? card.wrappedTextX
             : Geometry.mix(card.headerTextX, (card.width - width) / 2, card.expansion)
         y: card.wrappedLayout ? (card.toastLayout ? 0 : card.expandedTop)
@@ -333,7 +350,7 @@ Item {
 
     NoticeText {
         id: summaryText
-        parent: viewport.contentItem
+        parent: messageLayer
         x: card.movesSummary ? Geometry.mix(card.headerTextX, card.inset, card.messageMove)
             : Geometry.mix(card.headerTextX, (card.width - width) / 2, card.expansion)
         y: Geometry.mix(headlineFrame.y + headlineFrame.height + 3, card.detailY, card.messageMove)
@@ -387,7 +404,7 @@ Item {
         width: card.closeSize
         height: width
         padding: 0
-        opacity: closeArrival.alpha
+        opacity: closeArrival.alpha * card.contentOpacity
         enabled: card.dismissible && opacity > 0.75
         transform: Arrival {
             id: closeArrival
@@ -424,7 +441,7 @@ Item {
     }
 
     Rectangle {
-        parent: viewport.contentItem
+        parent: messageLayer
         x: card.inset
         y: card.dividerY
         width: card.bodyWidth
@@ -436,7 +453,7 @@ Item {
 
     NoticeText {
         id: description
-        parent: viewport.contentItem
+        parent: messageLayer
         x: card.wrappedLayout ? card.wrappedTextX : card.inset
         y: card.detailY
         width: card.wrappedLayout ? Math.max(1, card.width - card.wrappedGutters) : card.bodyWidth
@@ -454,7 +471,7 @@ Item {
     }
 
     Loader {
-        parent: viewport.contentItem
+        parent: messageLayer
         x: card.inset
         y: card.accessoryY + 6
         width: card.bodyWidth
@@ -493,7 +510,7 @@ Item {
     }
     NoticeText {
         id: footer
-        parent: viewport.contentItem
+        parent: messageLayer
         x: card.inset
         y: card.footerY
         width: card.bodyWidth
@@ -565,7 +582,7 @@ Item {
         width: card.bodyWidth
         height: card.actionHeight
         visible: card.showsAction
-        opacity: Motion.smooth(Geometry.phase(card.entrance, 0.64, 1))
+        opacity: Motion.smooth(Geometry.phase(card.entrance, 0.64, 1)) * card.contentOpacity
         enabled: card.dismissible && opacity > 0.75
     }
 

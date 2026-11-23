@@ -35,6 +35,7 @@ layout(std140, binding = 0) uniform buf {
     float miniBlend;
     float miniCallBlend;
     float noticeMix;
+    vec4 backdropUv;
 };
 layout(binding = 1) uniform sampler2D backdrop;
 
@@ -195,17 +196,17 @@ void main() {
                 bend = mix(bend, miniLens * (3.0 + 6.0 * dot(miniLens, miniLens)), miniMask);
             }
         }
-        vec2 uv = clamp((p - bend * materialStyle.y) / resolution, 0.0, 1.0);
+        vec2 uv = clamp(backdropUv.xy + (p - bend * materialStyle.y) / resolution * backdropUv.zw, 0.0, 1.0);
         vec4 scene = texture(backdrop,uv);
         if (desktopLens > 0.5) {
-            vec2 blur = vec2(2.0) / resolution;
+            vec2 blur = vec2(2.0) / resolution * backdropUv.zw;
             scene = scene * 0.4
                 + 0.15 * (texture(backdrop, uv + vec2(blur.x, 0.0))
                     + texture(backdrop, uv - vec2(blur.x, 0.0))
                     + texture(backdrop, uv + vec2(0.0, blur.y))
                     + texture(backdrop, uv - vec2(0.0, blur.y)));
         } else {
-            vec2 fringe = n * bevel * 1.1 * materialStyle.y / resolution;
+            vec2 fringe = n * bevel * 1.1 * materialStyle.y / resolution * backdropUv.zw;
             scene.r = texture(backdrop, clamp(uv + fringe, 0.0, 1.0)).r;
             scene.b = texture(backdrop, clamp(uv - fringe, 0.0, 1.0)).b;
         }

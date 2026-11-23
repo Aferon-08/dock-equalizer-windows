@@ -59,7 +59,11 @@ Item {
         - (widePlayer || hasSideMusic ? miniSpan : 0)))
     readonly property real surfaceWidth: usesCallLayout ? width
         : Math.max(expandedEnvelope.width, expandedWidth + miniSpan + 36)
-    readonly property color accent: lastEvent?.accent ?? "#a4e7cc"
+    property color accent: lastEvent?.accent ?? "#a4e7cc"
+    Behavior on accent {
+        enabled: !!notice.queue.handoff
+        DockTransition { duration: 260; curve: notice.motionCurve; standardEasing: Easing.InOutSine }
+    }
     readonly property rect expandedEnvelope: {
         if (usesCallLayout)
             return Qt.rect(cardLeft(detailsWidth), topInset, detailsWidth, detailsHeight)
@@ -174,7 +178,7 @@ Item {
         if (!event || transferred)
             return
         lastEvent = event
-        if (springMotion && active && attached && !widePlayer)
+        if (springMotion && active && attached && !widePlayer && !queue.handoff)
             attention.restart()
     }
     onSpringMotionChanged: if (!springMotion) {
@@ -214,9 +218,8 @@ Item {
             Geometry.mix(Geometry.taper(1 - reveal), renderer.playerTaper, attachment))
     readonly property real bodyRadius: {
         const radius = Geometry.mix(compactHeight / 2, 36, detailAmount)
-        const settled = usesCallLayout ? Geometry.mix(renderer.radius, radius, coverAmount)
+        return usesCallLayout ? Geometry.mix(renderer.radius, radius, coverAmount)
             : Geometry.mix(radius, Geometry.mix(renderer.radius, radius, coverAmount), attachment)
-        return Geometry.mix(13, settled, queueAmount)
     }
     readonly property rect layoutBounds: {
         const height = Geometry.mix(compactHeight, expandedHeight, detailAmount) + 9 * detailSpring
@@ -246,13 +249,9 @@ Item {
         const housing = Geometry.mixRect(solo, playerBounds, attachment)
         return cardRetraction > 0 ? Geometry.pullToEdge(housing, cardRetraction, 0, 0) : housing
     }
-    readonly property real queueAmount: queue.handoff ? queue.cardAmount
-        : !event && queue.foldedEventId === lastEvent?.eventId ? 0 : 1
     readonly property rect badgeBounds: inLayout(card.badgeRect)
     readonly property rect counterBounds: inLayout(card.counterRect)
-    readonly property rect bodyBounds: queueAmount > 0.001
-        ? Geometry.mixRect(badgeBounds, layoutBounds, queueAmount)
-        : Qt.rect(badgeBounds.x, badgeBounds.y, 0, 0)
+    readonly property rect bodyBounds: layoutBounds
 
     function inLayout(rect) {
         return Qt.rect(layoutBounds.x + rect.x, layoutBounds.y + rect.y, rect.width, rect.height)
@@ -336,15 +335,8 @@ Item {
         y: notice.layoutBounds.y
         width: notice.layoutBounds.width
         height: notice.layoutBounds.height
-        opacity: (1 - Motion.smooth(notice.cardRetraction / 0.45))
-            * Motion.smooth(Geometry.phase(notice.queueAmount, 0.06, 0.65))
+        opacity: 1 - Motion.smooth(notice.cardRetraction / 0.45)
         visible: !notice.transferred && notice.cardEntrance > 0.27 && opacity > 0.001
-        transform: Scale {
-            origin.x: card.badgeRect.x + card.badgeSize / 2
-            origin.y: card.badgeRect.y + card.badgeSize / 2
-            xScale: Geometry.mix(0.04, 1, notice.queueAmount)
-            yScale: xScale
-        }
         event: notice.lastEvent
         wifi: notice.wifi
         battery: notice.battery
@@ -354,14 +346,14 @@ Item {
             ? Math.max(404, notice.renderer.lyricsView.expandedBodySize.width - notice.miniSpan)
             : notice.attached ? notice.compactPlayerWidth : 404
         availableHeight: notice.availableHeight
-        entrance: notice.queue.handoff && notice.queue.progress >= 0.43
-            ? Math.min(notice.cardEntrance, Geometry.mix(0.30, 1, notice.queueAmount)) : notice.cardEntrance
+        entrance: notice.cardEntrance
         queuedCount: notice.queue.displayedCount
+        contentAmount: notice.queue.contentAmount
         badgeVisibility: notice.queue.iconAmount
-        counterVisibility: notice.queue.iconAmount
+        counterVisibility: notice.queue.counterAmount
         expansion: notice.detailAmount
         detailProgress: notice.detailProgress
-        dismissible: notice.active && !notice.queue.handoff && opacity > 0.75
+        dismissible: notice.active && !notice.queue.handoff && !notice.queue.closing && opacity > 0.75
         onDismissed: eventId => notice.dismissed(eventId)
     }
 

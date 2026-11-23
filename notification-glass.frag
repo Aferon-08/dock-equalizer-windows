@@ -10,6 +10,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 shape;
     vec4 finish;
     vec4 accentColor;
+    vec4 sceneUv;
 };
 layout(binding = 1) uniform sampler2D scene;
 
@@ -36,8 +37,8 @@ void main() {
     vec2 lens = clamp((p - bodyRect.xy) * 2.0 / max(bodyRect.zw, vec2(1.0)) - 1.0, -1.0, 1.0);
     float shoulder = smoothstep(0.2, 1.0, max(abs(lens.x), abs(lens.y)));
     vec2 bend = mix(normal * bevel * 10.0, lens * (3.0 + 9.0 * shoulder), 0.75);
-    vec2 uv = (p - bend * shape.z) / resolution;
-    vec2 blur = shape.w * 0.6 / resolution;
+    vec2 uv = sceneUv.xy + (p - bend * shape.z) / resolution * sceneUv.zw;
+    vec2 blur = shape.w * 0.6 / resolution * sceneUv.zw;
     vec4 background = vec4(0.0);
     if (finish.w > 0.5) {
         background = texture(scene, uv) * 0.44 + 0.14 * (

@@ -13,7 +13,11 @@ Item {
     property Component backdropComponent: null
     property bool backdropEnabled: true
     property bool desktopLens: false
+    property bool extendBackdrop: false
     readonly property Item backdropItem: dockUnderlay.item
+    readonly property Item backdropTexture: dockBackdrop
+    readonly property rect backdropBounds: Qt.rect(liquid.x + backdropSurface.x, liquid.y + backdropSurface.y,
+        backdropSurface.width, backdropSurface.height)
     property Component lyricsBridgeComponent: null
     property bool previewGlass: false
     property real hideProgress: 0
@@ -254,7 +258,11 @@ Item {
 
         Item {
             id: backdropSurface
-            anchors.fill: parent
+            // Share the desktop texture with notification pucks outside the housing.
+            x: root.extendBackdrop ? Math.min(0, -liquid.x) : 0
+            y: root.extendBackdrop ? Math.min(0, -liquid.y) : 0
+            width: (root.extendBackdrop ? Math.max(liquid.width, root.width - liquid.x) : liquid.width) - x
+            height: (root.extendBackdrop ? Math.max(liquid.height, root.height - liquid.y) : liquid.height) - y
             Loader {
                 id: dockUnderlay
                 anchors.fill: parent
@@ -263,8 +271,8 @@ Item {
                     && root.glassAmount > 0.001 && !root.vertical
                 readonly property rect globalViewport: {
                     // Keep dependencies on the shell's slide/lift and local geometry.
-                    const dependency = liquid.x + liquid.y + root.dock.x + root.dock.y
-                    const origin = liquid.mapToGlobal(0, 0)
+                    const dependency = root.backdropBounds.x + root.backdropBounds.y + root.dock.x + root.dock.y
+                    const origin = backdropSurface.mapToGlobal(0, 0)
                     return Qt.rect(origin.x, origin.y, width, height)
                 }
                 onLoaded: {
@@ -329,6 +337,8 @@ Item {
             readonly property real desktopLens: root.desktopLens ? 1 : 0
             readonly property vector2d materialStyle: Qt.vector2d(root.material.opacity, root.material.refraction)
             readonly property var backdrop: dockBackdrop
+            readonly property vector4d backdropUv: Qt.vector4d(-backdropSurface.x / backdropSurface.width,
+                -backdropSurface.y / backdropSurface.height, width / backdropSurface.width, height / backdropSurface.height)
             readonly property vector4d leftAudio: Qt.vector4d(root.leftLevels.x, root.leftLevels.y, root.leftLevels.z, 0)
             readonly property vector4d rightAudio: Qt.vector4d(root.rightLevels.x, root.rightLevels.y, root.rightLevels.z, 0)
             readonly property color lightPrimary: root.lightPrimary
