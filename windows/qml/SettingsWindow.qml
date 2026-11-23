@@ -10,6 +10,7 @@ Window {
     required property var displays
     required property var startup
     required property var lyricsSearch
+    required property var updates
     required property var appState
     property var previewDock: null
     property string section: "general"
@@ -337,6 +338,7 @@ Window {
                     NavButton { text: "Лирика"; destination: "lyrics" }
                     NavButton { text: "Уведомления"; destination: "notifications" }
                     NavButton { text: "Discord"; destination: "discord"; visible: panel.appState.discordVoice.available }
+                    NavButton { text: "Обновления"; destination: "updates" }
                 }
 
                 ScrollView {
@@ -370,6 +372,7 @@ Window {
                             case "lyrics": return lyricsPage
                             case "notifications": return notificationsPage
                             case "discord": return discordPage
+                            case "updates": return updatesPage
                             default: return generalPage
                             }
                         }
@@ -991,6 +994,79 @@ Window {
                             onClicked: connection.discord.proxyMode = modelData.mode
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: updatesPage
+        ColumnLayout {
+            spacing: 14
+
+            FieldLabel { text: "Обновления"; font.pixelSize: 23 }
+            Surface {
+                FieldLabel { text: "Канал обновлений" }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    enabled: panel.updates.available && !panel.updates.installing
+                    ButtonGroup { id: releaseChannels }
+                    Repeater {
+                        model: [
+                            { value: "release", label: "Релиз" },
+                            { value: "prerelease", label: "Пре-релиз" }
+                        ]
+                        Action {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            text: modelData.label
+                            checkable: true
+                            ButtonGroup.group: releaseChannels
+                            checked: panel.updates.channel === modelData.value
+                            emphasized: checked
+                            onClicked: panel.updates.channel = modelData.value
+                        }
+                    }
+                }
+                Copy { text: "Док проверяет выбранный канал при каждом запуске." }
+            }
+            Surface {
+                RowLayout {
+                    Layout.fillWidth: true
+                    FieldLabel { text: "Устанавливать автоматически" }
+                    Option {
+                        objectName: "automaticUpdateSwitch"
+                        Accessible.name: "Устанавливать обновления автоматически"
+                        enabled: panel.updates.available && !panel.updates.installing
+                        checked: panel.updates.automatic
+                        onToggled: panel.updates.automatic = checked
+                    }
+                }
+                Copy { text: "После установки док откроется снова. При выключенном переключателе док покажет уведомление." }
+            }
+            Surface {
+                FieldLabel { text: "Установленная версия " + panel.updates.currentVersion }
+                Copy { text: panel.updates.statusText }
+                Action {
+                    Layout.fillWidth: true
+                    enabled: panel.updates.available && !panel.updates.busy
+                    text: "Проверить обновления"
+                    onClicked: panel.updates.check()
+                }
+                Action {
+                    Layout.fillWidth: true
+                    visible: panel.updates.canInstall
+                    enabled: !panel.updates.busy
+                    emphasized: true
+                    text: "Установить " + panel.updates.updateVersion
+                    onClicked: panel.updates.install()
+                }
+                Action {
+                    Layout.fillWidth: true
+                    visible: panel.updates.updateVersion !== ""
+                    text: "Открыть страницу выпуска"
+                    onClicked: panel.updates.openRelease()
                 }
             }
         }

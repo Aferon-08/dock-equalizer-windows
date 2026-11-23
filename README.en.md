@@ -1,10 +1,10 @@
-# Sekai Soundbar 1.3 for Windows 11
+# Sekai Soundbar 1.4 Preview for Windows 11
 
 A standalone music dock at the top of the desktop. It expands when its area is clear, and application windows can cover it. The dock keeps its layout for one minute after playback pauses, then folds into a drop and leaves through the top edge. Open the dock or its settings while paused from the **Sekai Soundbar** system tray icon.
 
 The dock shows track information and playback controls from Windows media sessions and visualizes the left and right channels of system audio. It imports LRC and Wordtime files and searches for existing lyrics using Windows curl.exe.
 
-[1.3 installer for Windows 11 x64](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.3.0/SekaiSoundbar-1.3-Windows11-x64-Setup.exe) · [Release notes](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.3.0) · [Version 1.0](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.0.0)
+[1.4 Preview installer for Windows 11 x64](https://github.com/Aferon-08/dock-equalizer-windows/releases/download/v1.4.0-preview/SekaiSoundbar-1.4.0-Windows11-x64-Preview-Setup.exe) · [Release notes](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.4.0-preview) · [Stable release 1.3](https://github.com/Aferon-08/dock-equalizer-windows/releases/tag/v1.3.0)
 
 The installer includes a signed identity package for reading Windows app notifications. In notification settings, enable **Уведомления поверх окон** to show a standalone card when the dock area is covered and choose where that card appears. Power and Wi-Fi events are available without app notification access.
 
@@ -13,6 +13,8 @@ The compact dock shows one line of notification text and adds an ellipsis when i
 The **+N** counter shows waiting notifications. Up to three recent notifications stay in the glass disks to the left for 25 seconds. Click a disk to reopen it or swipe it away with the left mouse button held. After the review, the previous notification resumes its timer. The bar stays visible as notifications swap. When the queue closes, the remaining disks flow back into the bar one at a time. The final card begins to retract 3.5 seconds after the disks start moving. Closing the final card starts the merge immediately.
 
 Quit the dock from the system tray before running the installer. On first install, Windows may request administrator rights to add the test signing certificate. The [Windows x64 workflow](https://github.com/Aferon-08/dock-equalizer-windows/actions/workflows/windows.yml) also produces an installer, a portable ZIP and a source archive.
+
+Choose the Release or Pre-release channel in **Settings → Updates**. The dock checks that channel at startup and installs newer versions by default, then starts again. Turn off automatic installation to receive a notification and choose when to update. The portable edition offers the installer on the release page.
 
 The Discord voice card shows participant names and avatars, connection status for a pair, and voice controls. Answer incoming calls in Discord. [Connecting Discord (RU)](docs/windows-discord.md)
 

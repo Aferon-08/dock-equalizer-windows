@@ -39,8 +39,8 @@ Var PreviousFolder
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "Russian"
 
-LangString Running ${LANG_ENGLISH} "Choose Exit from the Sekai Soundbar tray menu. If SekaiSoundbar.exe is still in Task Manager, end it there, then run setup again."
-LangString Running ${LANG_RUSSIAN} "Выберите «Выход» в меню Sekai Soundbar в трее. Если SekaiSoundbar.exe остался в Диспетчере задач, завершите его там и снова запустите установщик."
+LangString Running ${LANG_ENGLISH} "Choose Exit from the Sekai Soundbar tray menu, wait for it to close, then run setup again."
+LangString Running ${LANG_RUSSIAN} "Выберите «Выход» в меню Sekai Soundbar в трее, дождитесь завершения программы и снова запустите установщик."
 LangString InstallFailed ${LANG_ENGLISH} "The program files could not be installed."
 LangString InstallFailed ${LANG_RUSSIAN} "Не удалось установить файлы программы."
 LangString CleanStaging ${LANG_ENGLISH} "Clear the staging directory"
@@ -204,7 +204,7 @@ Var IdentityMessage
     ${EndIf}
     SetShellVarContext current
     SetRegView 64
-    StrCpy $2 16
+    StrCpy $2 24
     ${Do}
         System::Call 'kernel32::SetLastError(i 0)'
         System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\SekaiSoundbar.Instance") p .r0 ?e'

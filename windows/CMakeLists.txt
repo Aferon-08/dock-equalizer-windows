@@ -7,10 +7,15 @@ target_sources(SekaiSoundbar PRIVATE main.cpp DesktopOverlay.cpp DesktopOverlay.
     DiscordNotificationProbe.h NotificationPreferences.cpp NotificationPreferences.h
     BatteryStatus.cpp BatteryStatus.h WifiStatus.cpp WifiStatus.h WindowsNotifications.cpp WindowsNotifications.h
     DiscordOAuth.cpp DiscordOAuth.h DiscordRpc.cpp DiscordRpc.h DiscordVoice.cpp DiscordVoice.h
-    DiscordParticipantAvatar.cpp DiscordParticipantAvatar.h MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h)
+    DiscordParticipantAvatar.cpp DiscordParticipantAvatar.h MonitorBackdrop.cpp MonitorBackdrop.h BackdropGeometry.h
+    SoftwareUpdates.cpp SoftwareUpdates.h UpdateRelease.cpp UpdateRelease.h UpdateInstaller.cpp UpdateInstaller.h)
 target_include_directories(SekaiSoundbar PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(SekaiSoundbar PRIVATE Qt6::Network Qt6::Quick Qt6::QuickControls2 Qt6::Widgets)
-target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${PROJECT_VERSION}"
+set(soundbar_version "${PROJECT_VERSION}")
+if(SOUNDBAR_RELEASE_SUFFIX)
+    string(APPEND soundbar_version "-${SOUNDBAR_RELEASE_SUFFIX}")
+endif()
+target_compile_definitions(SekaiSoundbar PRIVATE SOUNDBAR_VERSION="${soundbar_version}"
     SOUNDBAR_DISCORD_APPLICATION_ID="${SOUNDBAR_DISCORD_APPLICATION_ID}")
 if(WIN32 AND SOUNDBAR_NOTIFICATION_PUBLISHER)
     string(REPLACE "&" "&amp;" notification_publisher "${SOUNDBAR_NOTIFICATION_PUBLISHER}")
@@ -29,10 +34,11 @@ if(WIN32 AND SOUNDBAR_NOTIFICATION_PUBLISHER)
     file(COPY msix/PackageAssets DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/notification-identity")
 endif()
 if(WIN32)
+    qt_add_resources(SekaiSoundbar update_script PREFIX "/sekai-update" FILES ApplyUpdate.ps1)
     target_sources(SekaiSoundbar PRIVATE WinMediaWorker.cpp WinMediaWorker.h WinMediaAbi.h
         WinCaptureAbi.h WinNotificationAbi.h NotificationFeed.h BackdropTextureNode.h
         WindowsNotificationBanners.cpp WindowsNotificationBanners.h)
-    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi powrprof advapi32 crypt32)
+    target_link_libraries(SekaiSoundbar PRIVATE Qt6::GuiPrivate d3d11 dwmapi runtimeobject ole32 shcore wlanapi iphlpapi powrprof advapi32 crypt32 wintrust)
 endif()
 
 if(WIN32)
@@ -62,6 +68,13 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(soundbar_update_test tests/UpdateReleaseTest.cpp UpdateRelease.cpp UpdateInstaller.cpp)
+    target_include_directories(soundbar_update_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(soundbar_update_test PRIVATE Qt6::Core)
+    if(WIN32)
+        target_link_libraries(soundbar_update_test PRIVATE crypt32 wintrust)
+    endif()
+    add_test(NAME soundbar.updates COMMAND soundbar_update_test)
     add_executable(soundbar_discord_voice_test tests/DiscordVoiceTest.cpp
         DiscordOAuth.cpp DiscordOAuth.h DiscordRpc.cpp DiscordRpc.h DiscordVoice.cpp DiscordVoice.h)
     target_include_directories(soundbar_discord_voice_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

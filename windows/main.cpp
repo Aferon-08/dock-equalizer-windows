@@ -8,6 +8,7 @@
 #include "LyricsSearch.h"
 #include "MediaSessions.h"
 #include "NotificationPreferences.h"
+#include "SoftwareUpdates.h"
 #include "StartupSettings.h"
 #include "SystemAudio.h"
 #include "WifiStatus.h"
@@ -21,6 +22,7 @@
 #include <QNetworkProxyFactory>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickStyle>
@@ -136,7 +138,7 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_WIN
     // Windows releases this handle at process exit, after Qt and the native workers shut down.
     SetLastError(ERROR_SUCCESS);
-    const HANDLE instance = smokeMode || trayExitTest ? nullptr
+    const HANDLE instance = smokeMode ? nullptr
         : CreateMutexW(nullptr, FALSE, L"Local\\SekaiSoundbar.Instance");
     if (instance && GetLastError() == ERROR_ALREADY_EXISTS) {
         CloseHandle(instance);
@@ -185,20 +187,14 @@ int main(int argc, char *argv[])
         search.setTrack(media.trackKey(), media.trackTitle(), media.trackArtist(),
                         media.trackAlbum(), media.length());
     });
-    bool exitRequested = false;
-    const auto requestExit = [&settings, &windowsNotifications, &exitRequested](int code) {
-        if (std::exchange(exitRequested, true))
-            return;
 #ifdef Q_OS_WIN
-        setExitDeadline(code);
+    const bool updatesEnabled = liveInputs && !trayExitTest;
+#else
+    const bool updatesEnabled = false;
 #endif
-        windowsNotifications.setDockAvailable(false);
-        settings.sync();
-        QCoreApplication::exit(code);
-    };
+    SoftwareUpdates updates(settings, app.applicationVersion(), updatesEnabled);
+    bool exitRequested = false;
     QQmlEngine engine;
-    QObject::connect(&engine, &QQmlEngine::quit, &app, [requestExit] { requestExit(0); }, Qt::QueuedConnection);
-    QObject::connect(&engine, &QQmlEngine::exit, &app, requestExit, Qt::QueuedConnection);
     QQmlComponent stateComponent(&engine, u"Sekai.Soundbar", u"ApplicationState");
     std::unique_ptr<QObject> appState(stateComponent.createWithInitialProperties({
         {QStringLiteral("appearance"), QVariant::fromValue(&appearance)},
@@ -221,6 +217,7 @@ int main(int argc, char *argv[])
         {QStringLiteral("displays"), QVariant::fromValue(&displays)},
         {QStringLiteral("startup"), QVariant::fromValue(&startup)},
         {QStringLiteral("lyricsSearch"), QVariant::fromValue(&search)},
+        {QStringLiteral("updates"), QVariant::fromValue(&updates)},
         {QStringLiteral("appState"), QVariant::fromValue(appState.get())}
     });
     if (!settingsWindow)
@@ -245,6 +242,8 @@ int main(int argc, char *argv[])
     std::map<QScreen *, ScreenDock> docks;
     QObject viewConnections;
     const auto updatePreview = [&] {
+        if (exitRequested)
+            return;
         auto dock = docks.find(settingsWindow->screen());
         if (dock == docks.end())
             dock = docks.begin();
@@ -252,6 +251,8 @@ int main(int argc, char *argv[])
         settingsWindow->setProperty("previewDock", QVariant::fromValue(window));
     };
     const auto openSettings = [&](const QString &section, QScreen *screen) {
+        if (exitRequested)
+            return;
         if (!settingsWindow->isVisible()) {
             if (!screen)
                 screen = QGuiApplication::screenAt(QCursor::pos());
@@ -279,6 +280,8 @@ int main(int argc, char *argv[])
     };
 
     const auto syncDocks = [&] {
+        if (exitRequested)
+            return;
         const auto enabled = displays.enabledScreens();
         settingsWindow->setProperty("previewDock", QVariant::fromValue<QObject *>(nullptr));
         for (auto it = docks.begin(); it != docks.end();) {
@@ -313,6 +316,52 @@ int main(int argc, char *argv[])
 
     QMenu trayMenu;
     QSystemTrayIcon tray;
+    const auto requestExit = [&](int code) {
+        if (std::exchange(exitRequested, true))
+            return;
+#ifdef Q_OS_WIN
+        setExitDeadline(trayExitTest ? 6 : code);
+#endif
+        QTimer::singleShot(0, &app, [&, code] {
+            updates.shutdown();
+            trayMenu.close();
+            tray.setContextMenu(nullptr);
+            tray.hide();
+            settingsWindow->setProperty("previewDock", QVariant::fromValue<QObject *>(nullptr));
+            QList<QPointer<QWindow>> windows;
+            for (auto *window : QGuiApplication::topLevelWindows())
+                windows.append(window);
+            for (const auto &window : windows) {
+                if (window)
+                    window->hide();
+            }
+            windowsNotifications.setDockAvailable(false);
+            settings.sync();
+            QTimer::singleShot(0, &app, [code] { QCoreApplication::exit(code); });
+        });
+    };
+    QObject::connect(&engine, &QQmlEngine::quit, &app, [requestExit] { requestExit(0); }, Qt::QueuedConnection);
+    QObject::connect(&engine, &QQmlEngine::exit, &app, requestExit, Qt::QueuedConnection);
+    QObject::connect(&updates, &SoftwareUpdates::installationStarted, &app, [requestExit] { requestExit(0); },
+        Qt::QueuedConnection);
+    QObject::connect(&updates, &SoftwareUpdates::updateAvailable, &viewConnections, [&](const QString &version) {
+        const auto title = QStringLiteral("Доступен Sekai Soundbar %1").arg(version);
+        const auto message = QStringLiteral("Откройте «Настройки → Обновления», чтобы установить новую версию.");
+        if (docks.empty()) {
+            tray.showMessage(title, message);
+        } else {
+            const QVariant event(QVariantMap{
+                {QStringLiteral("kind"), QStringLiteral("system")},
+                {QStringLiteral("title"), title},
+                {QStringLiteral("summary"), message},
+                {QStringLiteral("detail"), message},
+                {QStringLiteral("source"), QStringLiteral("Sekai Soundbar")}
+            });
+            QMetaObject::invokeMethod(appState.get(), "enqueueNotification", Q_ARG(QVariant, event));
+        }
+    });
+    QObject::connect(&tray, &QSystemTrayIcon::messageClicked, &viewConnections,
+        [&] { openSettings(QStringLiteral("updates"), nullptr); });
     if (!smokeMode) {
         const auto showDocks = [&docks] {
             for (const auto &dock : docks)
@@ -328,7 +377,7 @@ int main(int argc, char *argv[])
         trayMenu.addAction(QStringLiteral("Настройки…"), [&] { openSettings({}, nullptr); });
         trayMenu.addSeparator();
         auto *exitDock = trayMenu.addAction(QStringLiteral("Выход"));
-        QObject::connect(exitDock, &QAction::triggered, &app, [requestExit] { requestExit(0); }, Qt::QueuedConnection);
+        QObject::connect(exitDock, &QAction::triggered, &app, [requestExit] { requestExit(0); });
         tray.setContextMenu(&trayMenu);
         tray.setIcon(soundbarIcon());
         tray.setToolTip(QStringLiteral("Sekai Soundbar"));
@@ -355,10 +404,23 @@ int main(int argc, char *argv[])
                 startupPermission->start(100);
             });
         } else if (args.contains(QStringLiteral("--settings")) || trayExitTest) {
-            openSettings({}, nullptr);
+            openSettings(trayExitTest ? QStringLiteral("updates") : QString(), nullptr);
         }
-        if (trayExitTest)
-            QTimer::singleShot(300, exitDock, &QAction::trigger);
+        if (trayExitTest) {
+            QTimer::singleShot(300, exitDock, [&, exitDock] {
+                if (settingsWindow->isVisible() && settingsWindow->findChild<QObject *>("automaticUpdateSwitch"))
+                    exitDock->trigger();
+                else
+                    requestExit(5);
+            });
+        }
     }
-    return app.exec();
+    QTimer::singleShot(0, &updates, &SoftwareUpdates::check);
+    const int exitCode = app.exec();
+    if (trayExitTest && (!exitRequested || settingsWindow->isVisible()))
+        return 5;
+    exitRequested = true;
+    settingsWindow.reset();
+    docks.clear();
+    return exitCode;
 }

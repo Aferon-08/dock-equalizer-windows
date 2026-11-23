@@ -42,6 +42,7 @@ if ($ExpectNotificationIdentity) {
     Invoke-Checked $program '--check-notification-identity'
 }
 Invoke-Checked $program "--software-rendering $argsForSmoke"
+Invoke-Checked $program '--tray-exit-test --demo-preview --software-rendering'
 $marker = Join-Path $installed 'app\reuse-marker.txt'
 Set-Content $marker 'The installer must reuse the verified runtime directory.'
 $locked = [IO.File]::Open($program, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
